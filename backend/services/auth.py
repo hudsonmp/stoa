@@ -2,11 +2,9 @@
 
 import os
 from functools import lru_cache
-from typing import Optional
 
 from fastapi import HTTPException, Request
 from supabase import create_client, Client
-import httpx
 
 
 @lru_cache(maxsize=1)
@@ -37,8 +35,7 @@ async def get_user_id(request: Request) -> str:
         user_id = request.headers.get("X-User-Id", "")
         if user_id:
             return user_id
-        # Also check body for backwards compat in dev
-        return ""
+        raise HTTPException(status_code=401, detail="X-User-Id header required in dev mode")
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):

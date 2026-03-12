@@ -39,11 +39,17 @@ async def get_next_reviews(request: Request, limit: int = 5):
 @router.post("/respond")
 async def respond_to_review(req: ReviewResponse, request: Request):
     """Update review schedule based on user response."""
-    await get_user_id(request)  # Verify auth
+    user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
-    # Get current review state
-    result = supabase.table("review_queue").select("*").eq("id", req.review_id).execute()
+    # Get current review state — scoped to this user
+    result = (
+        supabase.table("review_queue")
+        .select("*")
+        .eq("id", req.review_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
     if not result.data:
         return {"error": "Review not found"}
 

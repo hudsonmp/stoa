@@ -11,15 +11,14 @@ const STOA_COLORS = ["yellow", "green", "blue", "pink", "purple"];
 
 // --- State ---
 let currentUser = null;
+let authToken = null;
 let toolbar = null;
 
 // --- Init ---
 async function init() {
-  const stored = await chrome.storage.local.get(["stoa_user_id", "stoa_api_url"]);
+  const stored = await chrome.storage.local.get(["stoa_user_id", "stoa_api_url", "stoa_token"]);
   currentUser = stored.stoa_user_id;
-  if (stored.stoa_api_url) {
-    // Allow overriding API URL
-  }
+  authToken = stored.stoa_token || null;
 
   if (currentUser) {
     restoreHighlights();
@@ -75,6 +74,8 @@ function showToolbar(selection, event) {
   noteBtn.textContent = "Note";
   noteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Capture the range now before DOM changes can collapse the selection
+    const savedRange = selection.getRangeAt(0).cloneRange();
     // Replace toolbar content with inline note input
     toolbar.innerHTML = "";
     const input = document.createElement("input");
@@ -83,7 +84,8 @@ function showToolbar(selection, event) {
     input.placeholder = "Add a note...";
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
-        highlightSelection(selection, "yellow", input.value || null);
+        highlightFromRange(savedRange, "yellow", input.value || null);
+        removeToolbar();
       } else if (ev.key === "Escape") {
         removeToolbar();
       }
@@ -92,7 +94,8 @@ function showToolbar(selection, event) {
     saveBtn.className = "stoa-btn-note";
     saveBtn.textContent = "Save";
     saveBtn.addEventListener("click", () => {
-      highlightSelection(selection, "yellow", input.value || null);
+      highlightFromRange(savedRange, "yellow", input.value || null);
+      removeToolbar();
     });
     toolbar.appendChild(input);
     toolbar.appendChild(saveBtn);
@@ -116,6 +119,12 @@ function removeToolbar() {
 }
 
 // --- Highlight Logic ---
+function highlightFromRange(range, color, note = null) {
+  const text = range.toString().trim();
+  if (!text || text.length < 3) return;
+  _applyHighlight(range, text, color, note);
+}
+
 function highlightSelection(selection, color, note = null) {
   const range = selection.getRangeAt(0);
   const text = selection.toString().trim();
@@ -149,7 +158,35 @@ function highlightSelection(selection, color, note = null) {
   selection.removeAllRanges();
   removeToolbar();
 
-  // Save to backend
+  _saveHighlightData(text, context, cssSelector, color, note);
+}
+
+function _applyHighlight(range, text, color, note) {
+  // Get context (surrounding paragraph)
+  let context = "";
+  const container = range.commonAncestorContainer;
+  const paragraph = container.nodeType === 3 ? container.parentElement : container;
+  const closestP = paragraph.closest("p, div, li, blockquote, td, section, article");
+  if (closestP) {
+    context = closestP.textContent.substring(0, 500);
+  }
+  const cssSelector = getCSSSelector(closestP || paragraph);
+
+  const span = document.createElement("span");
+  span.className = `stoa-highlight stoa-highlight-${color}`;
+  span.dataset.stoaColor = color;
+  try {
+    range.surroundContents(span);
+  } catch (e) {
+    const fragment = range.extractContents();
+    span.appendChild(fragment);
+    range.insertNode(span);
+  }
+
+  _saveHighlightData(text, context, cssSelector, color, note);
+}
+
+function _saveHighlightData(text, context, cssSelector, color, note) {
   saveHighlight({
     text,
     context,
@@ -185,14 +222,22 @@ function getCSSSelector(el) {
   return parts.join(" > ");
 }
 
+// --- Auth Headers ---
+function getAuthHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  if (authToken) {
+    headers["Authorization"] = `Bearer ${authToken}`;
+  } else if (currentUser) {
+    headers["X-User-Id"] = currentUser;
+  }
+  return headers;
+}
+
 // --- Save Highlight ---
 async function saveHighlight(data) {
-  if (!currentUser) return;
+  if (!currentUser && !authToken) return;
 
-  const headers = {
-    "Content-Type": "application/json",
-    "X-User-Id": currentUser,
-  };
+  const headers = getAuthHeaders();
 
   try {
     // Ensure the item exists (dedup handled server-side)
@@ -204,6 +249,12 @@ async function saveHighlight(data) {
         type: guessContentType(window.location.hostname),
       }),
     });
+
+    if (!itemResp.ok) {
+      console.error("[Stoa] Ingest failed:", itemResp.status, await itemResp.text());
+      return;
+    }
+
     const itemData = await itemResp.json();
     const itemId = itemData?.item?.id;
 
@@ -235,7 +286,7 @@ async function restoreHighlights() {
   try {
     const resp = await fetch(
       `${STOA_API}/highlights?url=${encodeURIComponent(window.location.href)}`,
-      { headers: { "X-User-Id": currentUser } }
+      { headers: getAuthHeaders() }
     );
     const data = await resp.json();
     if (data?.highlights) {

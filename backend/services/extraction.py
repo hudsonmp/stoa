@@ -10,8 +10,12 @@ import fitz  # PyMuPDF
 
 async def extract_from_url(url: str) -> dict:
     """Extract article content and metadata from a URL."""
+    from services.url_validator import validate_url
+
     async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
         resp = await client.get(url, headers={"User-Agent": "Stoa/1.0"})
+        # Re-validate final URL after redirects to prevent redirect-based SSRF
+        validate_url(str(resp.url))
         html = resp.text
 
     extracted = trafilatura.extract(

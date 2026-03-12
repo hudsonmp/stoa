@@ -143,7 +143,8 @@ def get_notes(
         person: Get notes about a specific person (by name)
     """
     sb = _supabase()
-    query = sb.table("notes").select("*").eq("user_id", _get_user_id())
+    user_id = _get_user_id()
+    query = sb.table("notes").select("*").eq("user_id", user_id)
 
     if item_id:
         query = query.eq("item_id", item_id)
@@ -153,7 +154,7 @@ def get_notes(
         people = (
             sb.table("people")
             .select("id")
-            .eq("user_id", _get_user_id())
+            .eq("user_id", user_id)
             .ilike("name", f"%{person}%")
             .execute()
         )

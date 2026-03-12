@@ -13,8 +13,14 @@ router = APIRouter()
 @router.get("/{item_id}/bib")
 async def export_bibtex(item_id: str, request: Request):
     """Export a citation as BibTeX."""
-    await get_user_id(request)  # Verify auth
+    user_id = await get_user_id(request)
     supabase = get_supabase_service()
+
+    # Verify the item belongs to this user
+    item_check = supabase.table("items").select("id").eq("id", item_id).eq("user_id", user_id).execute()
+    if not item_check.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
     result = supabase.table("citations").select("*").eq("item_id", item_id).execute()
 
     if not result.data:
