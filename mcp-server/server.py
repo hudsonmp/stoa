@@ -80,12 +80,53 @@ def get_highlights(
         List of highlights with text, context, note, and source info
     """
     sb = _supabase()
+    user_id = _get_user_id()
     query = sb.table("highlights").select("*, items(title, url, type)")
 
     if item_id:
         query = query.eq("item_id", item_id)
 
-    query = query.eq("user_id", _get_user_id()).order("created_at", desc=True).limit(20)
+    if person:
+        # Find items by this person, then filter highlights to those items
+        people = (
+            sb.table("people")
+            .select("id")
+            .eq("user_id", user_id)
+            .ilike("name", f"%{person}%")
+            .execute()
+        )
+        if people.data:
+            person_items = (
+                sb.table("person_items")
+                .select("item_id")
+                .eq("person_id", people.data[0]["id"])
+                .execute()
+            )
+            if person_items.data:
+                item_ids = [pi["item_id"] for pi in person_items.data]
+                query = query.in_("item_id", item_ids)
+
+    if tag:
+        # Find items with this tag
+        tags = (
+            sb.table("tags")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("name", tag)
+            .execute()
+        )
+        if tags.data:
+            tagged_items = (
+                sb.table("item_tags")
+                .select("item_id")
+                .eq("tag_id", tags.data[0]["id"])
+                .execute()
+            )
+            if tagged_items.data:
+                item_ids = [ti["item_id"] for ti in tagged_items.data]
+                query = query.in_("item_id", item_ids)
+
+    query = query.eq("user_id", user_id).order("created_at", desc=True).limit(20)
     result = query.execute()
     return result.data or []
 
@@ -106,6 +147,18 @@ def get_notes(
 
     if item_id:
         query = query.eq("item_id", item_id)
+
+    if person:
+        # Look up person by name, then filter notes by person_id
+        people = (
+            sb.table("people")
+            .select("id")
+            .eq("user_id", _get_user_id())
+            .ilike("name", f"%{person}%")
+            .execute()
+        )
+        if people.data:
+            query = query.eq("person_id", people.data[0]["id"])
 
     result = query.order("updated_at", desc=True).limit(20).execute()
     return result.data or []
@@ -365,8 +418,14 @@ def get_person(name: str) -> dict:
 
 
 def _get_user_id() -> str:
-    """Get the configured user ID."""
-    return os.getenv("STOA_USER_ID", "")
+    """Get the configured user ID. Raises if not set."""
+    user_id = os.getenv("STOA_USER_ID", "")
+    if not user_id:
+        raise ValueError(
+            "STOA_USER_ID not set. Configure it in your environment "
+            "or .env file before using the Stoa MCP server."
+        )
+    return user_id
 
 
 if __name__ == "__main__":

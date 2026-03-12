@@ -69,16 +69,34 @@ function showToolbar(selection, event) {
     toolbar.appendChild(btn);
   });
 
-  // Note button
+  // Note button — shows inline input instead of blocking prompt()
   const noteBtn = document.createElement("button");
   noteBtn.className = "stoa-btn-note";
   noteBtn.textContent = "Note";
   noteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    const note = prompt("Add a note to this highlight:");
-    if (note !== null) {
-      highlightSelection(selection, "yellow", note);
-    }
+    // Replace toolbar content with inline note input
+    toolbar.innerHTML = "";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "stoa-note-input";
+    input.placeholder = "Add a note...";
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        highlightSelection(selection, "yellow", input.value || null);
+      } else if (ev.key === "Escape") {
+        removeToolbar();
+      }
+    });
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "stoa-btn-note";
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", () => {
+      highlightSelection(selection, "yellow", input.value || null);
+    });
+    toolbar.appendChild(input);
+    toolbar.appendChild(saveBtn);
+    input.focus();
   });
   toolbar.appendChild(noteBtn);
 
@@ -171,22 +189,41 @@ function getCSSSelector(el) {
 async function saveHighlight(data) {
   if (!currentUser) return;
 
+  const headers = {
+    "Content-Type": "application/json",
+    "X-User-Id": currentUser,
+  };
+
   try {
-    // First ensure the item exists (save page if not)
+    // Ensure the item exists (dedup handled server-side)
     const itemResp = await fetch(`${STOA_API}/ingest`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         url: data.url,
-        user_id: currentUser,
         type: guessContentType(window.location.hostname),
       }),
     });
+    const itemData = await itemResp.json();
+    const itemId = itemData?.item?.id;
 
-    // Then save the highlight via Supabase directly (or through API)
-    chrome.runtime.sendMessage({
-      type: "SAVE_HIGHLIGHT",
-      payload: { ...data, user_id: currentUser },
+    if (!itemId) {
+      console.error("[Stoa] No item_id returned from ingest");
+      return;
+    }
+
+    // Sync highlight to backend API (persisted in Supabase)
+    await fetch(`${STOA_API}/highlights`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        item_id: itemId,
+        text: data.text,
+        context: data.context,
+        css_selector: data.css_selector,
+        color: data.color,
+        note: data.note,
+      }),
     });
   } catch (err) {
     console.error("[Stoa] Failed to save highlight:", err);
@@ -195,15 +232,18 @@ async function saveHighlight(data) {
 
 // --- Restore Highlights ---
 async function restoreHighlights() {
-  chrome.runtime.sendMessage(
-    { type: "GET_HIGHLIGHTS", payload: { url: window.location.href, user_id: currentUser } },
-    (response) => {
-      if (!response?.highlights) return;
-      response.highlights.forEach((h) => {
-        injectHighlight(h);
-      });
+  try {
+    const resp = await fetch(
+      `${STOA_API}/highlights?url=${encodeURIComponent(window.location.href)}`,
+      { headers: { "X-User-Id": currentUser } }
+    );
+    const data = await resp.json();
+    if (data?.highlights) {
+      data.highlights.forEach((h) => injectHighlight(h));
     }
-  );
+  } catch (err) {
+    console.error("[Stoa] Failed to restore highlights:", err);
+  }
 }
 
 function injectHighlight(highlight) {

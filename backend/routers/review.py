@@ -1,23 +1,14 @@
 """Spaced repetition review endpoints."""
 
-import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from supabase import create_client
-
+from services.auth import get_supabase_service, get_user_id
 from services.spaced_rep import next_review
 
 router = APIRouter()
-
-
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
 
 
 class ReviewResponse(BaseModel):
@@ -26,9 +17,10 @@ class ReviewResponse(BaseModel):
 
 
 @router.post("/next")
-async def get_next_reviews(user_id: str, limit: int = 5):
+async def get_next_reviews(request: Request, limit: int = 5):
     """Get highlights due for review."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
     now = datetime.now(timezone.utc).isoformat()
 
     result = (
@@ -45,9 +37,10 @@ async def get_next_reviews(user_id: str, limit: int = 5):
 
 
 @router.post("/respond")
-async def respond_to_review(req: ReviewResponse):
+async def respond_to_review(req: ReviewResponse, request: Request):
     """Update review schedule based on user response."""
-    supabase = get_supabase()
+    await get_user_id(request)  # Verify auth
+    supabase = get_supabase_service()
 
     # Get current review state
     result = supabase.table("review_queue").select("*").eq("id", req.review_id).execute()

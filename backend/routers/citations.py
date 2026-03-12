@@ -1,27 +1,20 @@
 """Citation management endpoints."""
 
-import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from supabase import create_client
+from services.auth import get_supabase_service, get_user_id
 
 router = APIRouter()
 
 
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
-
-
 @router.get("/{item_id}/bib")
-async def export_bibtex(item_id: str):
+async def export_bibtex(item_id: str, request: Request):
     """Export a citation as BibTeX."""
-    supabase = get_supabase()
+    await get_user_id(request)  # Verify auth
+    supabase = get_supabase_service()
     result = supabase.table("citations").select("*").eq("item_id", item_id).execute()
 
     if not result.data:
@@ -72,19 +65,19 @@ async def export_bibtex(item_id: str):
 
 class BibTeXImportRequest(BaseModel):
     bibtex: str
-    user_id: str
 
 
 @router.post("/import")
-async def import_bibtex(req: BibTeXImportRequest):
+async def import_bibtex(req: BibTeXImportRequest, request: Request):
     """Bulk import citations from BibTeX."""
+    user_id = await get_user_id(request)
     try:
         import bibtexparser
     except ImportError:
         raise HTTPException(status_code=500, detail="bibtexparser not installed")
 
     library = bibtexparser.parse(req.bibtex)
-    supabase = get_supabase()
+    supabase = get_supabase_service()
 
     imported = []
     for entry in library.entries:
@@ -108,7 +101,7 @@ async def import_bibtex(req: BibTeXImportRequest):
 
         # Create item
         item_result = supabase.table("items").insert({
-            "user_id": req.user_id,
+            "user_id": user_id,
             "title": title_val,
             "type": "paper",
             "reading_status": "to_read",

@@ -57,8 +57,10 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        # Return zero vectors as fallback for development
-        return [[0.0] * 1536 for _ in texts]
+        raise ValueError(
+            "OPENAI_API_KEY not set. Embeddings require an API key. "
+            "Set OPENAI_API_KEY in your environment to generate embeddings."
+        )
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(

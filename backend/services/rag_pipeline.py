@@ -4,17 +4,9 @@ import os
 from typing import Optional
 
 import anthropic
-import httpx
-from supabase import create_client
 
+from services.auth import get_supabase_service
 from services.embedding import embed_texts
-
-
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
 
 
 async def vector_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
@@ -22,34 +14,47 @@ async def vector_search(query: str, user_id: str, n: int = 10, type_filter: Opti
     embeddings = await embed_texts([query])
     query_embedding = embeddings[0]
 
-    supabase = get_supabase()
+    supabase = get_supabase_service()
 
-    # Use Supabase RPC for vector similarity search
-    result = supabase.rpc(
-        "match_chunks",
-        {
-            "query_embedding": query_embedding,
-            "match_threshold": 0.5,
-            "match_count": n,
-            "filter_user_id": user_id,
-        },
-    ).execute()
+    params = {
+        "query_embedding": query_embedding,
+        "match_threshold": 0.5,
+        "match_count": n,
+        "filter_user_id": user_id,
+    }
+    if type_filter:
+        params["filter_type"] = type_filter
 
+    result = supabase.rpc("match_chunks", params).execute()
     return result.data or []
 
 
-async def full_text_search(query: str, user_id: str, n: int = 10) -> list[dict]:
-    """Full-text search on items."""
-    supabase = get_supabase()
-    result = (
-        supabase.table("items")
-        .select("id, title, url, type, extracted_text, domain")
-        .eq("user_id", user_id)
-        .or_(f"title.ilike.%{query}%,extracted_text.ilike.%{query}%")
-        .limit(n)
-        .execute()
-    )
-    return result.data or []
+async def full_text_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
+    """Full-text search on items. Uses separate queries to avoid filter injection."""
+    supabase = get_supabase_service()
+
+    def build_query():
+        q = (
+            supabase.table("items")
+            .select("id, title, url, type, extracted_text, domain")
+            .eq("user_id", user_id)
+        )
+        if type_filter:
+            q = q.eq("type", type_filter)
+        return q
+
+    title_results = build_query().ilike("title", f"%{query}%").limit(n).execute()
+    text_results = build_query().ilike("extracted_text", f"%{query}%").limit(n).execute()
+
+    # Merge and deduplicate
+    seen = set()
+    results = []
+    for item in (title_results.data or []) + (text_results.data or []):
+        if item["id"] not in seen:
+            seen.add(item["id"])
+            results.append(item)
+
+    return results[:n]
 
 
 def reciprocal_rank_fusion(results_lists: list[list[dict]], k: int = 60) -> list[dict]:
@@ -70,7 +75,7 @@ def reciprocal_rank_fusion(results_lists: list[list[dict]], k: int = 60) -> list
 async def hybrid_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
     """Hybrid search combining vector and full-text, fused with RRF."""
     vector_results = await vector_search(query, user_id, n=n * 2, type_filter=type_filter)
-    text_results = await full_text_search(query, user_id, n=n * 2)
+    text_results = await full_text_search(query, user_id, n=n * 2, type_filter=type_filter)
     fused = reciprocal_rank_fusion([vector_results, text_results])
     return fused[:n]
 

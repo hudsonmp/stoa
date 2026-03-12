@@ -1,29 +1,20 @@
 """Ingest endpoints: URL, PDF, arXiv."""
 
-import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel
 
-from supabase import create_client
-
+from services.auth import get_supabase_service, get_user_id
+from services.url_validator import validate_url
 from services.extraction import extract_from_url, extract_from_pdf, fetch_arxiv_metadata
 from services.embedding import chunk_and_embed
 
 router = APIRouter()
 
 
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
-
-
 class IngestURLRequest(BaseModel):
     url: str
-    user_id: str
     type: str = "blog"
     tags: list[str] = []
     person_ids: list[str] = []
@@ -35,16 +26,32 @@ class MetadataRequest(BaseModel):
 
 
 @router.post("")
-async def ingest_url(req: IngestURLRequest):
+async def ingest_url(req: IngestURLRequest, request: Request):
     """Extract content from URL, chunk, embed, and store."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Validate URL against SSRF
+    validate_url(req.url)
+
+    # Check for duplicate: return existing item if URL already saved
+    existing = (
+        supabase.table("items")
+        .select("id, title, url")
+        .eq("user_id", user_id)
+        .eq("url", req.url)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Extract content
     extracted = await extract_from_url(req.url)
 
     # Create item
     item_data = {
-        "user_id": req.user_id,
+        "user_id": user_id,
         "url": req.url,
         "title": extracted["title"],
         "type": req.type,
@@ -68,9 +75,8 @@ async def ingest_url(req: IngestURLRequest):
 
     # Add tags
     for tag_name in req.tags:
-        # Upsert tag
         tag_result = supabase.table("tags").upsert(
-            {"user_id": req.user_id, "name": tag_name},
+            {"user_id": user_id, "name": tag_name},
             on_conflict="user_id,name",
         ).execute()
         tag_id = tag_result.data[0]["id"]
@@ -98,7 +104,7 @@ async def ingest_url(req: IngestURLRequest):
 
     # Log activity
     supabase.table("activity").insert({
-        "user_id": req.user_id,
+        "user_id": user_id,
         "action": "save",
         "item_id": item_id,
     }).execute()
@@ -108,12 +114,13 @@ async def ingest_url(req: IngestURLRequest):
 
 @router.post("/pdf")
 async def ingest_pdf(
-    user_id: str,
+    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = None,
 ):
     """Upload and process a PDF."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
 
     pdf_bytes = await file.read()
     extracted = extract_from_pdf(pdf_bytes)
@@ -143,11 +150,12 @@ async def ingest_pdf(
 
 
 @router.post("/arxiv/{arxiv_id}")
-async def ingest_arxiv(arxiv_id: str, user_id: str):
+async def ingest_arxiv(arxiv_id: str, request: Request):
     """Fetch and process an arXiv paper by ID."""
     import httpx
 
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
     meta = await fetch_arxiv_metadata(arxiv_id)
 
     # Download PDF
@@ -187,7 +195,6 @@ async def ingest_arxiv(arxiv_id: str, user_id: str):
 
     # Link authors as people (create if needed)
     for author in meta["authors"]:
-        # Check if person exists
         existing = (
             supabase.table("people")
             .select("id")
@@ -222,6 +229,7 @@ async def ingest_arxiv(arxiv_id: str, user_id: str):
 @router.post("/metadata")
 async def extract_metadata(req: MetadataRequest):
     """Quick metadata extraction from a URL (no full ingest)."""
+    validate_url(req.url)
     extracted = await extract_from_url(req.url)
     return {
         "title": extracted["title"],
