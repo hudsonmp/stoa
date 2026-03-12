@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Stoa",
+  "description": "Curate your intellectual milieu — save, highlight, and organize the web",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "tabGroups",
+    "tabs",
+    "contextMenus"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "public/icons/icon16.png",
+      "48": "public/icons/icon48.png",
+      "128": "public/icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/content.js"],
+      "css": ["src/content/highlights.css"]
+    }
+  ],
+  "commands": {
+    "save-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Save current page to Stoa"
+    },
+    "save-tab-group": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
+      },
+      "description": "Save current tab group"
+    }
+  }
+}

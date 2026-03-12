@@ -1,0 +1,77 @@
+/* Stoa highlight styles */
+.stoa-highlight {
+  border-radius: 2px;
+  padding: 1px 0;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.stoa-highlight-yellow { background-color: rgba(255, 235, 59, 0.4); }
+.stoa-highlight-green { background-color: rgba(76, 175, 80, 0.3); }
+.stoa-highlight-blue { background-color: rgba(33, 150, 243, 0.3); }
+.stoa-highlight-pink { background-color: rgba(233, 30, 99, 0.3); }
+.stoa-highlight-purple { background-color: rgba(156, 39, 176, 0.3); }
+
+.stoa-highlight:hover {
+  filter: brightness(0.92);
+}
+
+/* Floating toolbar for text selection */
+.stoa-toolbar {
+  position: absolute;
+  z-index: 999999;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #1a1a2e;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  animation: stoa-fade-in 0.15s ease;
+}
+
+.stoa-toolbar button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.stoa-toolbar button:hover {
+  transform: scale(1.2);
+}
+
+.stoa-toolbar .stoa-btn-yellow { background: #FFEB3B; }
+.stoa-toolbar .stoa-btn-green { background: #4CAF50; }
+.stoa-toolbar .stoa-btn-blue { background: #2196F3; }
+.stoa-toolbar .stoa-btn-pink { background: #E91E63; }
+.stoa-toolbar .stoa-btn-purple { background: #9C27B0; }
+.stoa-toolbar .stoa-btn-note {
+  background: #333;
+  color: #fff;
+  font-size: 12px;
+  width: auto;
+  padding: 0 8px;
+  border-radius: 4px;
+}
+
+@keyframes stoa-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Social overlay badge */
+.stoa-social-badge {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 999998;
+  background: #1a1a2e;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  cursor: pointer;
+}
