@@ -10,7 +10,7 @@ app = FastAPI(title="Stoa API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "chrome-extension://*"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "chrome-extension://*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
