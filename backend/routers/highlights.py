@@ -3,8 +3,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from services.auth import get_supabase_service, get_user_id
 
@@ -18,7 +18,7 @@ class CreateHighlightRequest(BaseModel):
     css_selector: Optional[str] = None
     start_offset: Optional[int] = None
     end_offset: Optional[int] = None
-    color: str = "yellow"
+    color: str = Field(default="yellow", pattern="^(yellow|green|blue|pink|purple)$")
     note: Optional[str] = None
 
 
@@ -27,6 +27,17 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
     """Save a highlight and enqueue for spaced repetition."""
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
+
+    # Verify item belongs to this user
+    item_check = (
+        supabase.table("items")
+        .select("id")
+        .eq("id", req.item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not item_check.data:
+        raise HTTPException(status_code=404, detail="Item not found")
 
     result = supabase.table("highlights").insert({
         "item_id": req.item_id,

@@ -9,3 +9,7 @@ dist/
 *.egg-info/
 chroma_db/
 .DS_Store
+supabase/.temp/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

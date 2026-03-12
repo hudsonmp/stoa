@@ -30,6 +30,11 @@ def _supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def _escape_ilike(value: str) -> str:
+    """Escape ILIKE special characters."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @mcp.tool()
 async def search_library(
     query: str,
@@ -92,7 +97,7 @@ def get_highlights(
             sb.table("people")
             .select("id")
             .eq("user_id", user_id)
-            .ilike("name", f"%{person}%")
+            .ilike("name", f"%{_escape_ilike(person)}%")
             .execute()
         )
         if people.data:
@@ -155,7 +160,7 @@ def get_notes(
             sb.table("people")
             .select("id")
             .eq("user_id", user_id)
-            .ilike("name", f"%{person}%")
+            .ilike("name", f"%{_escape_ilike(person)}%")
             .execute()
         )
         if people.data:
@@ -386,7 +391,7 @@ def get_person(name: str) -> dict:
         sb.table("people")
         .select("*")
         .eq("user_id", user_id)
-        .ilike("name", f"%{name}%")
+        .ilike("name", f"%{_escape_ilike(name)}%")
         .execute()
     )
 

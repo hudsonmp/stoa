@@ -26,6 +26,18 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         words = sentence.split()
         sentence_len = len(words)
 
+        # Hard split: if a single "sentence" exceeds chunk_size (e.g. code blocks),
+        # break it into word-level chunks
+        if sentence_len > chunk_size:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            for i in range(0, sentence_len, chunk_size - overlap):
+                chunk_words = words[i:i + chunk_size]
+                chunks.append(" ".join(chunk_words))
+            continue
+
         if current_len + sentence_len > chunk_size and current_chunk:
             chunks.append(" ".join(current_chunk))
             # Keep overlap
@@ -62,17 +74,27 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
             "Set OPENAI_API_KEY in your environment to generate embeddings."
         )
 
+    # Batch to avoid hitting OpenAI's per-request limits
+    BATCH_SIZE = 100
+    all_embeddings = []
     async with httpx.AsyncClient(timeout=60) as client:
+      for batch_start in range(0, len(texts), BATCH_SIZE):
+        batch = texts[batch_start:batch_start + BATCH_SIZE]
         resp = await client.post(
             "https://api.openai.com/v1/embeddings",
             headers={"Authorization": f"Bearer {api_key}"},
             json={
                 "model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-                "input": texts,
+                "input": batch,
             },
         )
+        if resp.status_code != 200:
+            error_body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            error_msg = error_body.get("error", {}).get("message", f"HTTP {resp.status_code}")
+            raise RuntimeError(f"OpenAI embedding API error: {error_msg}")
         data = resp.json()
-        return [item["embedding"] for item in data["data"]]
+        all_embeddings.extend([item["embedding"] for item in data["data"]])
+    return all_embeddings
 
 
 async def chunk_and_embed(text: str, item_id: str, metadata: Optional[dict] = None) -> list[dict]:

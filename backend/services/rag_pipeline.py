@@ -29,9 +29,15 @@ async def vector_search(query: str, user_id: str, n: int = 10, type_filter: Opti
     return result.data or []
 
 
+def _escape_ilike(value: str) -> str:
+    """Escape ILIKE special characters so user input is treated literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def full_text_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
     """Full-text search on items. Uses separate queries to avoid filter injection."""
     supabase = get_supabase_service()
+    escaped = _escape_ilike(query)
 
     def build_query():
         q = (
@@ -43,8 +49,8 @@ async def full_text_search(query: str, user_id: str, n: int = 10, type_filter: O
             q = q.eq("type", type_filter)
         return q
 
-    title_results = build_query().ilike("title", f"%{query}%").limit(n).execute()
-    text_results = build_query().ilike("extracted_text", f"%{query}%").limit(n).execute()
+    title_results = build_query().ilike("title", f"%{escaped}%").limit(n).execute()
+    text_results = build_query().ilike("extracted_text", f"%{escaped}%").limit(n).execute()
 
     # Merge and deduplicate
     seen = set()
@@ -58,15 +64,21 @@ async def full_text_search(query: str, user_id: str, n: int = 10, type_filter: O
 
 
 def reciprocal_rank_fusion(results_lists: list[list[dict]], k: int = 60) -> list[dict]:
-    """Combine multiple ranked lists using RRF."""
+    """Combine multiple ranked lists using RRF.
+
+    Normalizes to item_id so vector search (chunk-level) and full-text search
+    (item-level) results are properly deduplicated.
+    """
     scores: dict[str, float] = {}
     docs: dict[str, dict] = {}
 
     for results in results_lists:
         for rank, doc in enumerate(results):
-            doc_id = doc.get("id") or doc.get("item_id", str(rank))
+            # Normalize: vector results have item_id, full-text results have id
+            doc_id = doc.get("item_id") or doc.get("id", str(rank))
             scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
-            docs[doc_id] = doc
+            if doc_id not in docs:
+                docs[doc_id] = doc
 
     sorted_ids = sorted(scores, key=lambda x: scores[x], reverse=True)
     return [docs[doc_id] for doc_id in sorted_ids]

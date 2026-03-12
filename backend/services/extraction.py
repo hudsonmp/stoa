@@ -87,6 +87,11 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict:
     """Fetch paper metadata from arXiv API."""
     clean_id = arxiv_id.replace("arxiv:", "").replace("arXiv:", "")
+
+    # Validate arXiv ID format to prevent parameter injection
+    if not re.match(r'^\d{4}\.\d{4,5}(v\d+)?$', clean_id):
+        raise ValueError(f"Invalid arXiv ID format: {clean_id}")
+
     api_url = f"http://export.arxiv.org/api/query?id_list={clean_id}"
 
     async with httpx.AsyncClient(timeout=30) as client:

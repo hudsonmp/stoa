@@ -31,7 +31,7 @@ async def get_user_id(request: Request) -> str:
     Falls back to X-User-Id header for development when STOA_DEV_MODE is set.
     """
     # Dev mode: trust X-User-Id header
-    if os.getenv("STOA_DEV_MODE"):
+    if os.getenv("STOA_DEV_MODE", "").lower() in ("1", "true", "yes"):
         user_id = request.headers.get("X-User-Id", "")
         if user_id:
             return user_id
@@ -50,5 +50,7 @@ async def get_user_id(request: Request) -> str:
         if not user or not user.user:
             raise HTTPException(status_code=401, detail="Invalid token")
         return user.user.id
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Auth failed: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Authentication failed")

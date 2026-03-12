@@ -122,11 +122,20 @@ async def ingest_pdf(
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
+    # Enforce 50MB upload limit
+    MAX_PDF_SIZE = 50 * 1024 * 1024
     pdf_bytes = await file.read()
+    if len(pdf_bytes) > MAX_PDF_SIZE:
+        raise HTTPException(status_code=413, detail="PDF exceeds 50MB limit")
     extracted = extract_from_pdf(pdf_bytes)
 
-    # Upload to Supabase Storage
-    storage_path = f"{user_id}/pdfs/{file.filename}"
+    # Sanitize filename to prevent path traversal
+    import os as _os
+    import uuid as _uuid
+    safe_filename = _os.path.basename(file.filename or "upload.pdf").replace("..", "")
+    if not safe_filename:
+        safe_filename = f"{_uuid.uuid4().hex}.pdf"
+    storage_path = f"{user_id}/pdfs/{safe_filename}"
     supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
 
     item_data = {
@@ -157,6 +166,19 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
     meta = await fetch_arxiv_metadata(arxiv_id)
+
+    # Duplicate check: if we already have this arXiv paper, return it
+    arxiv_url = f"https://arxiv.org/abs/{meta['arxiv_id']}"
+    existing = (
+        supabase.table("items")
+        .select("id, title, url")
+        .eq("user_id", user_id)
+        .eq("url", arxiv_url)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Download PDF
     async with httpx.AsyncClient(timeout=60) as client:
@@ -227,8 +249,9 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
 
 
 @router.post("/metadata")
-async def extract_metadata(req: MetadataRequest):
+async def extract_metadata(req: MetadataRequest, request: Request):
     """Quick metadata extraction from a URL (no full ingest)."""
+    await get_user_id(request)
     validate_url(req.url)
     extracted = await extract_from_url(req.url)
     return {
