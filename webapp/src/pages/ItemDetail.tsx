@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -21,9 +21,10 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight } from "@/lib/api";
+import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
+import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
   book: BookOpen,
@@ -51,11 +52,22 @@ export default function ItemDetail() {
   const [readerMode, setReaderMode] = useState(false);
 
   // Inline editing state
+  const [editingHighlightNote, setEditingHighlightNote] = useState<string | null>(null);
+  const [highlightNoteDraft, setHighlightNoteDraft] = useState("");
+  const [lastCreatedHighlightId, setLastCreatedHighlightId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const marginRef = useRef<HTMLElement>(null);
+  const hlContainerRef = useRef<HTMLDivElement>(null);
+
+  // Positional anchoring version — bumped when highlights change
+  const hlVersion = highlights.length;
+  const hlIds = useMemo(() => highlights.map((h) => h.id), [highlights]);
+  const hlPositions = useHighlightPositions(hlIds, scrollContainerRef, hlContainerRef, hlVersion);
 
   useEffect(() => {
     if (!id) return;
@@ -164,13 +176,81 @@ export default function ItemDetail() {
   }, []);
 
   const handleDeleteNote = useCallback(async (noteId: string) => {
-    await deleteNote(noteId);
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    try {
+      await deleteNote(noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    } catch (e) {
+      console.error("Failed to delete note:", e);
+    }
   }, []);
 
   const handleDeleteHighlight = useCallback(async (hlId: string) => {
-    await deleteHighlight(hlId);
-    setHighlights((prev) => prev.filter((h) => h.id !== hlId));
+    try {
+      await deleteHighlight(hlId);
+      setHighlights((prev) => prev.filter((h) => h.id !== hlId));
+    } catch (e) {
+      console.error("Failed to delete highlight:", e);
+    }
+  }, []);
+
+  const saveHighlightNote = useCallback(
+    async (hlId: string) => {
+      await updateHighlight(hlId, { note: highlightNoteDraft || null });
+      setHighlights((prev) =>
+        prev.map((h) =>
+          h.id === hlId ? { ...h, note: highlightNoteDraft || undefined } : h
+        )
+      );
+      setEditingHighlightNote(null);
+      setHighlightNoteDraft("");
+    },
+    [highlightNoteDraft]
+  );
+
+  const handleCreateHighlight = useCallback(
+    async (text: string, color: string, note?: string, context?: string) => {
+      if (!item) return;
+      try {
+        const result = await createHighlight({
+          item_id: item.id,
+          text,
+          color,
+          note,
+          context,
+        });
+        const hl = result.highlight as Highlight;
+        setHighlights((prev) => [hl, ...prev]);
+        setLastCreatedHighlightId(hl.id);
+      } catch (e) {
+        console.error("Failed to create highlight:", e);
+      }
+    },
+    [item]
+  );
+
+  // Post-highlight note nudge — adds note to the most recently created highlight
+  const handleNoteForLastHighlight = useCallback(
+    async (note: string) => {
+      if (!lastCreatedHighlightId) return;
+      await updateHighlight(lastCreatedHighlightId, { note });
+      setHighlights((prev) =>
+        prev.map((h) =>
+          h.id === lastCreatedHighlightId ? { ...h, note } : h
+        )
+      );
+      setLastCreatedHighlightId(null);
+    },
+    [lastCreatedHighlightId]
+  );
+
+  // Click on <mark> in reader → scroll margin card into view + open note editor
+  const handleMarkClick = useCallback((hl: Highlight) => {
+    const card = document.getElementById(`hl-card-${hl.id}`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    setEditingHighlightNote(hl.id);
+    setHighlightNoteDraft(hl.note || "");
   }, []);
 
   if (loading) {
@@ -194,7 +274,7 @@ export default function ItemDetail() {
   const Icon = typeIcons[item.type] || Bookmark;
 
   return (
-    <div className="reader-page" data-reader-scroll>
+    <div ref={scrollContainerRef} className="reader-page" data-reader-scroll>
       {/* Top bar */}
       <div className="reader-topbar">
         <Link to="/" className="reader-back">
@@ -358,7 +438,9 @@ export default function ItemDetail() {
               item={item}
               highlights={highlights}
               citation={citation}
-              onHighlightClick={() => setHighlightPanelOpen(true)}
+              onHighlightClick={handleMarkClick}
+              onCreateHighlight={handleCreateHighlight}
+              onNoteForLastHighlight={handleNoteForLastHighlight}
             />
           ) : (
             <>
@@ -419,7 +501,7 @@ export default function ItemDetail() {
         </motion.div>
 
         {/* Right margin — annotations column (Curius-style) */}
-        <aside className="reader-margin">
+        <aside ref={marginRef} className="reader-margin">
           {/* Note input */}
           <div className="reader-margin-heading">Annotations</div>
           <div className="reader-margin-input">
@@ -446,23 +528,83 @@ export default function ItemDetail() {
           </div>
 
           {/* Highlights */}
-          {highlights.length > 0 && (
+          {highlights.length > 0 && (() => {
+            const hasPositions = readerMode && Object.keys(hlPositions).length > 0;
+            return (
             <>
               <div className="reader-margin-divider" />
               <div className="reader-margin-heading">
                 Highlights ({highlights.length})
               </div>
+              <div ref={hlContainerRef} style={{ position: "relative", minHeight: hasPositions ? Math.max(...Object.values(hlPositions), 0) + 100 : undefined }}>
               {highlights.map((hl) => (
                 <div
                   key={hl.id}
+                  id={`hl-card-${hl.id}`}
                   className="reader-margin-card reader-margin-card-hl group/hl"
                   data-color={hl.color}
+                  onClick={() => handleJumpToHighlight(hl)}
+                  onMouseEnter={() => {
+                    const mark = document.getElementById(`hl-${hl.id}`);
+                    if (mark) mark.classList.add("stoa-hl-active");
+                  }}
+                  onMouseLeave={() => {
+                    const mark = document.getElementById(`hl-${hl.id}`);
+                    if (mark) mark.classList.remove("stoa-hl-active");
+                  }}
+                  style={
+                    hasPositions && hlPositions[hl.id] != null
+                      ? { position: "absolute", top: hlPositions[hl.id], left: 0, right: 0, cursor: "pointer" }
+                      : { cursor: "pointer" }
+                  }
                 >
                   <p className="reader-margin-card-text">
                     &ldquo;{hl.text}&rdquo;
                   </p>
-                  {hl.note && (
-                    <p className="reader-margin-card-note">{hl.note}</p>
+                  {editingHighlightNote === hl.id ? (
+                    <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={highlightNoteDraft}
+                        onChange={(e) => setHighlightNoteDraft(e.target.value)}
+                        placeholder="What does this make you think?"
+                        className="w-full bg-transparent text-[11px] font-sans text-text-primary
+                                   outline-none border-b border-accent/30 pb-0.5"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveHighlightNote(hl.id);
+                          if (e.key === "Escape") {
+                            setEditingHighlightNote(null);
+                            setHighlightNoteDraft("");
+                          }
+                        }}
+                        onBlur={() => saveHighlightNote(hl.id)}
+                      />
+                    </div>
+                  ) : hl.note ? (
+                    <p
+                      className="reader-margin-card-note"
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setEditingHighlightNote(hl.id);
+                        setHighlightNoteDraft(hl.note || "");
+                      }}
+                      title="Double-click to edit"
+                    >
+                      {hl.note}
+                    </p>
+                  ) : (
+                    <button
+                      className="text-[10px] text-text-tertiary hover:text-accent mt-0.5 transition-warm
+                                 opacity-0 group-hover/hl:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingHighlightNote(hl.id);
+                        setHighlightNoteDraft("");
+                      }}
+                    >
+                      + note
+                    </button>
                   )}
                   <div className="flex items-center justify-between">
                     <span className="reader-margin-card-time">
@@ -472,7 +614,7 @@ export default function ItemDetail() {
                       })}
                     </span>
                     <button
-                      onClick={() => handleDeleteHighlight(hl.id)}
+                      onClick={(e) => { e.stopPropagation(); handleDeleteHighlight(hl.id); }}
                       className="opacity-0 group-hover/hl:opacity-100 transition-warm
                                  text-text-tertiary hover:text-red-500 p-0.5"
                     >
@@ -481,8 +623,10 @@ export default function ItemDetail() {
                   </div>
                 </div>
               ))}
+              </div>
             </>
-          )}
+            );
+          })()}
 
           {/* Notes */}
           {notes.length > 0 && (

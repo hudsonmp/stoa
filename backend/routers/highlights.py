@@ -1,5 +1,6 @@
 """Highlight CRUD endpoints."""
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from services.auth import get_supabase_service, get_user_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -54,11 +57,14 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
     highlight = result.data[0]
 
     # Auto-enqueue for spaced repetition (first review in 24h)
-    supabase.table("review_queue").insert({
-        "user_id": user_id,
-        "highlight_id": highlight["id"],
-        "next_review_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
-    }).execute()
+    try:
+        supabase.table("review_queue").insert({
+            "user_id": user_id,
+            "highlight_id": highlight["id"],
+            "next_review_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        }).execute()
+    except Exception:
+        logger.warning("Failed to enqueue highlight %s for review", highlight["id"])
 
     return {"highlight": highlight}
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import type { Item, Highlight, Citation } from "@/lib/supabase";
+import SelectionToolbar, { type HighlightColor } from "./SelectionToolbar";
 
 // --- Highlight colors matching design system ---
 const HIGHLIGHT_COLORS: Record<string, { bg: string; border: string; label: string }> = {
@@ -87,6 +88,8 @@ interface ReaderViewProps {
   highlights: Highlight[];
   citation: Citation | null;
   onHighlightClick?: (hl: Highlight) => void;
+  onCreateHighlight?: (text: string, color: HighlightColor, note?: string, context?: string) => void;
+  onNoteForLastHighlight?: (note: string) => void;
 }
 
 export default function ReaderView({
@@ -94,8 +97,11 @@ export default function ReaderView({
   highlights,
   citation,
   onHighlightClick,
+  onCreateHighlight,
+  onNoteForLastHighlight,
 }: ReaderViewProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
 
   const text = item.extracted_text || "";
@@ -130,6 +136,13 @@ export default function ReaderView({
       onHighlightClick?.(hl);
     },
     [onHighlightClick]
+  );
+
+  const handleToolbarHighlight = useCallback(
+    (selectedText: string, color: HighlightColor, note?: string, context?: string) => {
+      onCreateHighlight?.(selectedText, color, note, context);
+    },
+    [onCreateHighlight]
   );
 
   return (
@@ -194,8 +207,8 @@ export default function ReaderView({
         )}
       </div>
 
-      {/* Body text */}
-      <div className="reader-body">
+      {/* Body text — position: relative for toolbar positioning */}
+      <div ref={bodyRef} className="reader-body" style={{ position: "relative" }}>
         {paragraphs.length > 0 ? (
           paragraphs.map((p, i) => (
             <p key={i}>
@@ -206,6 +219,15 @@ export default function ReaderView({
           <p className="reader-empty">
             No extracted text available for this item.
           </p>
+        )}
+
+        {/* Selection toolbar — renders inside body for correct positioning */}
+        {onCreateHighlight && (
+          <SelectionToolbar
+            containerRef={bodyRef}
+            onHighlight={handleToolbarHighlight}
+            onNoteForLastHighlight={onNoteForLastHighlight}
+          />
         )}
       </div>
     </div>

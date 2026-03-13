@@ -506,6 +506,160 @@ body::before {
   font-style: italic;
 }
 
+/* ================================================================
+   Selection Toolbar — floating annotation toolbar
+   ================================================================ */
+
+.stoa-selection-toolbar {
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 6px;
+  background: #1C1917;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.06);
+  animation: stoa-toolbar-in 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+  user-select: none;
+}
+
+@keyframes stoa-toolbar-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Active highlight pulse — triggered when hovering the corresponding margin card */
+mark.stoa-hl-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+  transition: outline 0.15s ease;
+}
+
+/* Action buttons — primary interaction surface */
+.stoa-st-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #fafaf7;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.stoa-st-action:hover {
+  background: rgba(255,255,255,0.18);
+}
+
+.stoa-st-action-note {
+  background: transparent;
+  border-color: rgba(255,255,255,0.08);
+}
+
+.stoa-st-action-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Secondary color row — de-emphasized */
+.stoa-st-color-row {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Skip button for post-highlight note prompt */
+.stoa-st-skip {
+  padding: 3px 8px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.625rem;
+  color: rgba(255,255,255,0.4);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stoa-st-skip:hover {
+  color: rgba(255,255,255,0.7);
+}
+
+.stoa-st-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5625rem;
+  color: rgba(255,255,255,0.3);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* Note input mode */
+.stoa-st-note-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 280px;
+}
+
+.stoa-st-note-input {
+  flex: 1;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: #fafaf7;
+  outline: none;
+}
+
+.stoa-st-note-input::placeholder {
+  color: rgba(255,255,255,0.35);
+}
+
+.stoa-st-note-input:focus {
+  border-color: rgba(255,255,255,0.25);
+}
+
+.stoa-st-note-colors {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.stoa-st-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.stoa-st-dot:hover {
+  transform: scale(1.25);
+  border-color: rgba(255,255,255,0.4);
+}
+
+.stoa-st-dot.active {
+  border-color: rgba(255,255,255,0.6);
+  transform: scale(1.15);
+}
+
 /* Header */
 .reader-header {
   display: flex;

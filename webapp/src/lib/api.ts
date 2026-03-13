@@ -188,6 +188,19 @@ export async function setItemTags(itemId: string, tags: string[]) {
   });
 }
 
+export async function createHighlight(data: {
+  item_id: string;
+  text: string;
+  context?: string;
+  color?: string;
+  note?: string;
+}) {
+  return apiFetch<{ highlight: unknown }>("/highlights", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function deleteNote(noteId: string) {
   return apiFetch(`/notes/${noteId}`, { method: "DELETE" });
 }
