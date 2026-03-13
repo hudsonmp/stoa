@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
+const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
+
 interface AuthGateProps {
   children: React.ReactNode;
 }
@@ -14,6 +16,11 @@ export default function AuthGate({ children }: AuthGateProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  // Dev mode: skip auth entirely when VITE_DEV_USER_ID is set
+  if (DEV_USER_ID) {
+    return <>{children}</>;
+  }
 
   if (loading) {
     return (

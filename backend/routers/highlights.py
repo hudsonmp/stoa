@@ -63,6 +63,30 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
     return {"highlight": highlight}
 
 
+@router.patch("/{highlight_id}")
+async def update_highlight(highlight_id: str, request: Request):
+    """Update a highlight (e.g. note, color)."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+
+    allowed = {"note", "color"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields")
+
+    result = (
+        supabase.table("highlights")
+        .update(updates)
+        .eq("id", highlight_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    return {"highlight": result.data[0]}
+
+
 @router.get("")
 async def get_highlights_for_url(
     request: Request,
@@ -91,3 +115,26 @@ async def get_highlights_for_url(
 
     result = query.order("created_at", desc=True).limit(100).execute()
     return {"highlights": result.data or []}
+
+
+@router.delete("/{highlight_id}")
+async def delete_highlight(highlight_id: str, request: Request):
+    """Delete a highlight and its review queue entry."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Delete review queue entry first (FK constraint)
+    supabase.table("review_queue").delete().eq(
+        "highlight_id", highlight_id
+    ).execute()
+
+    result = (
+        supabase.table("highlights")
+        .delete()
+        .eq("id", highlight_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    return {"deleted": True, "id": highlight_id}

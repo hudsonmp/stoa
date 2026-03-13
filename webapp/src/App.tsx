@@ -19,7 +19,7 @@ export default function App() {
             <Route element={<Layout />}>
               <Route index element={<Library status="to_read" />} />
               <Route path="/read" element={<Library status="read" />} />
-              <Route path="/writings" element={<Library status="reading" />} />
+              <Route path="/writings" element={<Library type="writing" />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetail />} />
               <Route path="/item/:id" element={<ItemDetail />} />

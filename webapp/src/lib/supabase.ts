@@ -31,7 +31,7 @@ export interface Item {
   user_id: string;
   url?: string;
   title: string;
-  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video";
+  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing";
   favicon_url?: string;
   cover_image_url?: string;
   spine_color?: string;

@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Globe, ExternalLink } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import type { Person, Item } from "@/lib/supabase";
+import { getPerson } from "@/lib/api";
 import ItemRow from "@/components/ItemRow";
 import TagPill from "@/components/TagPill";
 
@@ -13,42 +13,27 @@ export default function PersonDetail() {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadPerson = useCallback(async () => {
     if (!id) return;
-    loadPerson();
+    setLoading(true);
+    try {
+      const data = await getPerson(id);
+      setPerson(data.person as Person);
+      setItems((data.items as Item[]) || []);
+    } catch {
+      setPerson(null);
+    }
+    setLoading(false);
   }, [id]);
 
-  const loadPerson = async () => {
-    setLoading(true);
-    const { data: personData } = await supabase
-      .from("people")
-      .select("*")
-      .eq("id", id)
-      .single();
-    setPerson(personData as Person | null);
-
-    // Load items associated with this person
-    const { data: links } = await supabase
-      .from("person_items")
-      .select("item_id")
-      .eq("person_id", id);
-
-    if (links && links.length > 0) {
-      const itemIds = links.map((l: { item_id: string }) => l.item_id);
-      const { data: itemData } = await supabase
-        .from("items")
-        .select("*")
-        .in("id", itemIds);
-      setItems((itemData as Item[]) || []);
-    }
-
-    setLoading(false);
-  };
+  useEffect(() => {
+    loadPerson();
+  }, [loadPerson]);
 
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto px-8 py-8">
-        <p className="text-sm text-text-tertiary">Loading...</p>
+        <div className="inline-block w-5 h-5 border-2 border-border border-t-accent rounded-full animate-spin" />
       </div>
     );
   }
@@ -179,7 +164,7 @@ export default function PersonDetail() {
                 Connected Items
               </h2>
               <div className="flex-1 h-px bg-border" />
-              <span className="text-[11px] font-mono text-text-tertiary">
+              <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
                 {items.length}
               </span>
             </div>

@@ -1,11 +1,17 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem("stoa_token");
-  const userId = localStorage.getItem("stoa_user_id");
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  // Dev mode: always send X-User-Id from env
+  if (DEV_USER_ID) {
+    headers["X-User-Id"] = DEV_USER_ID;
+    return headers;
+  }
+  const token = localStorage.getItem("stoa_token");
+  const userId = localStorage.getItem("stoa_user_id");
   if (token) headers["Authorization"] = `Bearer ${token}`;
   else if (userId) headers["X-User-Id"] = userId;
   return headers;
@@ -80,6 +86,131 @@ export async function respondToReview(reviewId: string, quality: number) {
     method: "POST",
     body: JSON.stringify({ review_id: reviewId, quality }),
   });
+}
+
+export async function getItem(itemId: string) {
+  return apiFetch<{
+    item: unknown;
+    highlights: unknown[];
+    notes: unknown[];
+    citation: unknown | null;
+    related: unknown[];
+  }>(`/items/${itemId}`);
+}
+
+export async function updateItem(itemId: string, updates: Record<string, unknown>) {
+  return apiFetch<{ item: unknown }>(`/items/${itemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function createNote(data: {
+  item_id?: string;
+  person_id?: string;
+  content: string;
+}) {
+  return apiFetch<{ note: unknown }>("/notes", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateHighlight(
+  highlightId: string,
+  updates: Record<string, unknown>
+) {
+  return apiFetch(`/highlights/${highlightId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function createPerson(data: {
+  name: string;
+  affiliation?: string;
+  role?: string;
+  website_url?: string;
+  twitter_handle?: string;
+  notes?: string;
+}) {
+  return apiFetch<{ person: unknown }>("/people", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getPerson(personId: string) {
+  return apiFetch<{ person: unknown; items: unknown[] }>(`/people/${personId}`);
+}
+
+export async function ingestPaste(data: {
+  content: string;
+  title?: string;
+  type?: string;
+  tags?: string[];
+}) {
+  return apiFetch("/ingest/paste", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function ingestImage(file: File, title?: string, type?: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (title) formData.append("title", title);
+  if (type) formData.append("type", type);
+
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    const userId = localStorage.getItem("stoa_user_id");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    else if (userId) h["X-User-Id"] = userId;
+  }
+
+  const res = await fetch(`${API_URL}/ingest/image`, {
+    method: "POST",
+    headers: h,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json() as Promise<{ items: unknown[]; extracted_count: number }>;
+}
+
+export async function getItemTags(itemId: string) {
+  return apiFetch<{ tags: string[] }>(`/items/${itemId}/tags`);
+}
+
+export async function setItemTags(itemId: string, tags: string[]) {
+  return apiFetch<{ tags: string[] }>(`/items/${itemId}/tags`, {
+    method: "PUT",
+    body: JSON.stringify({ tags }),
+  });
+}
+
+export async function deleteNote(noteId: string) {
+  return apiFetch(`/notes/${noteId}`, { method: "DELETE" });
+}
+
+export async function deleteHighlight(highlightId: string) {
+  return apiFetch(`/highlights/${highlightId}`, { method: "DELETE" });
+}
+
+export async function deleteItem(itemId: string) {
+  return apiFetch(`/items/${itemId}`, { method: "DELETE" });
+}
+
+export async function deletePerson(personId: string) {
+  return apiFetch(`/people/${personId}`, { method: "DELETE" });
+}
+
+export async function syncApplePodcasts() {
+  return apiFetch<{
+    synced: number;
+    skipped: number;
+    total_played: number;
+    items: { id: string; title: string; domain: string }[];
+  }>("/ingest/podcasts/sync", { method: "POST" });
 }
 
 export async function extractMetadata(url: string) {

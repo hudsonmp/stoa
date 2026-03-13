@@ -85,9 +85,18 @@ def reciprocal_rank_fusion(results_lists: list[list[dict]], k: int = 60) -> list
 
 
 async def hybrid_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
-    """Hybrid search combining vector and full-text, fused with RRF."""
-    vector_results = await vector_search(query, user_id, n=n * 2, type_filter=type_filter)
+    """Hybrid search combining vector and full-text, fused with RRF.
+
+    Falls back to full-text only if embeddings are unavailable (no API key).
+    """
     text_results = await full_text_search(query, user_id, n=n * 2, type_filter=type_filter)
+
+    try:
+        vector_results = await vector_search(query, user_id, n=n * 2, type_filter=type_filter)
+    except (ValueError, RuntimeError):
+        # No OPENAI_API_KEY or API error — return text-only results
+        return text_results[:n]
+
     fused = reciprocal_rank_fusion([vector_results, text_results])
     return fused[:n]
 

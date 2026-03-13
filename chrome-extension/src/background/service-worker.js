@@ -57,6 +57,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "UPDATE_BADGE":
       incrementBadge(message.payload.delta, sender.tab?.id);
       return false;
+
+    case "SYNC_SCROLL":
+      handleSyncScroll(message.payload);
+      return false;
+
+    case "SYNC_ENGAGEMENT":
+      handleSyncEngagement(message.payload);
+      return false;
   }
 });
 
@@ -208,6 +216,67 @@ async function restoreTabGroup(groupData) {
       title: groupData.name,
       color: groupData.chrome_group_color || "blue",
     });
+  }
+}
+
+// --- Scroll Sync to Backend ---
+async function handleSyncScroll(data) {
+  if (!data.item_id || !data.scroll_position) return;
+  try {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+    await fetch(`${config.apiUrl}/items/${data.item_id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ scroll_position: data.scroll_position }),
+    });
+  } catch (err) {
+    console.error("[Stoa] Scroll sync failed:", err);
+  }
+}
+
+// --- Engagement Sync to Backend ---
+async function handleSyncEngagement(data) {
+  if (!data.item_id || !data.session) return;
+  try {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+
+    // Get current engagement data
+    const getResp = await fetch(`${config.apiUrl}/items/${data.item_id}`, { headers });
+    if (!getResp.ok) return;
+    const itemData = await getResp.json();
+    const existing = itemData.item?.metadata?.engagement || {
+      total_time_ms: 0,
+      max_depth_pct: 0,
+      visit_count: 0,
+      total_highlights: 0,
+      sessions: [],
+    };
+
+    // Merge session
+    existing.total_time_ms += data.session.time_ms || 0;
+    existing.max_depth_pct = Math.max(existing.max_depth_pct, data.session.depth_pct || 0);
+    existing.total_highlights += data.session.highlights || 0;
+    existing.visit_count += 1;
+    existing.sessions.push(data.session);
+    // Keep only last 20 sessions
+    if (existing.sessions.length > 20) {
+      existing.sessions = existing.sessions.slice(-20);
+    }
+
+    // Update metadata
+    const currentMetadata = itemData.item?.metadata || {};
+    currentMetadata.engagement = existing;
+
+    // Unfortunately we can't PATCH metadata directly via items endpoint.
+    // Use a dedicated call or store engagement separately.
+    // For now, we'll use a direct supabase-style approach via a custom endpoint.
+    // Falling back to storing in chrome.storage.local until backend supports it.
+    const storageKey = `engagement:${data.item_id}`;
+    await chrome.storage.local.set({ [storageKey]: existing });
+  } catch (err) {
+    console.error("[Stoa] Engagement sync failed:", err);
   }
 }
 

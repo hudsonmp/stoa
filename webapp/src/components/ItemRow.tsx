@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -8,7 +9,10 @@ import {
   MessageCircle,
   Video,
   Bookmark,
+  PenLine,
+  Trash2,
 } from "lucide-react";
+import { deleteItem } from "@/lib/api";
 import type { Item } from "@/lib/supabase";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -19,20 +23,36 @@ const typeIcons: Record<string, typeof BookOpen> = {
   page: Globe,
   tweet: MessageCircle,
   video: Video,
+  writing: PenLine,
 };
 
 interface ItemRowProps {
   item: Item;
   index?: number;
+  onDeleted?: () => void;
 }
 
-export default function ItemRow({ item, index = 0 }: ItemRowProps) {
+export default function ItemRow({ item, index = 0, onDeleted }: ItemRowProps) {
   const Icon = typeIcons[item.type] || Bookmark;
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await deleteItem(item.id);
+      onDeleted?.();
+    } catch {
+      setDeleting(false);
+    }
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ opacity: deleting ? 0.3 : 1, y: 0 }}
       transition={{
         delay: index * 0.03,
         duration: 0.3,
@@ -73,7 +93,7 @@ export default function ItemRow({ item, index = 0 }: ItemRowProps) {
 
         {/* Title */}
         <span
-          className="flex-1 text-sm font-sans font-medium text-text-primary
+          className="flex-1 min-w-0 text-sm font-sans font-medium text-text-primary
                      truncate group-hover:text-accent transition-warm"
         >
           {item.title}
@@ -85,6 +105,17 @@ export default function ItemRow({ item, index = 0 }: ItemRowProps) {
             {item.domain}
           </span>
         )}
+
+        {/* Delete button — visible on hover */}
+        <button
+          onClick={handleDelete}
+          className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100
+                     hover:bg-red-50 hover:text-red-500 text-text-tertiary
+                     transition-warm"
+          title="Delete"
+        >
+          <Trash2 size={13} />
+        </button>
       </Link>
     </motion.div>
   );

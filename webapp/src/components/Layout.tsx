@@ -1,10 +1,38 @@
+import { useState, useEffect, useCallback } from "react";
 import { Outlet } from "react-router-dom";
 import { motion } from "framer-motion";
 import Sidebar from "./Sidebar";
-import { useItems } from "@/hooks/useItems";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+  }
+  return h;
+}
 
 export default function Layout() {
-  const { counts } = useItems();
+  const [counts, setCounts] = useState({ to_read: 0, read: 0, writing: 0, total: 0 });
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/items/counts`, { headers: authHeaders() });
+      if (res.ok) setCounts(await res.json());
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { loadCounts(); }, [loadCounts]);
+
+  // Re-fetch counts when navigating (Outlet re-renders trigger this via key change)
+  useEffect(() => {
+    const interval = setInterval(loadCounts, 5000);
+    return () => clearInterval(interval);
+  }, [loadCounts]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg-primary">

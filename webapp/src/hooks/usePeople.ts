@@ -1,6 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
 import type { Person } from "@/lib/supabase";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+  }
+  return h;
+}
 
 export function usePeople() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -11,12 +23,12 @@ export function usePeople() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from("people")
-        .select("*")
-        .order("name");
-      if (err) throw err;
-      setPeople((data as Person[]) || []);
+      const res = await fetch(`${API_URL}/people`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const data = await res.json();
+      setPeople((data.people as Person[]) || []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load people");
     } finally {

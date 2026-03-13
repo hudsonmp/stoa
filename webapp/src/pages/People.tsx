@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Plus, X } from "lucide-react";
 import { usePeople } from "@/hooks/usePeople";
-import { supabase } from "@/lib/supabase";
+import { createPerson } from "@/lib/api";
 import PersonCard from "@/components/PersonCard";
 import SearchBar from "@/components/SearchBar";
 
@@ -29,13 +29,7 @@ export default function People() {
 
   const addPerson = async () => {
     if (!form.name.trim()) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    await supabase.from("people").insert({
-      ...form,
-      user_id: user?.id,
-    });
+    await createPerson(form);
     setForm({
       name: "",
       affiliation: "",
@@ -98,7 +92,10 @@ export default function People() {
       </motion.div>
 
       {loading && people.length === 0 && (
-        <p className="text-center py-20 text-sm text-text-tertiary">Loading...</p>
+        <div className="text-center py-20">
+          <div className="inline-block w-5 h-5 border-2 border-border border-t-accent rounded-full animate-spin" />
+          <p className="text-sm text-text-tertiary mt-3">Loading people...</p>
+        </div>
       )}
 
       {!loading && people.length === 0 && (
@@ -118,10 +115,12 @@ export default function People() {
         >
           <div className="flex items-center gap-3 mb-4 px-1">
             <h2 className="text-[11px] font-mono text-text-tertiary uppercase tracking-[0.15em] capitalize">
-              {group.role === "intellectual hero" ? "intellectual heroes" : `${group.role}s`}
+              {group.role === "intellectual hero"
+                ? "intellectual heroes"
+                : `${group.role}s`}
             </h2>
             <div className="flex-1 h-px bg-border" />
-            <span className="text-[11px] font-mono text-text-tertiary">
+            <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
               {group.people.length}
             </span>
           </div>
@@ -144,100 +143,116 @@ export default function People() {
       )}
 
       {/* Add person modal */}
-      {showAdd && (
-        <>
-          <div
-            className="fixed inset-0 bg-text-primary/20 z-50"
-            onClick={() => setShowAdd(false)}
-          />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <AnimatePresence>
+        {showAdd && (
+          <>
             <motion.div
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-bg-primary border border-border rounded-modal
-                         shadow-warm-lg w-full max-w-md p-6 space-y-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-text-primary/20 z-50"
+              onClick={() => setShowAdd(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between">
-                <h2 className="font-serif text-lg font-medium">Add Person</h2>
-                <button onClick={() => setShowAdd(false)}>
-                  <X size={16} className="text-text-tertiary" />
+              <div
+                className="bg-bg-primary border border-border rounded-modal
+                           shadow-warm-lg w-full max-w-md p-6 space-y-4"
+              >
+                <div className="flex items-center justify-between">
+                  <h2 className="font-serif text-lg font-medium">Add Person</h2>
+                  <button
+                    onClick={() => setShowAdd(false)}
+                    className="p-1 rounded-card hover:bg-bg-secondary transition-warm"
+                  >
+                    <X size={16} className="text-text-tertiary" />
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Name"
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm"
+                />
+                <input
+                  type="text"
+                  value={form.affiliation}
+                  onChange={(e) =>
+                    setForm({ ...form, affiliation: e.target.value })
+                  }
+                  placeholder="Affiliation"
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm"
+                />
+                <select
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm"
+                >
+                  <option value="intellectual hero">Intellectual Hero</option>
+                  <option value="mentor">Mentor</option>
+                  <option value="peer">Peer</option>
+                  <option value="researcher">Researcher</option>
+                </select>
+                <input
+                  type="text"
+                  value={form.website_url}
+                  onChange={(e) =>
+                    setForm({ ...form, website_url: e.target.value })
+                  }
+                  placeholder="Website URL"
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm"
+                />
+                <input
+                  type="text"
+                  value={form.twitter_handle}
+                  onChange={(e) =>
+                    setForm({ ...form, twitter_handle: e.target.value })
+                  }
+                  placeholder="Twitter/X handle"
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm"
+                />
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Notes..."
+                  rows={3}
+                  className="w-full px-3 py-2.5 rounded-card border border-border
+                             bg-bg-primary text-sm outline-none focus:border-accent/30
+                             transition-warm resize-none"
+                />
+                <button
+                  onClick={addPerson}
+                  disabled={!form.name.trim()}
+                  className="w-full py-2.5 rounded-card bg-accent text-white text-sm
+                             font-medium hover:bg-accent-hover transition-warm
+                             disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Add to Milieu
                 </button>
               </div>
-
-              <input
-                type="text"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="Name"
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm"
-              />
-              <input
-                type="text"
-                value={form.affiliation}
-                onChange={(e) =>
-                  setForm({ ...form, affiliation: e.target.value })
-                }
-                placeholder="Affiliation"
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm"
-              />
-              <select
-                value={form.role}
-                onChange={(e) => setForm({ ...form, role: e.target.value })}
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm"
-              >
-                <option value="intellectual hero">Intellectual Hero</option>
-                <option value="mentor">Mentor</option>
-                <option value="peer">Peer</option>
-                <option value="researcher">Researcher</option>
-              </select>
-              <input
-                type="text"
-                value={form.website_url}
-                onChange={(e) =>
-                  setForm({ ...form, website_url: e.target.value })
-                }
-                placeholder="Website URL"
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm"
-              />
-              <input
-                type="text"
-                value={form.twitter_handle}
-                onChange={(e) =>
-                  setForm({ ...form, twitter_handle: e.target.value })
-                }
-                placeholder="Twitter/X handle"
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm"
-              />
-              <textarea
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Notes..."
-                rows={3}
-                className="w-full px-3 py-2.5 rounded-card border border-border
-                           bg-bg-primary text-sm outline-none focus:border-accent/30
-                           transition-warm resize-none"
-              />
-              <button
-                onClick={addPerson}
-                className="w-full py-2.5 rounded-card bg-accent text-white text-sm
-                           font-medium hover:bg-accent-hover transition-warm"
-              >
-                Add to Milieu
-              </button>
             </motion.div>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

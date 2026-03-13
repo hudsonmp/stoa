@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink, Trash2 } from "lucide-react";
+import { deleteItem } from "@/lib/api";
 import type { Item } from "@/lib/supabase";
 import BookSpine from "./BookSpine";
 import { Link } from "react-router-dom";
 
 interface BookshelfProps {
   books: Item[];
+  onDeleted?: () => void;
 }
 
-export default function Bookshelf({ books }: BookshelfProps) {
+export default function Bookshelf({ books, onDeleted }: BookshelfProps) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
 
   const expandedBook = expandedIdx !== null ? books[expandedIdx] : null;
@@ -109,6 +111,18 @@ export default function Bookshelf({ books }: BookshelfProps) {
                         <ExternalLink size={12} />
                       </a>
                     )}
+                    <button
+                      onClick={async () => {
+                        await deleteItem(expandedBook.id);
+                        setExpandedIdx(null);
+                        onDeleted?.();
+                      }}
+                      className="inline-flex items-center gap-1.5 text-sm text-text-tertiary
+                                 hover:text-red-500 transition-warm ml-auto"
+                    >
+                      <Trash2 size={13} />
+                      Delete
+                    </button>
                   </div>
                 </div>
               </div>

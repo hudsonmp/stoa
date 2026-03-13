@@ -202,6 +202,50 @@ async def add_item(
 
 
 @mcp.tool()
+async def log_book(title_or_isbn: str) -> dict:
+    """Log a physical book Hudson is reading. Searches Open Library for metadata.
+
+    Args:
+        title_or_isbn: Book title (e.g., "Zero to One") or ISBN
+
+    Returns:
+        The created book item with cover image and author links
+    """
+    headers = {"X-User-Id": _get_user_id(), "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Search Open Library
+        lookup_resp = await client.get(
+            f"{STOA_API}/ingest/book/lookup",
+            params={"q": title_or_isbn},
+            headers=headers,
+        )
+        results = lookup_resp.json().get("results", [])
+        if not results:
+            return {"error": f"No book found matching '{title_or_isbn}'"}
+
+        # Take the best match
+        best = results[0]
+
+        # Create book item
+        resp = await client.post(
+            f"{STOA_API}/ingest/book",
+            json={
+                "title": best["title"],
+                "authors": best["authors"],
+                "isbn": best.get("isbn"),
+                "cover_url": best.get("cover_url"),
+                "year": best.get("year"),
+                "publisher": best.get("publisher"),
+                "page_count": best.get("page_count"),
+                "subjects": best.get("subjects", []),
+                "reading_status": "reading",
+            },
+            headers=headers,
+        )
+        return resp.json()
+
+
+@mcp.tool()
 async def add_citation(
     arxiv_id: Optional[str] = None,
     doi: Optional[str] = None,
@@ -213,21 +257,39 @@ async def add_citation(
 
     Args:
         arxiv_id: arXiv paper ID (e.g., "2301.00234")
-        doi: DOI identifier
+        doi: DOI identifier (e.g., "10.1145/3544548.3581388")
         bibtex: Raw BibTeX entry
     """
+    headers = {"X-User-Id": _get_user_id(), "Content-Type": "application/json"}
     if arxiv_id:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{STOA_API}/ingest/arxiv/{arxiv_id}",
-                params={"user_id": _get_user_id()},
+                headers=headers,
+            )
+            return resp.json()
+    elif doi:
+        # Resolve DOI via citation resolver, then create item
+        async with httpx.AsyncClient(timeout=60) as client:
+            # Use the ingest endpoint with the DOI URL
+            doi_url = f"https://doi.org/{doi}"
+            resp = await client.post(
+                f"{STOA_API}/ingest",
+                json={
+                    "url": doi_url,
+                    "type": "paper",
+                    "tags": [],
+                    "person_ids": [],
+                },
+                headers=headers,
             )
             return resp.json()
     elif bibtex:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{STOA_API}/citations/import",
-                json={"bibtex": bibtex, "user_id": _get_user_id()},
+                json={"bibtex": bibtex},
+                headers=headers,
             )
             return resp.json()
     else:

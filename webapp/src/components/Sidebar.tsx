@@ -15,7 +15,7 @@ interface SidebarProps {
   counts: {
     to_read: number;
     read: number;
-    reading: number;
+    writing: number;
     total: number;
   };
   reviewDue?: number;
@@ -24,7 +24,7 @@ interface SidebarProps {
 const navItems = [
   { to: "/", label: "To Read", icon: BookOpen, countKey: "to_read" as const },
   { to: "/read", label: "Read", icon: BookCheck, countKey: "read" as const },
-  { to: "/writings", label: "Writings", icon: PenLine, countKey: "reading" as const },
+  { to: "/writings", label: "Writings", icon: PenLine, countKey: "writing" as const },
 ];
 
 const secondaryItems = [

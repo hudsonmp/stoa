@@ -69,6 +69,55 @@ async def export_bibtex(item_id: str, request: Request):
     return {"bibtex": bibtex}
 
 
+@router.post("/{item_id}/enrich")
+async def enrich_citation(item_id: str, request: Request):
+    """Resolve and populate citation metadata for an existing item."""
+    from services.citation_resolver import resolve_citation
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Verify item ownership
+    item_res = (
+        supabase.table("items")
+        .select("id, title, url, extracted_text")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_res.data
+
+    # Check if citation already exists
+    existing_cit = supabase.table("citations").select("id").eq("item_id", item_id).execute()
+    if existing_cit.data:
+        raise HTTPException(status_code=409, detail="Citation already exists for this item")
+
+    citation = await resolve_citation(
+        url=item.get("url"),
+        title=item.get("title"),
+        text=(item.get("extracted_text") or "")[:3000],
+    )
+    if not citation:
+        raise HTTPException(status_code=404, detail="Could not resolve citation metadata")
+
+    supabase.table("citations").insert({
+        "item_id": item_id,
+        "authors": citation.get("authors"),
+        "year": citation.get("year"),
+        "venue": citation.get("venue"),
+        "doi": citation.get("doi"),
+        "arxiv_id": citation.get("arxiv_id"),
+        "abstract": citation.get("abstract"),
+        "bibtex": citation.get("bibtex"),
+    }).execute()
+
+    return {"citation": citation}
+
+
 class BibTeXImportRequest(BaseModel):
     bibtex: str
 
