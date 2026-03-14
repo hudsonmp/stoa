@@ -207,98 +207,52 @@ export default function SelectionToolbar({
       className="stoa-selection-toolbar"
       style={{ top: `${position.top}px`, left: `${position.left}px` }}
     >
-      {mode === "actions" && (
-        <>
+      {/* Color dots — click to highlight immediately */}
+      <div className="stoa-st-color-row">
+        {COLORS.map((c, i) => (
           <button
-            className="stoa-st-action"
-            onClick={() => doHighlight(activeColor)}
-            title="Highlight (h)"
-          >
-            <span
-              className="stoa-st-action-dot"
-              style={{ backgroundColor: activeColorObj.solid }}
-            />
-            Highlight
-          </button>
-          <button
-            className="stoa-st-action stoa-st-action-note"
-            onClick={() => setMode("note")}
-            title="Add note (n)"
-          >
-            Note
-          </button>
-          <div className="stoa-st-color-row">
-            {COLORS.map((c, i) => (
-              <button
-                key={c.name}
-                className={`stoa-st-dot${activeColor === c.name ? " active" : ""}`}
-                style={{ backgroundColor: c.solid }}
-                onClick={() => {
-                  setActiveColor(c.name);
-                  doHighlight(c.name);
-                }}
-                title={`${c.name} (${i + 1})`}
-              />
-            ))}
-          </div>
-          <span className="stoa-st-hint">h / n</span>
-        </>
-      )}
+            key={c.name}
+            className={`stoa-st-dot${activeColor === c.name ? " active" : ""}`}
+            style={{ backgroundColor: c.solid }}
+            onClick={() => {
+              setActiveColor(c.name);
+              doHighlight(c.name);
+            }}
+            title={`${c.name} (${i + 1})`}
+          />
+        ))}
+      </div>
 
-      {mode === "note" && (
-        <div className="stoa-st-note-row">
-          <input
-            ref={noteInputRef}
-            type="text"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="What does this make you think?"
-            className="stoa-st-note-input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleNoteFirstSave();
-              if (e.key === "Escape") {
-                setMode("actions");
-                setNoteText("");
+      {/* Note input — always visible below colors */}
+      <div className="stoa-st-note-row">
+        <input
+          ref={noteInputRef}
+          type="text"
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder={mode === "prompted" ? "Add a thought..." : "Note (optional)"}
+          className="stoa-st-note-input"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              if (mode === "prompted") {
+                handlePromptedSave();
+              } else {
+                handleNoteFirstSave();
               }
-            }}
-          />
-          <div className="stoa-st-note-colors">
-            {COLORS.map((c) => (
-              <button
-                key={c.name}
-                className="stoa-st-dot"
-                style={{ backgroundColor: c.solid }}
-                onClick={() => handleNoteFirstSave(c.name)}
-                title={`Save with ${c.name}`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {mode === "prompted" && (
-        <div className="stoa-st-note-row">
-          <input
-            ref={noteInputRef}
-            type="text"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="What does this make you think?"
-            className="stoa-st-note-input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handlePromptedSave();
-              if (e.key === "Escape") dismiss();
-            }}
-          />
+            }
+            if (e.key === "Escape") dismiss();
+          }}
+        />
+        {mode === "prompted" && (
           <button
             className="stoa-st-skip"
             onClick={dismiss}
             title="Skip (Esc)"
           >
-            skip
+            ✓
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

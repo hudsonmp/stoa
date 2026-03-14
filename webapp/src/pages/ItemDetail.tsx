@@ -86,12 +86,8 @@ export default function ItemDetail() {
     }
   }, [item]);
 
-  // Auto-enter PDF mode for papers with embeddable PDFs
-  useEffect(() => {
-    if (item?.type === "paper" && getPdfEmbedUrl(item)) {
-      setPdfMode(true);
-    }
-  }, [item]);
+  // Papers default to Annotate view (not PDF) when extracted text is available
+  // PDF mode is a manual toggle for when users want the original layout
 
   const loadItem = async () => {
     setLoading(true);
