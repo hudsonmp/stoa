@@ -5,6 +5,7 @@ import {
   PenLine,
   Users,
   FolderOpen,
+  FileText,
   Search,
   RotateCcw,
   LogOut,
@@ -28,6 +29,7 @@ const navItems = [
 ];
 
 const secondaryItems = [
+  { to: "/papers", label: "Papers", icon: FileText },
   { to: "/people", label: "People", icon: Users },
   { to: "/collections", label: "Collections", icon: FolderOpen },
 ];

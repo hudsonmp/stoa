@@ -60,42 +60,93 @@ async function detectPageInfo() {
   // Auto-detect type from URL
   const url = tab.url || "";
   const typeSelect = document.getElementById("type-select");
-  if (url.includes("arxiv.org")) typeSelect.value = "paper";
-  else if (url.includes("youtube.com") || url.includes("youtu.be")) typeSelect.value = "video";
-  else if (url.includes("twitter.com") || url.includes("x.com")) typeSelect.value = "tweet";
-  else if (url.includes("podcasts.apple.com") || url.includes("open.spotify.com/episode")) typeSelect.value = "podcast";
+  const PAPER_HOSTS = [
+    "arxiv.org", "dl.acm.org", "link.springer.com", "ieeexplore.ieee.org",
+    "aclanthology.org", "openreview.net", "proceedings.mlr.press",
+    "papers.nips.cc", "semanticscholar.org", "nature.com", "science.org",
+    "biorxiv.org", "medrxiv.org",
+  ];
+  try {
+    const host = new URL(url).hostname;
+    if (PAPER_HOSTS.some((d) => host.endsWith(d)) || url.endsWith(".pdf")) {
+      typeSelect.value = "paper";
+    } else if (url.includes("youtube.com") || url.includes("youtu.be")) {
+      typeSelect.value = "video";
+    } else if (url.includes("twitter.com") || url.includes("x.com")) {
+      typeSelect.value = "tweet";
+    } else if (url.includes("podcasts.apple.com") || url.includes("open.spotify.com/episode")) {
+      typeSelect.value = "podcast";
+    }
+  } catch {}
 }
 
-// --- Check if current page is saved ---
+// --- Check if current page is saved (verifies against backend) ---
 async function checkIfSaved() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
 
   const statusEl = document.getElementById("status");
-  const key = `saved:${tab.url}`;
-  const stored = await chrome.storage.local.get([key, `saved_item_id:${tab.url}`]);
 
-  if (stored[key]) {
-    statusEl.className = "status saved";
-    const itemId = stored[`saved_item_id:${tab.url}`];
-    if (itemId) {
-      statusEl.innerHTML = "";
-      const checkmark = document.createTextNode("Saved \u2713 ");
-      statusEl.appendChild(checkmark);
-      const link = document.createElement("a");
-      link.href = `${stoaWebapp}/item/${itemId}`;
-      link.textContent = "View in Stoa";
-      link.addEventListener("click", (e) => {
-        e.preventDefault();
-        chrome.tabs.create({ url: link.href });
-      });
-      statusEl.appendChild(link);
-    } else {
-      statusEl.textContent = "Saved \u2713";
+  // Always verify against the backend API
+  try {
+    const config = await chrome.storage.local.get(["stoa_api_url", "stoa_user_id", "stoa_token"]);
+    const apiUrl = config.stoa_api_url || "http://localhost:8000";
+    const headers = { "Content-Type": "application/json" };
+    if (config.stoa_token) headers["Authorization"] = `Bearer ${config.stoa_token}`;
+    else if (config.stoa_user_id) headers["X-User-Id"] = config.stoa_user_id;
+
+    const resp = await fetch(
+      `${apiUrl}/items/by-url?url=${encodeURIComponent(tab.url)}`,
+      { headers }
+    );
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.item) {
+        showSavedState(statusEl, data.item.id);
+        // Sync local cache
+        await chrome.storage.local.set({
+          [`saved:${tab.url}`]: true,
+          [`saved_item_id:${tab.url}`]: data.item.id,
+        });
+        return;
+      }
     }
-    document.getElementById("save-btn").textContent = "Saved \u2713";
-    document.getElementById("save-btn").disabled = true;
+  } catch {
+    // Backend unreachable — fall back to local cache
+    const key = `saved:${tab.url}`;
+    const stored = await chrome.storage.local.get([key, `saved_item_id:${tab.url}`]);
+    if (stored[key]) {
+      showSavedState(statusEl, stored[`saved_item_id:${tab.url}`]);
+      return;
+    }
   }
+
+  // Not saved — clear stale local cache
+  await chrome.storage.local.remove([`saved:${tab.url}`, `saved_item_id:${tab.url}`]);
+  statusEl.className = "status unsaved";
+  statusEl.textContent = "Not saved";
+  document.getElementById("save-btn").textContent = "Save Page";
+  document.getElementById("save-btn").disabled = false;
+}
+
+function showSavedState(statusEl, itemId) {
+  statusEl.className = "status saved";
+  statusEl.innerHTML = "";
+  const checkmark = document.createTextNode("Saved \u2713 ");
+  statusEl.appendChild(checkmark);
+  if (itemId) {
+    const link = document.createElement("a");
+    link.href = `${stoaWebapp}/item/${itemId}`;
+    link.textContent = "View in Stoa";
+    link.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: link.href });
+    });
+    statusEl.appendChild(link);
+  }
+  document.getElementById("save-btn").textContent = "Saved \u2713";
+  document.getElementById("save-btn").disabled = true;
 }
 
 // --- Save Page ---
@@ -159,6 +210,52 @@ document.getElementById("save-btn").addEventListener("click", async () => {
         statusEl.textContent = "Failed to save";
         saveBtn.disabled = false;
         saveBtn.textContent = "Save Page";
+      }
+    }
+  );
+});
+
+// --- Save as Paper ---
+document.getElementById("save-paper-btn").addEventListener("click", async () => {
+  const stored = await chrome.storage.local.get("stoa_user_id");
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !stored.stoa_user_id) return;
+
+  const statusEl = document.getElementById("status");
+  const paperBtn = document.getElementById("save-paper-btn");
+
+  statusEl.className = "status saving";
+  statusEl.textContent = "Saving to papers...";
+  paperBtn.disabled = true;
+  paperBtn.textContent = "Saving...";
+
+  chrome.runtime.sendMessage(
+    {
+      type: "SAVE_PAGE",
+      payload: {
+        url: tab.url,
+        user_id: stored.stoa_user_id,
+        type: "paper",
+        tags: [...tags],
+      },
+    },
+    (response) => {
+      if (response?.success) {
+        const itemId = response.item?.id;
+        showSavedState(statusEl, itemId);
+        paperBtn.textContent = "Saved to papers \u2713";
+
+        const saveData = { [`saved:${tab.url}`]: true };
+        if (itemId) saveData[`saved_item_id:${tab.url}`] = itemId;
+        chrome.storage.local.set(saveData);
+
+        document.getElementById("save-btn").textContent = "Saved \u2713";
+        document.getElementById("save-btn").disabled = true;
+      } else {
+        statusEl.className = "status unsaved";
+        statusEl.textContent = "Failed to save";
+        paperBtn.disabled = false;
+        paperBtn.textContent = "Save to Paper Library";
       }
     }
   );

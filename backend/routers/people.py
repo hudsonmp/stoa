@@ -14,6 +14,7 @@ class CreatePersonRequest(BaseModel):
     name: str
     affiliation: Optional[str] = None
     role: str = "intellectual hero"
+    email: Optional[str] = None
     website_url: Optional[str] = None
     twitter_handle: Optional[str] = None
     notes: Optional[str] = None

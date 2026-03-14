@@ -21,7 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight } from "@/lib/api";
+import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
@@ -50,6 +50,7 @@ export default function ItemDetail() {
   const [noteContent, setNoteContent] = useState("");
   const [highlightPanelOpen, setHighlightPanelOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
+  const [pdfMode, setPdfMode] = useState(false);
 
   // Inline editing state
   const [editingHighlightNote, setEditingHighlightNote] = useState<string | null>(null);
@@ -74,10 +75,19 @@ export default function ItemDetail() {
     loadItem();
   }, [id]);
 
+  const pdfUrl = item ? getPdfEmbedUrl(item) : null;
+
   // Auto-enter reader mode if there's extracted text
   useEffect(() => {
     if (item?.extracted_text && item.extracted_text.length > 200) {
       setReaderMode(true);
+    }
+  }, [item]);
+
+  // Auto-enter PDF mode for papers with embeddable PDFs
+  useEffect(() => {
+    if (item?.type === "paper" && getPdfEmbedUrl(item)) {
+      setPdfMode(true);
     }
   }, [item]);
 
@@ -140,9 +150,10 @@ export default function ItemDetail() {
 
   const saveNote = async () => {
     if (!noteContent.trim() || !item) return;
-    await createNote({ item_id: item.id, content: noteContent });
+    const result = await createNote({ item_id: item.id, content: noteContent });
+    const newNote = (result as { note: Note }).note;
+    setNotes((prev) => [newNote, ...prev]);
     setNoteContent("");
-    loadItem();
   };
 
   const updateStatus = async (status: Item["reading_status"]) => {
@@ -283,15 +294,33 @@ export default function ItemDetail() {
         </Link>
 
         <div className="reader-topbar-actions">
-          {item.extracted_text && (
+          {/* View mode switcher */}
+          <div className="flex gap-1 bg-bg-secondary rounded-card p-0.5">
             <button
-              onClick={() => setReaderMode(!readerMode)}
-              className={`reader-mode-toggle ${readerMode ? "active" : ""}`}
+              onClick={() => { setPdfMode(false); setReaderMode(false); }}
+              className={`reader-mode-toggle ${!pdfMode && !readerMode ? "active" : ""}`}
             >
-              <BookOpen size={14} />
-              {readerMode ? "Detail view" : "Reader view"}
+              Detail
             </button>
-          )}
+            {item.extracted_text && (
+              <button
+                onClick={() => { setPdfMode(false); setReaderMode(true); }}
+                className={`reader-mode-toggle ${!pdfMode && readerMode ? "active" : ""}`}
+              >
+                <Highlighter size={13} />
+                Annotate
+              </button>
+            )}
+            {pdfUrl && (
+              <button
+                onClick={() => { setPdfMode(true); setReaderMode(false); }}
+                className={`reader-mode-toggle ${pdfMode ? "active" : ""}`}
+              >
+                <FileText size={13} />
+                PDF
+              </button>
+            )}
+          </div>
 
           {highlights.length > 0 && (
             <button
@@ -432,8 +461,20 @@ export default function ItemDetail() {
             </div>
           </header>
 
+          {/* PDF embed mode */}
+          {pdfMode && pdfUrl && (
+            <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "80vh" }}>
+              <iframe
+                src={pdfUrl}
+                title={`${item.title} PDF`}
+                className="w-full h-full"
+                style={{ border: "none" }}
+              />
+            </div>
+          )}
+
           {/* Reader mode or detail view */}
-          {readerMode && item.extracted_text ? (
+          {!pdfMode && readerMode && item.extracted_text ? (
             <ReaderView
               item={item}
               highlights={highlights}
@@ -442,7 +483,7 @@ export default function ItemDetail() {
               onCreateHighlight={handleCreateHighlight}
               onNoteForLastHighlight={handleNoteForLastHighlight}
             />
-          ) : (
+          ) : !pdfMode ? (
             <>
               {citation && (
                 <div className="reader-detail-citation">
@@ -473,7 +514,7 @@ export default function ItemDetail() {
                 </section>
               )}
             </>
-          )}
+          ) : null}
 
           {/* Related items */}
           {relatedItems.length > 0 && (

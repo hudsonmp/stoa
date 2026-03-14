@@ -49,6 +49,31 @@ class IngestBookRequest(BaseModel):
     reading_status: str = "to_read"
 
 
+import re
+
+# Domains that should auto-classify as "paper"
+PAPER_DOMAINS = {
+    "arxiv.org", "dl.acm.org", "link.springer.com", "ieeexplore.ieee.org",
+    "aclanthology.org", "openreview.net", "proceedings.mlr.press",
+    "papers.nips.cc", "semanticscholar.org", "scholar.google.com",
+    "nature.com", "science.org", "biorxiv.org", "medrxiv.org",
+}
+
+def _extract_arxiv_id(url: str) -> str | None:
+    """Extract arXiv ID from various URL formats."""
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)", url)
+    return m.group(1) if m else None
+
+def _is_paper_url(url: str) -> bool:
+    """Check if URL is from a known academic paper domain."""
+    from urllib.parse import urlparse
+    try:
+        host = urlparse(url).hostname or ""
+        return any(host.endswith(d) for d in PAPER_DOMAINS)
+    except Exception:
+        return False
+
+
 @router.post("")
 async def ingest_url(req: IngestURLRequest, request: Request):
     """Extract content from URL, chunk, embed, and store."""
@@ -57,6 +82,15 @@ async def ingest_url(req: IngestURLRequest, request: Request):
 
     # Validate URL against SSRF
     validate_url(req.url)
+
+    # Auto-detect arXiv URLs and delegate to the arXiv pipeline
+    arxiv_id = _extract_arxiv_id(req.url)
+    if arxiv_id:
+        return await ingest_arxiv(arxiv_id, request)
+
+    # Auto-classify paper URLs
+    if req.type in ("blog", "page") and _is_paper_url(req.url):
+        req.type = "paper"
 
     # Check for duplicate: return existing item if URL already saved
     existing = (
@@ -190,7 +224,13 @@ async def ingest_pdf(
     if not safe_filename:
         safe_filename = f"{_uuid.uuid4().hex}.pdf"
     storage_path = f"{user_id}/pdfs/{safe_filename}"
-    supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+    try:
+        supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+    except Exception:
+        try:
+            supabase.storage.from_("documents").update(storage_path, pdf_bytes)
+        except Exception:
+            logger.warning("PDF storage failed for %s, continuing", storage_path)
 
     item_data = {
         "user_id": user_id,
@@ -258,16 +298,23 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
     if existing.data:
         return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
-    # Download PDF
-    async with httpx.AsyncClient(timeout=60) as client:
+    # Download PDF (follow_redirects required for arXiv)
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
         pdf_resp = await client.get(meta["pdf_url"])
         pdf_bytes = pdf_resp.content
 
     extracted = extract_from_pdf(pdf_bytes)
 
-    # Upload PDF to storage
+    # Upload PDF to storage (upsert to handle re-saves)
     storage_path = f"{user_id}/pdfs/arxiv_{meta['arxiv_id']}.pdf"
-    supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+    try:
+        supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+    except Exception:
+        # File already exists — update instead
+        try:
+            supabase.storage.from_("documents").update(storage_path, pdf_bytes)
+        except Exception:
+            logger.warning("PDF storage failed for %s, continuing", storage_path)
 
     # Create item
     item_data = {
@@ -318,10 +365,14 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
             "relation": "authored",
         }).execute()
 
-    # Chunk and embed
-    chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
-    if chunks:
-        supabase.table("chunks").insert(chunks).execute()
+    # Chunk and embed (non-fatal — paper is still saved without embeddings)
+    chunks = []
+    try:
+        chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
+    except Exception:
+        logger.warning("Embedding failed for arXiv %s, paper saved without chunks", arxiv_id, exc_info=True)
 
     return {"item": item, "citation": citation_data, "chunks_created": len(chunks)}
 

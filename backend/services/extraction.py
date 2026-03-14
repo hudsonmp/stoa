@@ -94,23 +94,29 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict:
 
     api_url = f"http://export.arxiv.org/api/query?id_list={clean_id}"
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         resp = await client.get(api_url)
 
     xml = resp.text
+    print(f"[arXiv DEBUG] response length: {len(xml)}, has <entry>: {'<entry>' in xml}")
 
     def extract_tag(tag: str, text: str) -> str | None:
         match = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", text, re.DOTALL)
         return match.group(1).strip() if match else None
 
-    title = extract_tag("title", xml)
-    summary = extract_tag("summary", xml)
+    # Extract from <entry> block to avoid matching feed-level tags
+    entry_match = re.search(r"<entry>(.*?)</entry>", xml, re.DOTALL)
+    entry_xml = entry_match.group(1) if entry_match else xml
 
-    # Extract authors
-    authors = re.findall(r"<name>(.*?)</name>", xml)
+    title = extract_tag("title", entry_xml)
+    summary = extract_tag("summary", entry_xml)
+    print(f"[arXiv DEBUG] title: {repr(title)}, entry_xml length: {len(entry_xml)}")
 
-    # Extract published date
-    published = extract_tag("published", xml)
+    # Extract authors from entry
+    authors = re.findall(r"<name>(.*?)</name>", entry_xml)
+
+    # Extract published date from entry
+    published = extract_tag("published", entry_xml)
     year = int(published[:4]) if published else None
 
     # PDF URL

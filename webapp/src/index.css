@@ -941,6 +941,7 @@ mark.stoa-hl-active {
 
 /* Body text — the core reading typography */
 .reader-view > .reader-body {
+  display: block;
   font-family: "Newsreader", Georgia, serif;
   font-size: 1.125rem;
   line-height: 1.75;

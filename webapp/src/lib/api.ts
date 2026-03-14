@@ -45,6 +45,63 @@ export async function ingestArxiv(arxivId: string) {
   return apiFetch(`/ingest/arxiv/${arxivId}`, { method: "POST" });
 }
 
+export async function ingestPdf(file: File, title?: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (title) formData.append("title", title);
+
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    const userId = localStorage.getItem("stoa_user_id");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    else if (userId) h["X-User-Id"] = userId;
+  }
+
+  const res = await fetch(`${API_URL}/ingest/pdf`, {
+    method: "POST",
+    headers: h,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json() as Promise<{ item: unknown; chunks_created: number; citation: unknown }>;
+}
+
+/**
+ * Derive an embeddable PDF URL from an item's URL.
+ * Returns null if no PDF can be derived.
+ */
+export function getPdfEmbedUrl(item: { url?: string; metadata?: Record<string, unknown> }): string | null {
+  // Check for stored PDF path in metadata
+  const storagePath = item.metadata?.pdf_storage_path as string | undefined;
+  if (storagePath) {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (supabaseUrl) {
+      return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
+    }
+  }
+
+  const url = item.url;
+  if (!url) return null;
+
+  // Direct PDF link
+  if (url.endsWith(".pdf")) return url;
+
+  // arXiv: abs → pdf
+  const arxivAbs = url.match(/arxiv\.org\/abs\/([^\s?#]+)/);
+  if (arxivAbs) return `https://arxiv.org/pdf/${arxivAbs[1]}.pdf`;
+
+  // arXiv: already a pdf link
+  if (url.includes("arxiv.org/pdf/")) return url;
+
+  // OpenReview: forum → pdf
+  const orMatch = url.match(/openreview\.net\/forum\?id=([^\s&#]+)/);
+  if (orMatch) return `https://openreview.net/pdf?id=${orMatch[1]}`;
+
+  return null;
+}
+
 export async function search(data: {
   query: string;
   type?: string;

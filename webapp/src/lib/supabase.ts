@@ -16,6 +16,7 @@ export interface Person {
   user_id: string;
   name: string;
   bio?: string;
+  email?: string;
   website_url?: string;
   twitter_handle?: string;
   avatar_url?: string;

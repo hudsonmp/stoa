@@ -8,67 +8,47 @@ interface BookSpineProps {
   onToggle: () => void;
 }
 
-const SPINE_COLORS = [
-  "#2C3930", "#4A3728", "#1B3A4B", "#3D2B1F",
-  "#2D3436", "#523A28", "#1A332E", "#4B3621",
-  "#2E2118", "#354F52", "#3C1518", "#2C3E50",
-];
-
-// 6 page layers for ruffle effect
-const PAGES = [0, 1, 2, 3, 4, 5];
-
-// Page cream tones — subtle variation for realism
-const PAGE_TONES = [
-  "#ede9e0", "#f0ece4", "#eee9e1", "#f2efe7", "#efebe3", "#f1ede5",
-];
-
 export default function BookSpine({
   book,
   index,
   isExpanded,
   onToggle,
 }: BookSpineProps) {
-  const spineColor =
-    book.spine_color || SPINE_COLORS[index % SPINE_COLORS.length];
+  const spineColor = book.spine_color || "#2C3930";
   const textColor = book.text_color || "#E8E4DC";
 
   return (
     <motion.button
       onClick={onToggle}
       className="outline-none flex-shrink-0 relative"
-      style={{ height: 230 }}
+      style={{ height: 230, perspective: 800, transformStyle: "preserve-3d" as const }}
       layout
-      animate={{ width: isExpanded ? 172 : 42 }}
-      transition={{ type: "spring", stiffness: 200, damping: 24, mass: 0.8 }}
+      animate={{ width: isExpanded ? 200 : 42 }}
+      transition={{ type: "spring", stiffness: 180, damping: 22, mass: 0.8 }}
       aria-label={`${book.title}${isExpanded ? " (expanded)" : ""}`}
     >
-      {/*
-       * Book body — single motion.div for the pull-out + turn.
-       * translateY pulls the book up from the shelf.
-       * translateZ brings it forward toward the viewer.
-       * rotateX adds a subtle forward tilt as if grasped from above.
-       * These three properties animate simultaneously with overlapping
-       * ease curves to create the "one fluid motion" feel.
-       */}
+      {/* Book body — pull off shelf toward viewer */}
       <motion.div
         style={{
           position: "absolute",
           left: 0,
           bottom: 0,
-          width: 172,
+          width: 200,
           height: 220,
           transformStyle: "preserve-3d",
-          transformOrigin: "left bottom",
+          transformOrigin: "center bottom",
         }}
         animate={{
-          y: isExpanded ? -24 : 0,
-          z: isExpanded ? 35 : 0,
-          rotateX: isExpanded ? -2 : 0,
+          y: isExpanded ? -40 : 0,
+          z: isExpanded ? 60 : 0,
+          rotateX: isExpanded ? -5 : 0,
+          scale: isExpanded ? 1.05 : 1,
         }}
         transition={{
-          y: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-          z: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
-          rotateX: { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+          type: "spring",
+          stiffness: 120,
+          damping: 16,
+          mass: 0.7,
         }}
       >
         {/* ── Spine face ── */}
@@ -83,18 +63,16 @@ export default function BookSpine({
             transformStyle: "preserve-3d",
             borderRadius: "2px 0 0 2px",
           }}
-          animate={{
-            rotateY: isExpanded ? -60 : 0,
-          }}
+          animate={{ rotateY: isExpanded ? -75 : 0 }}
           transition={{
-            rotateY: {
-              duration: 0.55,
-              delay: 0.12, // starts after pull-up is underway
-              ease: [0.22, 1, 0.36, 1],
-            },
+            type: "spring",
+            stiffness: 100,
+            damping: 14,
+            mass: 0.6,
+            delay: 0.1,
           }}
         >
-          {/* Paper texture overlay */}
+          {/* Paper texture */}
           <div
             className="absolute inset-0 opacity-[0.07] pointer-events-none"
             style={{
@@ -103,35 +81,16 @@ export default function BookSpine({
               mixBlendMode: "overlay",
             }}
           />
-
-          {/* Left highlight edge */}
           <div
             className="absolute left-0 top-0 bottom-0 w-[1px]"
-            style={{
-              background: `linear-gradient(to bottom, ${textColor}20, ${textColor}05)`,
-            }}
+            style={{ background: `linear-gradient(to bottom, ${textColor}20, ${textColor}05)` }}
           />
-          {/* Right shadow edge */}
           <div
             className="absolute right-0 top-0 bottom-0 w-[1px]"
-            style={{
-              background:
-                "linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.05))",
-            }}
+            style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.05))" }}
           />
-
-          {/* Top cap */}
-          <div
-            className="absolute top-0 left-0 right-0 h-[2px]"
-            style={{
-              background: `linear-gradient(to bottom, ${textColor}10, transparent)`,
-            }}
-          />
-
-          {/* Title text rotated on spine */}
           <span
-            className="mt-4 text-[11px] font-medium select-none
-                       overflow-hidden text-ellipsis whitespace-nowrap tracking-wide"
+            className="mt-4 text-[11px] font-medium select-none overflow-hidden text-ellipsis whitespace-nowrap tracking-wide"
             style={{
               writingMode: "vertical-rl",
               maxHeight: 196,
@@ -143,91 +102,77 @@ export default function BookSpine({
           </span>
         </motion.div>
 
-        {/* ── Page ruffle layers ──
-         * 6 thin layers between spine and cover. On expand:
-         *   keyframes: [86°, peakFan, settle]
-         *   - Start at 86° (edge-on, invisible)
-         *   - Fan to peakFan (visible, cascading outward)
-         *   - Settle near 80° (stacked, slight splay)
-         * Inner pages (low index) fan MORE and earlier.
-         * Staggered delay creates the ruffle cascade.
-         */}
-        {PAGES.map((i) => {
-          const peakFan = 25 + i * 9;   // inner pages fan wider
-          const settle = 76 + i * 1.5;  // settle close together
-          return (
-            <motion.div
-              key={i}
-              style={{
-                position: "absolute",
-                left: 42,
-                top: 1 + i * 0.4,
-                width: 127,
-                height: 218 - i * 0.8,
-                background: `linear-gradient(to right,
-                  ${PAGE_TONES[i]} 0%,
-                  #f8f6f1 100%)`,
-                transformOrigin: "left center",
-                transformStyle: "preserve-3d",
-                borderRadius: "0 1px 1px 0",
-                boxShadow: i === 0
-                  ? "inset 1px 0 2px rgba(0,0,0,0.06)"
-                  : "inset 0 0 0 0.5px rgba(0,0,0,0.03)",
-              }}
-              animate={{
-                rotateY: isExpanded ? [86, peakFan, settle] : 86,
-              }}
-              transition={{
-                duration: 0.7,
-                delay: isExpanded ? 0.15 + i * 0.04 : 0.02 * i,
-                ease: [0.22, 1, 0.36, 1],
-                times: isExpanded ? [0, 0.5, 1] : undefined,
-              }}
-            />
-          );
-        })}
+        {/* ── Page layers with spring flutter ── */}
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <motion.div
+            key={`page-${i}`}
+            style={{
+              position: "absolute",
+              left: 42,
+              top: 1 + i * 0.4,
+              width: 155,
+              height: 218 - i * 0.8,
+              background: `linear-gradient(to right, #ede9e0 0%, #f8f6f1 100%)`,
+              transformOrigin: "left center",
+              transformStyle: "preserve-3d",
+              borderRadius: "0 1px 1px 0",
+              boxShadow: i === 0
+                ? "inset 1px 0 2px rgba(0,0,0,0.06)"
+                : "inset 0 0 0 0.5px rgba(0,0,0,0.03)",
+            }}
+            animate={{ rotateY: isExpanded ? (72 + i * 1.5) : 86 }}
+            transition={
+              isExpanded
+                ? {
+                    type: "spring",
+                    stiffness: 80 + i * 25,
+                    damping: 5 + i * 3,
+                    mass: 0.4 + i * 0.1,
+                    delay: 0.12 + i * 0.04,
+                  }
+                : {
+                    duration: 0.3,
+                    delay: 0.02 * (5 - i),
+                    ease: [0.22, 1, 0.36, 1] as const,
+                  }
+            }
+          />
+        ))}
 
-        {/* ── Cover face ── */}
+        {/* ── Cover face — swings open like a real book ── */}
         <motion.div
           className="absolute overflow-hidden"
           style={{
             left: 42,
             top: 0,
-            width: 130,
+            width: 155,
             height: 220,
             transformOrigin: "left center",
             transformStyle: "preserve-3d",
             borderRadius: "0 2px 2px 0",
           }}
           animate={{
-            rotateY: isExpanded ? 0 : 86,
+            rotateY: isExpanded ? -10 : 86,
             opacity: isExpanded ? 1 : 0,
           }}
           transition={{
             rotateY: {
-              duration: 0.55,
-              delay: isExpanded ? 0.18 : 0,
-              ease: [0.22, 1, 0.36, 1],
+              type: "spring",
+              stiffness: 90,
+              damping: 14,
+              mass: 0.8,
+              delay: 0.15,
             },
-            opacity: {
-              duration: 0.2,
-              delay: isExpanded ? 0.28 : 0,
-            },
+            opacity: { duration: 0.15, delay: isExpanded ? 0.2 : 0 },
           }}
         >
-          {/* Page edge lines (left edge of cover) */}
+          {/* Edge line detail */}
           <div
             className="absolute inset-0 z-10 pointer-events-none"
             style={{
               background: `linear-gradient(to right,
-                rgba(255,255,255,0) 0px,
-                rgba(255,255,255,0.4) 1px,
-                rgba(255,255,255,0.15) 3px,
-                transparent 5px,
-                transparent 7px,
-                rgba(255,255,255,0.1) 8px,
-                transparent 10px
-              )`,
+                rgba(255,255,255,0) 0px, rgba(255,255,255,0.4) 1px,
+                rgba(255,255,255,0.15) 3px, transparent 5px)`,
             }}
           />
 
@@ -240,8 +185,7 @@ export default function BookSpine({
             />
           ) : (
             <div
-              className="w-full h-full flex flex-col items-center justify-center
-                         p-4 text-center"
+              className="w-full h-full flex flex-col items-center justify-center p-4 text-center"
               style={{ backgroundColor: spineColor, color: textColor }}
             >
               <span className="text-xs font-serif leading-snug opacity-80">
@@ -252,18 +196,22 @@ export default function BookSpine({
         </motion.div>
       </motion.div>
 
-      {/* Shadow underneath — grows when book lifts off shelf */}
+      {/* Shadow — intensifies as book lifts off shelf */}
       <motion.div
-        className="absolute -bottom-2 left-1 right-1 h-4 pointer-events-none"
+        className="absolute -bottom-2 left-1 right-1 h-5 pointer-events-none"
         animate={{
-          opacity: isExpanded ? 0.5 : 0.15,
-          scaleX: isExpanded ? 1.15 : 1,
-          y: isExpanded ? 4 : 0,
+          opacity: isExpanded ? 0.6 : 0.15,
+          scaleX: isExpanded ? 1.3 : 1,
+          scaleY: isExpanded ? 1.5 : 1,
+          y: isExpanded ? 6 : 0,
         }}
-        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        transition={{
+          type: "spring",
+          stiffness: 120,
+          damping: 18,
+        }}
         style={{
-          background:
-            "radial-gradient(ellipse at center, rgba(0,0,0,0.35) 0%, transparent 70%)",
+          background: "radial-gradient(ellipse at center, rgba(0,0,0,0.4) 0%, transparent 70%)",
           transformOrigin: "center bottom",
         }}
       />

@@ -102,18 +102,36 @@ async function handleGetScroll(data) {
   return { scroll_position: stored[key] || null };
 }
 
+// --- Auto-detect type from URL ---
+const PAPER_DOMAINS = [
+  "arxiv.org", "dl.acm.org", "link.springer.com", "ieeexplore.ieee.org",
+  "aclanthology.org", "openreview.net", "proceedings.mlr.press",
+  "papers.nips.cc", "semanticscholar.org", "scholar.google.com",
+  "nature.com", "science.org", "biorxiv.org", "medrxiv.org",
+];
+
+function detectType(url, fallback = "blog") {
+  try {
+    const host = new URL(url).hostname;
+    if (PAPER_DOMAINS.some((d) => host.endsWith(d))) return "paper";
+  } catch {}
+  if (url.endsWith(".pdf")) return "paper";
+  return fallback;
+}
+
 // --- Page Save (with auth headers) ---
 async function handleSavePage(data) {
   try {
     const config = await getConfig();
     const headers = buildAuthHeaders(config);
+    const type = data.type || detectType(data.url);
 
     const resp = await fetch(`${config.apiUrl}/ingest`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         url: data.url,
-        type: data.type || "blog",
+        type,
         tags: data.tags || [],
       }),
     });
@@ -190,7 +208,7 @@ async function saveCurrentTabGroup() {
         headers,
         body: JSON.stringify({
           url: tab.url,
-          type: "page",
+          type: detectType(tab.url, "page"),
           tags: [`tab-group:${groupName}`],
         }),
       });
@@ -293,7 +311,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 
     const result = await handleSavePage({
       url: tab.url,
-      type: "blog",
+      type: detectType(tab.url),
     });
 
     // Flash badge briefly to confirm
@@ -333,8 +351,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!config.userId) return;
 
   if (info.menuItemId === "stoa-save-page") {
-    handleSavePage({ url: tab.url, type: "blog" });
+    handleSavePage({ url: tab.url, type: detectType(tab.url) });
   } else if (info.menuItemId === "stoa-save-link") {
-    handleSavePage({ url: info.linkUrl, type: "blog" });
+    handleSavePage({ url: info.linkUrl, type: detectType(info.linkUrl) });
   }
 });

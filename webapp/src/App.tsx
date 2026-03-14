@@ -9,6 +9,7 @@ import ItemDetail from "@/pages/ItemDetail";
 import Search from "@/pages/Search";
 import Review from "@/pages/Review";
 import Collections from "@/pages/Collections";
+import Papers from "@/pages/Papers";
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
               <Route path="/item/:id" element={<ItemDetail />} />
               <Route path="/search" element={<Search />} />
               <Route path="/review" element={<Review />} />
+              <Route path="/papers" element={<Papers />} />
               <Route path="/collections" element={<Collections />} />
             </Route>
           </Routes>
