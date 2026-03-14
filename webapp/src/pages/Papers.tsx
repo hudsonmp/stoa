@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import type { Item } from "@/lib/supabase";
 import ItemRow from "@/components/ItemRow";
 import { ingestUrl, ingestPdf } from "@/lib/api";
+import { useItems } from "@/hooks/useItems";
 
 /** Known academic sources → display label */
 const SOURCE_LABELS: Record<string, string> = {
@@ -35,25 +35,9 @@ function getSourceLabel(key: string): string {
 }
 
 export default function Papers() {
-  const [papers, setPapers] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items: papers, loading, reload } = useItems(undefined, "paper");
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-
-  useEffect(() => {
-    loadPapers();
-  }, []);
-
-  const loadPapers = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from("items")
-      .select("*")
-      .eq("type", "paper")
-      .order("created_at", { ascending: false });
-    setPapers((data as Item[]) || []);
-    setLoading(false);
-  };
 
   const grouped = useMemo(() => {
     const groups: Record<string, Item[]> = {};
@@ -170,7 +154,7 @@ export default function Papers() {
                   key={item.id}
                   item={item}
                   index={i}
-                  onDeleted={loadPapers}
+                  onDeleted={reload}
                 />
               ))}
             </div>
@@ -184,7 +168,7 @@ export default function Papers() {
           onClose={() => setShowAdd(false)}
           onAdded={() => {
             setShowAdd(false);
-            loadPapers();
+            reload();
           }}
         />
       )}
