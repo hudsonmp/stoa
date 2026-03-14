@@ -233,6 +233,59 @@ async def get_item_tags(item_id: str, request: Request):
     return {"tags": tags}
 
 
+@router.post("/{item_id}/re-extract")
+async def re_extract_item(item_id: str, request: Request):
+    """Re-extract content for an item using the latest extraction pipeline.
+    For papers with stored PDFs, re-runs pymupdf4llm markdown extraction."""
+    import httpx
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_res.data
+    url = item.get("url", "")
+
+    # For arXiv papers: download PDF and re-extract
+    import re
+    arxiv_match = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)", url)
+    if arxiv_match:
+        arxiv_id = arxiv_match.group(1)
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            pdf_resp = await client.get(pdf_url)
+            pdf_bytes = pdf_resp.content
+
+        from services.extraction import extract_from_pdf
+        extracted = extract_from_pdf(pdf_bytes)
+
+        supabase.table("items").update({
+            "extracted_text": extracted["extracted_text"],
+        }).eq("id", item_id).execute()
+
+        return {"success": True, "text_length": len(extracted["extracted_text"]), "is_markdown": "## " in extracted["extracted_text"][:500]}
+
+    # For items with URLs: re-extract from URL
+    if url:
+        from services.extraction import extract_from_url
+        extracted = await extract_from_url(url)
+        supabase.table("items").update({
+            "extracted_text": extracted["extracted_text"],
+        }).eq("id", item_id).execute()
+        return {"success": True, "text_length": len(extracted["extracted_text"] or "")}
+
+    return {"success": False, "error": "No URL or PDF to re-extract from"}
+
+
 @router.delete("/{item_id}")
 async def delete_item(item_id: str, request: Request):
     """Delete an item and all its related data (cascades via FK constraints)."""
