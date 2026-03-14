@@ -208,7 +208,7 @@ export default function ReaderView({
       </div>
 
       {/* Body text — position: relative for toolbar positioning */}
-      <div ref={bodyRef} className="reader-body" style={{ position: "relative" }}>
+      <div ref={bodyRef} className="reader-text-content" style={{ position: "relative" }}>
         {paragraphs.length > 0 ? (
           paragraphs.map((p, i) => (
             <p key={i}>

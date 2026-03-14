@@ -19,11 +19,13 @@ import {
   Plus,
   Send,
   Trash2,
+  Copy,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl } from "@/lib/api";
+import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, exportBibtex } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
+import NoteEditor from "@/components/NoteEditor";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -332,6 +334,26 @@ export default function ItemDetail() {
             </button>
           )}
 
+          {citation && (
+            <button
+              onClick={async () => {
+                try {
+                  const data = await exportBibtex(item.id);
+                  await navigator.clipboard.writeText(data.bibtex);
+                  // Brief visual feedback
+                  const btn = document.getElementById("copy-cite-btn");
+                  if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Cite"; }, 1500); }
+                } catch { /* clipboard or API error */ }
+              }}
+              id="copy-cite-btn"
+              className="reader-external-link"
+              title="Copy BibTeX citation"
+            >
+              <Copy size={12} />
+              Cite
+            </button>
+          )}
+
           {item.url && (
             <a
               href={item.url}
@@ -543,25 +565,18 @@ export default function ItemDetail() {
 
         {/* Right margin — annotations column (Curius-style) */}
         <aside ref={marginRef} className="reader-margin">
-          {/* Note input */}
+          {/* Note input — rich text via TipTap */}
           <div className="reader-margin-heading">Annotations</div>
-          <div className="reader-margin-input">
-            <textarea
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
-              placeholder="Add a note..."
-              rows={2}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  saveNote();
-                }
-              }}
+          <div className="reader-margin-input-rich">
+            <NoteEditor
+              content={noteContent}
+              onChange={setNoteContent}
+              placeholder="Add a note... (bold, italic, quotes, lists)"
             />
             <button
               onClick={saveNote}
-              disabled={!noteContent.trim()}
-              className="reader-margin-send"
+              disabled={!noteContent.trim() || noteContent === "<p></p>"}
+              className="reader-margin-send mt-1"
               title="Save note (Cmd+Enter)"
             >
               <Send size={13} />
@@ -676,7 +691,10 @@ export default function ItemDetail() {
               <div className="reader-margin-heading">Notes ({notes.length})</div>
               {notes.map((n) => (
                 <div key={n.id} className="reader-margin-card reader-margin-note-card group/note">
-                  <p className="reader-margin-note-content">{n.content}</p>
+                  <div
+                    className="reader-margin-note-content"
+                    dangerouslySetInnerHTML={{ __html: n.content }}
+                  />
                   <div className="flex items-center justify-between">
                     <span className="reader-margin-card-time">
                       {new Date(n.created_at).toLocaleDateString("en-US", {

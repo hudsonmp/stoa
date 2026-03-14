@@ -383,6 +383,90 @@ body::before {
   margin-bottom: 1.25rem;
 }
 
+.reader-margin-input-rich {
+  padding: 0 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.reader-margin-input-rich .ProseMirror {
+  min-height: 3rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: var(--text-primary);
+  outline: none;
+  line-height: 1.5;
+  transition: border-color 0.2s ease;
+}
+
+.reader-margin-input-rich .ProseMirror:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+.reader-margin-input-rich .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  pointer-events: none;
+  height: 0;
+}
+
+.reader-margin-input-rich .ProseMirror strong { font-weight: 600; }
+.reader-margin-input-rich .ProseMirror em { font-style: italic; }
+.reader-margin-input-rich .ProseMirror blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.625rem;
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.reader-margin-input-rich .ProseMirror ul,
+.reader-margin-input-rich .ProseMirror ol {
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+.reader-margin-input-rich .ProseMirror h1,
+.reader-margin-input-rich .ProseMirror h2,
+.reader-margin-input-rich .ProseMirror h3 {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+.reader-margin-input-rich .ProseMirror h1 { font-size: 1rem; }
+.reader-margin-input-rich .ProseMirror h2 { font-size: 0.9375rem; }
+.reader-margin-input-rich .ProseMirror h3 { font-size: 0.875rem; }
+
+/* Rendered note content (HTML) */
+.reader-margin-note-content strong { font-weight: 600; }
+.reader-margin-note-content em { font-style: italic; }
+.reader-margin-note-content blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.5rem;
+  margin: 0.25rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.75rem;
+}
+.reader-margin-note-content ul,
+.reader-margin-note-content ol {
+  padding-left: 1rem;
+  margin: 0.125rem 0;
+  font-size: 0.8125rem;
+}
+.reader-margin-note-content h1,
+.reader-margin-note-content h2,
+.reader-margin-note-content h3 {
+  font-weight: 600;
+  margin: 0.25rem 0 0.125rem;
+  font-size: 0.875rem;
+}
+
 .reader-margin-input textarea {
   flex: 1;
   min-height: 2.5rem;
@@ -940,7 +1024,7 @@ mark.stoa-hl-active {
 }
 
 /* Body text — the core reading typography */
-.reader-view > .reader-body {
+.reader-text-content {
   display: block;
   font-family: "Newsreader", Georgia, serif;
   font-size: 1.125rem;
@@ -950,22 +1034,22 @@ mark.stoa-hl-active {
   -webkit-font-smoothing: antialiased;
 }
 
-.reader-view > .reader-body p {
+.reader-text-content p {
   margin-bottom: 1.5em;
 }
 
-.reader-view > .reader-body p:last-child {
+.reader-text-content p:last-child {
   margin-bottom: 0;
 }
 
 /* First paragraph — slightly larger */
-.reader-view > .reader-body p:first-of-type {
+.reader-text-content p:first-of-type {
   font-size: 1.1875rem;
   line-height: 1.7;
 }
 
 /* Drop cap on first paragraph (optional elegance) */
-.reader-view > .reader-body p:first-of-type::first-letter {
+.reader-text-content p:first-of-type::first-letter {
   font-family: "Newsreader", Georgia, serif;
   font-size: 3.25em;
   float: left;
