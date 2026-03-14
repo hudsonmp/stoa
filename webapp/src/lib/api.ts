@@ -201,6 +201,17 @@ export async function getPerson(personId: string) {
   return apiFetch<{ person: unknown; items: unknown[] }>(`/people/${personId}`);
 }
 
+export async function getAuthors() {
+  return apiFetch<{ authors: (unknown & { paper_count: number })[] }>("/people/authors");
+}
+
+export async function updatePerson(personId: string, updates: Record<string, unknown>) {
+  return apiFetch<{ person: unknown }>(`/people/${personId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
 export async function ingestPaste(data: {
   content: string;
   title?: string;

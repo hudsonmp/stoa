@@ -9,6 +9,7 @@ import {
   Search,
   RotateCcw,
   LogOut,
+  UserCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -30,6 +31,7 @@ const navItems = [
 
 const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
+  { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/people", label: "People", icon: Users },
   { to: "/collections", label: "Collections", icon: FolderOpen },
 ];

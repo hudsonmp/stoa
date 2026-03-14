@@ -10,6 +10,7 @@ import Search from "@/pages/Search";
 import Review from "@/pages/Review";
 import Collections from "@/pages/Collections";
 import Papers from "@/pages/Papers";
+import Authors from "@/pages/Authors";
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/review" element={<Review />} />
               <Route path="/papers" element={<Papers />} />
+              <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
             </Route>
           </Routes>
