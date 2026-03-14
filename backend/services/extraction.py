@@ -82,10 +82,10 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
         tmp_path = tmp.name
 
     try:
-        # Extract as markdown with images and table structure
+        # Extract as markdown with embedded images and table structure
         markdown_text = pymupdf4llm.to_markdown(
             tmp_path,
-            write_images=False,  # Don't write image files; we'll handle separately
+            embed_images=True,   # Embed images as base64 data URIs in markdown
             show_progress=False,
         )
     except Exception:
