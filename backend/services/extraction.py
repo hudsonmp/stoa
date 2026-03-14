@@ -66,21 +66,42 @@ async def extract_from_url(url: str) -> dict:
 
 
 def extract_from_pdf(pdf_bytes: bytes) -> dict:
-    """Extract text and metadata from a PDF."""
+    """Extract structured markdown and metadata from a PDF using pymupdf4llm."""
+    import pymupdf4llm
+    import tempfile
+    import os
+
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     meta = doc.metadata or {}
+    page_count = len(doc)
+    doc.close()
 
-    pages = []
-    for page in doc:
-        pages.append(page.get_text())
+    # pymupdf4llm needs a file path, so write to temp file
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(pdf_bytes)
+        tmp_path = tmp.name
 
-    full_text = "\n\n".join(pages)
+    try:
+        # Extract as markdown with images and table structure
+        markdown_text = pymupdf4llm.to_markdown(
+            tmp_path,
+            write_images=False,  # Don't write image files; we'll handle separately
+            show_progress=False,
+        )
+    except Exception:
+        # Fallback to basic extraction if pymupdf4llm fails
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        pages = [page.get_text() for page in doc]
+        markdown_text = "\n\n".join(pages)
+        doc.close()
+    finally:
+        os.unlink(tmp_path)
 
     return {
         "title": meta.get("title") or "Untitled PDF",
         "author": meta.get("author"),
-        "extracted_text": full_text,
-        "page_count": len(doc),
+        "extracted_text": markdown_text,
+        "page_count": page_count,
     }
 
 
