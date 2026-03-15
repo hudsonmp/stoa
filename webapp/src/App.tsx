@@ -11,6 +11,7 @@ import Review from "@/pages/Review";
 import Collections from "@/pages/Collections";
 import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
+import ReadPDF from "@/pages/ReadPDF";
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
               <Route path="/papers" element={<Papers />} />
               <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
+              <Route path="/read-pdf" element={<ReadPDF />} />
             </Route>
           </Routes>
         </AnimatePresence>
