@@ -1,6 +1,7 @@
 """Content extraction: articles via trafilatura, PDFs via PyMuPDF."""
 
 import re
+import unicodedata
 from urllib.parse import urlparse
 
 import httpx
@@ -129,6 +130,28 @@ def _clean_pdf_markdown(text: str) -> str:
     header = re.sub(r"\s*\[\d+\]\s*", " ", header)
     header = re.sub(r"\s*_\[,\]_\s*", ", ", header)  # _[,]_ separator → comma
     text = header + body
+
+    # Fix broken diacritics from PDF extraction (e.g., Maur´ıcio → Maurício)
+    # Common pattern: acute/grave/circumflex followed by the base letter
+    _DIACRITIC_MAP = {
+        "´a": "\u00e1", "´e": "\u00e9", "´i": "\u00ed", "´ı": "\u00ed",
+        "´o": "\u00f3", "´u": "\u00fa", "´y": "\u00fd",
+        "´A": "\u00c1", "´E": "\u00c9", "´I": "\u00cd", "´O": "\u00d3",
+        "´U": "\u00da",
+        "`a": "\u00e0", "`e": "\u00e8", "`i": "\u00ec", "`o": "\u00f2", "`u": "\u00f9",
+        "~a": "\u00e3", "~n": "\u00f1", "~o": "\u00f5",
+        "~A": "\u00c3", "~N": "\u00d1", "~O": "\u00d5",
+        "^a": "\u00e2", "^e": "\u00ea", "^i": "\u00ee", "^o": "\u00f4", "^u": "\u00fb",
+        '"a': "\u00e4", '"e': "\u00eb", '"i': "\u00ef", '"o': "\u00f6", '"u': "\u00fc",
+        '"A': "\u00c4", '"O': "\u00d6", '"U': "\u00dc",
+        "¸c": "\u00e7", "¸C": "\u00c7",
+    }
+    for raw, fixed in _DIACRITIC_MAP.items():
+        text = text.replace(raw, fixed)
+
+    # Clean remaining _[,]_ and _[;]_ separators in body text
+    text = re.sub(r"\s*_\[,\]_\s*", ", ", text)
+    text = re.sub(r"\s*_\[;\]_\s*", "; ", text)
 
     # Clean redundant bold inside headers: ## **Title** → ## Title
     text = re.sub(r"^(#{1,6})\s+\*\*(.+?)\*\*\s*$", r"\1 \2", text, flags=re.MULTILINE)

@@ -99,40 +99,43 @@ export default function Papers() {
         {papers.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {/* Source sidebar */}
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 bg-bg-secondary/50 rounded-card p-2 border border-border-light">
+              <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-widest px-2 pt-1 pb-2">
+                Sources
+              </p>
               <button
                 onClick={() => setSelectedSource(null)}
-                className={`w-full text-left px-3 py-2 rounded-card text-sm transition-warm
+                className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                            ${
                              selectedSource === null
-                               ? "bg-bg-secondary text-text-primary border-l-2 border-accent pl-[10px]"
-                               : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
+                               ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
+                               : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                            }`}
               >
                 <span className="flex items-center justify-between">
                   All
-                  <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
+                  <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded">
                     {papers.length}
                   </span>
                 </span>
               </button>
 
-              <div className="h-px bg-border my-2 mx-2" />
+              <div className="h-px bg-border my-2 mx-1" />
 
               {grouped.map(([sourceKey, items]) => (
                 <button
                   key={sourceKey}
                   onClick={() => setSelectedSource(sourceKey)}
-                  className={`w-full text-left px-3 py-2 rounded-card text-sm transition-warm
+                  className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                              ${
                                selectedSource === sourceKey
-                                 ? "bg-bg-secondary text-text-primary border-l-2 border-accent pl-[10px]"
-                                 : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
+                                 ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
+                                 : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                              }`}
                 >
                   <span className="flex items-center justify-between">
                     <span className="truncate">{getSourceLabel(sourceKey)}</span>
-                    <span className="text-[11px] font-mono text-text-tertiary tabular-nums ml-2">
+                    <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded ml-2">
                       {items.length}
                     </span>
                   </span>

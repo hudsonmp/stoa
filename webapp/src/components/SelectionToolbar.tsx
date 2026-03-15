@@ -90,10 +90,23 @@ export default function SelectionToolbar({
       const rect = range.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
 
-      setPosition({
-        top: rect.top - containerRect.top - 48,
-        left: rect.left - containerRect.left + rect.width / 2 - 120,
-      });
+      const TOOLBAR_HEIGHT = 80; // approximate toolbar height
+      const TOOLBAR_WIDTH = 300; // approximate toolbar width (min-width 280 + padding)
+      const GAP = 10; // gap between selection and toolbar
+
+      // Position above the selection by default
+      let top = rect.top - containerRect.top - TOOLBAR_HEIGHT - GAP;
+      let left = rect.left - containerRect.left + rect.width / 2 - TOOLBAR_WIDTH / 2;
+
+      // If toolbar would go above the container, place it below the selection instead
+      if (rect.top - TOOLBAR_HEIGHT - GAP < 0) {
+        top = rect.bottom - containerRect.top + GAP;
+      }
+
+      // Clamp horizontal position to stay within the container
+      left = Math.max(0, Math.min(left, containerRect.width - TOOLBAR_WIDTH));
+
+      setPosition({ top, left });
 
       // Capture paragraph context (W3C TextQuoteSelector pattern)
       const ancestor = range.commonAncestorContainer;

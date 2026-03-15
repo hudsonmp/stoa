@@ -293,7 +293,7 @@ export default function ItemDetail() {
 
         <div className="reader-topbar-actions">
           {/* View mode switcher */}
-          <div className="flex gap-1 bg-bg-secondary rounded-card p-0.5">
+          <div className="flex gap-1.5 bg-bg-secondary rounded-card p-1">
             <button
               onClick={() => { setPdfMode(false); setReaderMode(false); }}
               className={`reader-mode-toggle ${!pdfMode && !readerMode ? "active" : ""}`}
@@ -567,7 +567,7 @@ export default function ItemDetail() {
             <NoteEditor
               content={noteContent}
               onChange={setNoteContent}
-              placeholder="Add a note... (bold, italic, quotes, lists)"
+              placeholder="Add a note..."
             />
             <button
               onClick={saveNote}

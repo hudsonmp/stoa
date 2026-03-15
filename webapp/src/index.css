@@ -289,7 +289,7 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;
@@ -298,6 +298,7 @@ body::before {
   font-family: "DM Sans", system-ui, sans-serif;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  white-space: nowrap;
 }
 
 .reader-mode-toggle:hover,
@@ -602,7 +603,7 @@ body::before {
   align-items: stretch;
   gap: 6px;
   padding: 8px 10px;
-  min-width: 220px;
+  min-width: 280px;
   background: #1C1917;
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.06);
@@ -700,12 +701,13 @@ mark.stoa-hl-active {
 
 .stoa-st-note-input {
   flex: 1;
+  min-width: 180px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: #fafaf7;
   outline: none;
 }
@@ -1041,11 +1043,8 @@ mark.stoa-hl-active {
   margin-bottom: 0;
 }
 
-/* First paragraph — slightly larger */
-.reader-text-content p:first-of-type {
-  font-size: 1.1875rem;
-  line-height: 1.7;
-}
+/* First paragraph styling removed — in markdown-rendered content the first <p>
+   is often metadata (author names, affiliations), not the paper body. */
 
 /* First heading flush with top */
 .reader-text-content > h1:first-child,
