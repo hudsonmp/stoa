@@ -19,7 +19,7 @@ import type {
   PdfHighlighterUtils,
   ScaledPosition,
 } from "react-pdf-highlighter-extended";
-import "react-pdf-highlighter-extended/dist/style.css";
+
 
 interface PdfAnnotationViewProps {
   pdfUrl: string;
