@@ -292,8 +292,19 @@ def _clean_pdf_markdown(text: str) -> str:
     text = re.sub(r"^(#{1,6})\s+\*\*(.+?)\*\*\s*$", r"\1 \2", text, flags=re.MULTILINE)
 
     # Clean picture placeholder text and separator markers
-    text = re.sub(r"^----- (?:Start|End) of picture text -----$", "", text, flags=re.MULTILINE)
-    text = re.sub(r"^==> picture \[\d+ x \d+\] intentionally omitted <==$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^-+\s*(?:Start|End) of picture text\s*-+\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"==> picture \[\d+ x \d+\] intentionally omitted <==", "", text)
+
+    # Clean entire picture text blocks (content between Start/End markers, often with <br>)
+    text = re.sub(r"----- Start of picture text -----.*?----- End of picture text -----", "", text, flags=re.DOTALL)
+
+    # Clean stray <br> tags that leak from picture/table content
+    text = re.sub(r"<br>", " ", text)
+
+    # Clean Unicode replacement characters and broken cross-references (◆#1, ◆#12)
+    text = re.sub(r"[◆◇♦]#?\d*", "", text)
+    # Clean U+FFFD replacement characters
+    text = text.replace("\ufffd", "")
 
     # Strip "Page X of Y" markers
     text = re.sub(r"^Page \d+ of \d+\s*$", "", text, flags=re.MULTILINE)
