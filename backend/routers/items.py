@@ -64,6 +64,22 @@ async def get_item_counts(request: Request):
     }
 
 
+@router.get("/collections")
+async def list_collections(request: Request):
+    """List all collections for the authenticated user."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("collections")
+        .select("id, name, description")
+        .eq("user_id", user_id)
+        .order("name")
+        .execute()
+    )
+    return {"collections": result.data or []}
+
+
 @router.get("/by-url")
 async def get_item_by_url(request: Request, url: str):
     """Look up an item by URL. Used by Chrome extension for scroll sync."""

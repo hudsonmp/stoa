@@ -126,14 +126,17 @@ async function handleSavePage(data) {
     const headers = buildAuthHeaders(config);
     const type = data.type || detectType(data.url);
 
+    const body = {
+      url: data.url,
+      type,
+      tags: data.tags || [],
+    };
+    if (data.collection_id) body.collection_id = data.collection_id;
+
     const resp = await fetch(`${config.apiUrl}/ingest`, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        url: data.url,
-        type,
-        tags: data.tags || [],
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!resp.ok) {
