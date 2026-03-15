@@ -276,6 +276,153 @@ async def ingest_pdf(
     return {"item": item, "chunks_created": len(chunks), "citation": citation_data}
 
 
+@router.post("/batch-pdf")
+async def ingest_batch_pdf(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    collection_id: Optional[str] = Form(None),
+    tags: list[str] = Form([]),
+):
+    """Upload and process multiple PDFs at once."""
+    import os as _os
+    import uuid as _uuid
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    MAX_PDF_SIZE = 50 * 1024 * 1024
+    created_items = []
+    errors = []
+
+    for file in files:
+        try:
+            pdf_bytes = await file.read()
+            if len(pdf_bytes) > MAX_PDF_SIZE:
+                errors.append({"file": file.filename, "error": "PDF exceeds 50MB limit"})
+                continue
+
+            extracted = extract_from_pdf(pdf_bytes)
+
+            # Sanitize filename
+            safe_filename = _os.path.basename(file.filename or "upload.pdf").replace("..", "")
+            if not safe_filename:
+                safe_filename = f"{_uuid.uuid4().hex}.pdf"
+            storage_path = f"{user_id}/pdfs/{safe_filename}"
+
+            # Upload to storage
+            try:
+                supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+            except Exception:
+                try:
+                    supabase.storage.from_("documents").update(storage_path, pdf_bytes)
+                except Exception:
+                    logger.warning("PDF storage failed for %s, continuing", storage_path)
+
+            item_data = {
+                "user_id": user_id,
+                "title": extracted["title"],
+                "type": "paper",
+                "extracted_text": extracted["extracted_text"],
+                "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path},
+                "reading_status": "to_read",
+            }
+
+            result = supabase.table("items").insert(item_data).execute()
+            item = result.data[0]
+            item_id = item["id"]
+
+            # Add to collection
+            if collection_id:
+                try:
+                    supabase.table("collection_items").insert({
+                        "collection_id": collection_id,
+                        "item_id": item_id,
+                        "sort_order": 0,
+                    }).execute()
+                except Exception:
+                    logger.warning("Failed to add item %s to collection %s", item_id, collection_id)
+
+            # Add tags
+            for tag_name in tags:
+                try:
+                    tag_result = supabase.table("tags").upsert(
+                        {"user_id": user_id, "name": tag_name},
+                        on_conflict="user_id,name",
+                    ).execute()
+                    tag_id = tag_result.data[0]["id"]
+                    supabase.table("item_tags").insert({
+                        "item_id": item_id,
+                        "tag_id": tag_id,
+                    }).execute()
+                except Exception:
+                    logger.warning("Failed to add tag %s to item %s", tag_name, item_id)
+
+            # Chunk and embed (non-fatal)
+            chunks_created = 0
+            try:
+                chunks = await chunk_and_embed(extracted["extracted_text"], item_id)
+                if chunks:
+                    supabase.table("chunks").insert(chunks).execute()
+                    chunks_created = len(chunks)
+            except Exception:
+                logger.warning("Embedding failed for PDF %s, item saved without chunks", safe_filename, exc_info=True)
+
+            # Auto-resolve citation (non-fatal)
+            citation_data = None
+            try:
+                citation_data = await resolve_citation(
+                    title=extracted["title"],
+                    text=(extracted.get("extracted_text") or "")[:3000],
+                )
+                if citation_data:
+                    supabase.table("citations").insert({
+                        "item_id": item_id,
+                        "authors": citation_data.get("authors"),
+                        "year": citation_data.get("year"),
+                        "venue": citation_data.get("venue"),
+                        "doi": citation_data.get("doi"),
+                        "arxiv_id": citation_data.get("arxiv_id"),
+                        "abstract": citation_data.get("abstract"),
+                        "bibtex": citation_data.get("bibtex"),
+                        "pdf_storage_path": storage_path,
+                    }).execute()
+                    for author in citation_data.get("authors", []):
+                        _link_or_create_person(supabase, user_id, author["name"], item_id)
+            except Exception:
+                logger.warning("Citation resolution failed for PDF %s", safe_filename, exc_info=True)
+
+            # Fallback: extract authors directly from PDF
+            if not citation_data or not citation_data.get("authors"):
+                try:
+                    pdf_authors = extract_authors_and_emails(pdf_bytes)
+                    for author_info in pdf_authors:
+                        person_data = {"role": "researcher"}
+                        if author_info.get("affiliation"):
+                            person_data["affiliation"] = author_info["affiliation"]
+                        _link_or_create_person(supabase, user_id, author_info["name"], item_id, extra=person_data)
+                except Exception:
+                    logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
+
+            # Log activity
+            supabase.table("activity").insert({
+                "user_id": user_id,
+                "action": "save",
+                "item_id": item_id,
+            }).execute()
+
+            created_items.append({"item": item, "chunks_created": chunks_created, "citation": citation_data})
+
+        except Exception as e:
+            logger.error("Failed to process PDF %s: %s", file.filename, str(e), exc_info=True)
+            errors.append({"file": file.filename, "error": str(e)})
+
+    return {
+        "items": created_items,
+        "count": len(created_items),
+        "errors": errors,
+    }
+
+
 @router.post("/arxiv/{arxiv_id}")
 async def ingest_arxiv(arxiv_id: str, request: Request):
     """Fetch and process an arXiv paper by ID."""

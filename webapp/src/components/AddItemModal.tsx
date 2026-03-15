@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -7,8 +7,9 @@ import {
   Type,
   Image as ImageIcon,
   Upload,
+  FolderOpen,
 } from "lucide-react";
-import { ingestUrl, ingestPaste, ingestImage, extractMetadata } from "@/lib/api";
+import { ingestUrl, ingestPaste, ingestImage, extractMetadata, listCollections } from "@/lib/api";
 
 interface AddItemModalProps {
   isOpen: boolean;
@@ -47,7 +48,17 @@ export default function AddItemModal({
   } | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [collectionId, setCollectionId] = useState<string>("");
+  const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      listCollections()
+        .then((data) => setCollections(data.collections || []))
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   const handleUrlBlur = async () => {
     if (!url.trim()) return;
@@ -108,7 +119,7 @@ export default function AddItemModal({
     try {
       if (mode === "url") {
         if (!url.trim()) return;
-        await ingestUrl({ url, type });
+        await ingestUrl({ url, type, collection_id: collectionId || undefined });
       } else if (mode === "text") {
         if (!textContent.trim()) return;
         await ingestPaste({
@@ -126,6 +137,7 @@ export default function AddItemModal({
       setTextContent("");
       setTitle("");
       setType("blog");
+      setCollectionId("");
       setPreview(null);
       setImageFile(null);
       setImagePreview(null);
@@ -341,6 +353,30 @@ export default function AddItemModal({
                       onChange={handleImageSelect}
                       className="hidden"
                     />
+                  </div>
+                </div>
+              )}
+
+              {/* Collection selector */}
+              {collections.length > 0 && (
+                <div>
+                  <label className="text-[11px] font-mono text-text-tertiary uppercase tracking-wider mb-1.5 block">
+                    Save for...
+                  </label>
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-card border border-border focus-within:border-accent/30 transition-warm">
+                    <FolderOpen size={14} className="text-text-tertiary flex-shrink-0" />
+                    <select
+                      value={collectionId}
+                      onChange={(e) => setCollectionId(e.target.value)}
+                      className="flex-1 bg-transparent border-none outline-none text-sm text-text-primary"
+                    >
+                      <option value="">No collection</option>
+                      {collections.map((col) => (
+                        <option key={col.id} value={col.id}>
+                          {col.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}

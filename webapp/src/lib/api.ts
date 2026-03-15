@@ -283,6 +283,12 @@ export async function syncApplePodcasts() {
   }>("/ingest/podcasts/sync", { method: "POST" });
 }
 
+export async function listCollections() {
+  return apiFetch<{
+    collections: { id: string; name: string; description?: string }[];
+  }>("/items/collections");
+}
+
 export async function extractMetadata(url: string) {
   return apiFetch<{
     title: string;
