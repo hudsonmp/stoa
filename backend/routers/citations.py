@@ -1,27 +1,26 @@
 """Citation management endpoints."""
 
-import os
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from supabase import create_client
+from services.auth import get_supabase_service, get_user_id
 
 router = APIRouter()
 
 
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
-
-
 @router.get("/{item_id}/bib")
-async def export_bibtex(item_id: str):
+async def export_bibtex(item_id: str, request: Request):
     """Export a citation as BibTeX."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Verify the item belongs to this user
+    item_check = supabase.table("items").select("id").eq("id", item_id).eq("user_id", user_id).execute()
+    if not item_check.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
     result = supabase.table("citations").select("*").eq("item_id", item_id).execute()
 
     if not result.data:
@@ -70,21 +69,70 @@ async def export_bibtex(item_id: str):
     return {"bibtex": bibtex}
 
 
+@router.post("/{item_id}/enrich")
+async def enrich_citation(item_id: str, request: Request):
+    """Resolve and populate citation metadata for an existing item."""
+    from services.citation_resolver import resolve_citation
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Verify item ownership
+    item_res = (
+        supabase.table("items")
+        .select("id, title, url, extracted_text")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_res.data
+
+    # Check if citation already exists
+    existing_cit = supabase.table("citations").select("id").eq("item_id", item_id).execute()
+    if existing_cit.data:
+        raise HTTPException(status_code=409, detail="Citation already exists for this item")
+
+    citation = await resolve_citation(
+        url=item.get("url"),
+        title=item.get("title"),
+        text=(item.get("extracted_text") or "")[:3000],
+    )
+    if not citation:
+        raise HTTPException(status_code=404, detail="Could not resolve citation metadata")
+
+    supabase.table("citations").insert({
+        "item_id": item_id,
+        "authors": citation.get("authors"),
+        "year": citation.get("year"),
+        "venue": citation.get("venue"),
+        "doi": citation.get("doi"),
+        "arxiv_id": citation.get("arxiv_id"),
+        "abstract": citation.get("abstract"),
+        "bibtex": citation.get("bibtex"),
+    }).execute()
+
+    return {"citation": citation}
+
+
 class BibTeXImportRequest(BaseModel):
     bibtex: str
-    user_id: str
 
 
 @router.post("/import")
-async def import_bibtex(req: BibTeXImportRequest):
+async def import_bibtex(req: BibTeXImportRequest, request: Request):
     """Bulk import citations from BibTeX."""
+    user_id = await get_user_id(request)
     try:
         import bibtexparser
     except ImportError:
         raise HTTPException(status_code=500, detail="bibtexparser not installed")
 
     library = bibtexparser.parse(req.bibtex)
-    supabase = get_supabase()
+    supabase = get_supabase_service()
 
     imported = []
     for entry in library.entries:
@@ -108,7 +156,7 @@ async def import_bibtex(req: BibTeXImportRequest):
 
         # Create item
         item_result = supabase.table("items").insert({
-            "user_id": req.user_id,
+            "user_id": user_id,
             "title": title_val,
             "type": "paper",
             "reading_status": "to_read",

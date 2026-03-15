@@ -1,0 +1,1563 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ================================================================
+   Stoa Design System - "Cambridge Study" aesthetic
+   Warm, scholarly, refined. A well-organized private library.
+   ================================================================ */
+
+:root {
+  --bg-primary: #fafaf7;
+  --bg-secondary: #f3f1ec;
+  --bg-sidebar: #f7f6f3;
+  --bg-shelf: #e8e4dc;
+  --text-primary: #1c1917;
+  --text-secondary: #78716c;
+  --text-tertiary: #a8a29e;
+  --accent: #c2410c;
+  --accent-hover: #9a3412;
+  --accent-green: #4d7c0f;
+  --accent-amber: #b45309;
+  --border: #e7e5e4;
+  --border-light: #f5f5f4;
+  --shadow: rgba(28, 25, 23, 0.04);
+}
+
+/* Paper grain texture via SVG noise */
+body {
+  font-family: "DM Sans", system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle grain overlay on body */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(194, 65, 12, 0.15);
+  color: var(--text-primary);
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ================================================================
+   Bookshelf 3D CSS
+   ================================================================ */
+
+.bookshelf-perspective {
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+}
+
+.book-spine {
+  width: 40px;
+  height: 220px;
+  transform: rotateY(-30deg);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.book-spine:hover,
+.book-spine.expanded {
+  width: 160px;
+  transform: rotateY(-5deg);
+  z-index: 10;
+}
+
+.book-spine .cover-face {
+  opacity: 0;
+  transition: opacity 0.3s ease 0.15s;
+}
+
+.book-spine:hover .cover-face,
+.book-spine.expanded .cover-face {
+  opacity: 1;
+}
+
+/* Shelf ledge */
+.shelf-ledge {
+  background: linear-gradient(
+    to bottom,
+    #d4cfc6 0%,
+    #c8c1b5 20%,
+    #b8b0a2 50%,
+    #a89e8e 80%,
+    #9a8f7e 100%
+  );
+  box-shadow:
+    0 4px 12px rgba(28, 25, 23, 0.12),
+    0 2px 4px rgba(28, 25, 23, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.shelf-ledge::after {
+  content: "";
+  position: absolute;
+  bottom: -8px;
+  left: 4px;
+  right: 4px;
+  height: 8px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(28, 25, 23, 0.12) 0%,
+    transparent 70%
+  );
+}
+
+/* ================================================================
+   Typography utility classes
+   ================================================================ */
+
+.font-display {
+  font-family: "Newsreader", Georgia, serif;
+}
+
+.font-body {
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.font-code {
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ================================================================
+   Transitions
+   ================================================================ */
+
+.transition-warm {
+  transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Staggered animation helper */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fadeUp 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* TipTap editor styles */
+.ProseMirror {
+  outline: none;
+  min-height: 120px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  height: 0;
+}
+
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3 {
+  font-family: "Newsreader", Georgia, serif;
+}
+
+/* ================================================================
+   Reader View — Premium long-form reading experience
+   ================================================================ */
+
+/* Page container */
+.reader-page {
+  height: 100%;
+  overflow-y: auto;
+  background-color: var(--bg-primary);
+  position: relative;
+}
+
+/* Loading skeleton */
+.reader-loading {
+  max-width: 65ch;
+  margin: 0 auto;
+  padding: 3rem 2rem;
+}
+
+.reader-loading-pulse {
+  height: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.reader-loading-pulse.short {
+  width: 60%;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* Top navigation bar */
+.reader-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid var(--border-light);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: rgba(250, 250, 247, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.reader-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: color 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.reader-back:hover {
+  color: var(--text-primary);
+}
+
+.reader-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reader-mode-toggle,
+.reader-hl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.reader-mode-toggle:hover,
+.reader-hl-toggle:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.reader-mode-toggle.active {
+  background: rgba(194, 65, 12, 0.08);
+  color: var(--accent);
+  border-color: rgba(194, 65, 12, 0.2);
+}
+
+.reader-external-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.reader-external-link:hover {
+  color: var(--accent-hover);
+}
+
+/* Two-column layout: main content + annotation margin */
+.reader-body {
+  display: flex;
+  max-width: 1100px;
+  margin: 0 auto;
+  min-height: calc(100vh - 3rem);
+}
+
+/* Content wrapper — the main reading column */
+.reader-content-wrapper {
+  flex: 1;
+  max-width: 65ch;
+  padding: 2.5rem 2rem 6rem;
+  margin: 0 auto;
+}
+
+/* Right margin — Curius-style annotation column */
+.reader-margin {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 2.5rem 1.25rem 4rem 0;
+  position: sticky;
+  top: 3rem;
+  height: calc(100vh - 3rem);
+  overflow-y: auto;
+  border-left: 1px solid var(--border-light);
+}
+
+.reader-margin::-webkit-scrollbar {
+  width: 3px;
+}
+
+.reader-margin::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.reader-margin-heading {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 0 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Margin note input */
+.reader-margin-input {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.reader-margin-input-rich {
+  padding: 0 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.reader-margin-input-rich .ProseMirror {
+  min-height: 3rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: var(--text-primary);
+  outline: none;
+  line-height: 1.5;
+  transition: border-color 0.2s ease;
+}
+
+.reader-margin-input-rich .ProseMirror:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+.reader-margin-input-rich .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  pointer-events: none;
+  height: 0;
+}
+
+.reader-margin-input-rich .ProseMirror strong { font-weight: 600; }
+.reader-margin-input-rich .ProseMirror em { font-style: italic; }
+.reader-margin-input-rich .ProseMirror blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.625rem;
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.reader-margin-input-rich .ProseMirror ul,
+.reader-margin-input-rich .ProseMirror ol {
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+.reader-margin-input-rich .ProseMirror h1,
+.reader-margin-input-rich .ProseMirror h2,
+.reader-margin-input-rich .ProseMirror h3 {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}
+.reader-margin-input-rich .ProseMirror h1 { font-size: 1rem; }
+.reader-margin-input-rich .ProseMirror h2 { font-size: 0.9375rem; }
+.reader-margin-input-rich .ProseMirror h3 { font-size: 0.875rem; }
+
+/* Rendered note content (HTML) */
+.reader-margin-note-content strong { font-weight: 600; }
+.reader-margin-note-content em { font-style: italic; }
+.reader-margin-note-content blockquote {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.5rem;
+  margin: 0.25rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: 0.75rem;
+}
+.reader-margin-note-content ul,
+.reader-margin-note-content ol {
+  padding-left: 1rem;
+  margin: 0.125rem 0;
+  font-size: 0.8125rem;
+}
+.reader-margin-note-content h1,
+.reader-margin-note-content h2,
+.reader-margin-note-content h3 {
+  font-weight: 600;
+  margin: 0.25rem 0 0.125rem;
+  font-size: 0.875rem;
+}
+
+.reader-margin-input textarea {
+  flex: 1;
+  min-height: 2.5rem;
+  max-height: 8rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.2s ease;
+  line-height: 1.5;
+}
+
+.reader-margin-input textarea::placeholder {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+.reader-margin-input textarea:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+.reader-margin-send {
+  align-self: flex-end;
+  padding: 0.375rem;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.reader-margin-send:hover {
+  background: var(--accent-hover);
+}
+
+.reader-margin-send:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Margin annotation cards */
+.reader-margin-card {
+  padding: 0.625rem 0.75rem;
+  margin-bottom: 0.375rem;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  position: relative;
+}
+
+.reader-margin-card:hover {
+  background: var(--bg-secondary);
+}
+
+.reader-margin-card-hl {
+  border-left: 2px solid var(--accent);
+  padding-left: calc(0.75rem - 2px);
+}
+
+.reader-margin-card-hl[data-color="green"] { border-left-color: #10B981; }
+.reader-margin-card-hl[data-color="blue"] { border-left-color: #3B82F6; }
+.reader-margin-card-hl[data-color="pink"] { border-left-color: #EC4899; }
+.reader-margin-card-hl[data-color="purple"] { border-left-color: #8B5CF6; }
+.reader-margin-card-hl[data-color="yellow"] { border-left-color: #F59E0B; }
+
+.reader-margin-card-text {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.reader-margin-card-note {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  line-height: 1.45;
+  margin-top: 0.25rem;
+}
+
+.reader-margin-card-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5625rem;
+  color: var(--text-tertiary);
+  margin-top: 0.25rem;
+}
+
+.reader-margin-note-card {
+  padding-left: 0.75rem;
+}
+
+.reader-margin-note-content {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.reader-margin-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.75rem 0.75rem;
+}
+
+.reader-margin-empty {
+  padding: 1rem 0.75rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* ================================================================
+   Selection Toolbar — floating annotation toolbar
+   ================================================================ */
+
+.stoa-selection-toolbar {
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+  min-width: 220px;
+  background: #1C1917;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.06);
+  animation: stoa-toolbar-in 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+  user-select: none;
+}
+
+@keyframes stoa-toolbar-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Active highlight pulse — triggered when hovering the corresponding margin card */
+mark.stoa-hl-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+  transition: outline 0.15s ease;
+}
+
+/* Action buttons — primary interaction surface */
+.stoa-st-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #fafaf7;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.stoa-st-action:hover {
+  background: rgba(255,255,255,0.18);
+}
+
+.stoa-st-action-note {
+  background: transparent;
+  border-color: rgba(255,255,255,0.08);
+}
+
+.stoa-st-action-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Secondary color row — de-emphasized */
+.stoa-st-color-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Skip button for post-highlight note prompt */
+.stoa-st-skip {
+  padding: 3px 8px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.625rem;
+  color: rgba(255,255,255,0.4);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stoa-st-skip:hover {
+  color: rgba(255,255,255,0.7);
+}
+
+.stoa-st-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5625rem;
+  color: rgba(255,255,255,0.3);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* Note input mode */
+.stoa-st-note-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stoa-st-note-input {
+  flex: 1;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: #fafaf7;
+  outline: none;
+}
+
+.stoa-st-note-input::placeholder {
+  color: rgba(255,255,255,0.35);
+}
+
+.stoa-st-note-input:focus {
+  border-color: rgba(255,255,255,0.25);
+}
+
+.stoa-st-note-colors {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.stoa-st-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.stoa-st-dot:hover {
+  transform: scale(1.25);
+  border-color: rgba(255,255,255,0.4);
+}
+
+.stoa-st-dot.active {
+  border-color: rgba(255,255,255,0.6);
+  transform: scale(1.15);
+}
+
+/* Header */
+.reader-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.reader-cover {
+  width: 6rem;
+  height: 9rem;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow:
+    0 4px 6px rgba(28, 25, 23, 0.04),
+    0 2px 4px rgba(28, 25, 23, 0.06);
+  flex-shrink: 0;
+}
+
+.reader-icon-wrap {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reader-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-title {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.625rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.reader-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.reader-domain {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.reader-type {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+.reader-status-row {
+  display: flex;
+  gap: 0.375rem;
+  margin-top: 1rem;
+}
+
+.reader-status-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.75rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: capitalize;
+  transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.reader-status-btn:hover {
+  color: var(--text-primary);
+}
+
+.reader-status-btn.active {
+  background: rgba(194, 65, 12, 0.1);
+  color: var(--accent);
+}
+
+/* Section headings */
+.reader-section {
+  margin-bottom: 2rem;
+}
+
+.reader-section-heading {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 0.75rem;
+}
+
+/* Detail view citation block */
+.reader-detail-citation {
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+
+.reader-detail-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  margin-right: 0.5rem;
+}
+
+/* Inline highlight in detail view */
+.reader-inline-highlight {
+  padding-left: 0.75rem;
+  border-left-width: 2px;
+  border-left-style: solid;
+}
+
+/* Note cards */
+.reader-note-card {
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.reader-notes-section {
+  border-top: 1px solid var(--border-light);
+  padding-top: 2rem;
+  margin-top: 3rem;
+}
+
+.reader-save-note-btn {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.875rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.reader-save-note-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* ================================================================
+   Reader View — The reading typography component
+   ================================================================ */
+
+.reader-view {
+  position: relative;
+}
+
+/* Progress bar */
+.reader-progress-track {
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-light);
+  z-index: 20;
+  margin-bottom: 2rem;
+}
+
+.reader-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 1px 1px 0;
+  transition: width 0.15s ease-out;
+}
+
+/* Citation block in reader */
+.reader-citation {
+  padding: 1.25rem 1.5rem;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin-bottom: 2rem;
+  border-left: 3px solid var(--accent);
+}
+
+.reader-citation-authors {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 0.375rem;
+}
+
+.reader-citation-meta {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+}
+
+.reader-citation-sep {
+  margin: 0 0.5rem;
+  opacity: 0.4;
+}
+
+.reader-citation-doi {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.reader-citation-doi:hover {
+  text-decoration: underline;
+}
+
+.reader-citation-abstract {
+  margin-top: 0.75rem;
+}
+
+.reader-citation-abstract summary {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.reader-citation-abstract summary:hover {
+  color: var(--text-primary);
+}
+
+.reader-citation-abstract p {
+  margin-top: 0.5rem;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+/* Reading metadata */
+.reader-meta {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.reader-reading-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.reader-highlight-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--accent-amber);
+}
+
+/* Body text — the core reading typography */
+.reader-text-content {
+  display: block;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.75;
+  color: var(--text-primary);
+  letter-spacing: 0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.reader-text-content p {
+  margin-bottom: 1.5em;
+}
+
+.reader-text-content p:last-child {
+  margin-bottom: 0;
+}
+
+/* First paragraph — slightly larger */
+.reader-text-content p:first-of-type {
+  font-size: 1.1875rem;
+  line-height: 1.7;
+}
+
+/* First heading flush with top */
+.reader-text-content > h1:first-child,
+.reader-text-content > h2:first-child {
+  margin-top: 0;
+}
+
+/* Markdown-rendered content styles */
+.reader-text-content h1,
+.reader-text-content h2,
+.reader-text-content h3,
+.reader-text-content h4 {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 1.5em 0 0.5em;
+  line-height: 1.3;
+}
+.reader-text-content h1 { font-size: 1.5rem; }
+.reader-text-content h2 { font-size: 1.25rem; }
+.reader-text-content h3 { font-size: 1.1rem; }
+.reader-text-content h4 { font-size: 1rem; font-weight: 500; }
+
+.reader-text-content strong { font-weight: 600; }
+.reader-text-content em { font-style: italic; }
+
+.reader-text-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 1rem;
+  margin: 1em 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.reader-text-content ul,
+.reader-text-content ol {
+  padding-left: 1.5rem;
+  margin: 0.75em 0;
+}
+
+.reader-text-content li {
+  margin-bottom: 0.25em;
+}
+
+.reader-text-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.875rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.reader-text-content th,
+.reader-text-content td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.reader-text-content th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.reader-text-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+.reader-text-content code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85em;
+  background: var(--bg-secondary);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}
+
+.reader-text-content pre {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.reader-text-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.reader-text-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0;
+}
+
+.reader-empty {
+  color: var(--text-tertiary);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-style: italic;
+}
+
+/* ================================================================
+   Related items section
+   ================================================================ */
+
+.reader-related {
+  border-top: 1px solid var(--border-light);
+  padding-top: 2rem;
+}
+
+.reader-related-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.reader-related-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  text-decoration: none;
+  transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.reader-related-card:hover {
+  background: var(--bg-secondary);
+  border-color: transparent;
+  box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04), 0 1px 2px rgba(28, 25, 23, 0.06);
+}
+
+.reader-related-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reader-related-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.reader-related-title {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-related-domain {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+/* ================================================================
+   Highlight Panel — slides from right
+   ================================================================ */
+
+.highlight-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 360px;
+  height: 100vh;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 24px rgba(28, 25, 23, 0.06);
+}
+
+.highlight-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.highlight-panel-header h2 {
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.highlight-panel-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.highlight-panel-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.highlight-panel-close:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Panel search */
+.highlight-panel-search {
+  position: relative;
+  padding: 0.75rem 1.5rem;
+}
+
+.highlight-panel-search-icon {
+  position: absolute;
+  left: 2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.highlight-panel-search-input {
+  width: 100%;
+  padding: 0.5rem 0.5rem 0.5rem 2rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.highlight-panel-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.highlight-panel-search-input:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+/* Filter chips */
+.highlight-panel-filters {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0 1.5rem 0.75rem;
+  flex-wrap: wrap;
+}
+
+.highlight-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.highlight-filter-chip:hover {
+  background: var(--bg-secondary);
+}
+
+.highlight-filter-chip.active {
+  background: var(--bg-secondary);
+  border-color: var(--text-tertiary);
+  color: var(--text-primary);
+}
+
+.highlight-filter-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Highlight list */
+.highlight-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1.5rem;
+}
+
+.highlight-panel-empty {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* Individual highlight card */
+.highlight-card {
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid;
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-secondary);
+  transition: background 0.15s ease;
+}
+
+.highlight-card:hover {
+  background: var(--bg-shelf);
+}
+
+.highlight-card-text {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 0.875rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.highlight-card-jump {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.highlight-card:hover .highlight-card-jump {
+  opacity: 1;
+}
+
+/* Note editing in panel */
+.highlight-card-note-row {
+  margin-top: 0.5rem;
+}
+
+.highlight-card-note-text {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.highlight-card-note-text:hover {
+  background: rgba(28, 25, 23, 0.04);
+}
+
+.highlight-card-add-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.highlight-card-add-note:hover {
+  color: var(--accent);
+  background: rgba(194, 65, 12, 0.06);
+}
+
+.highlight-card-note-edit {
+  margin-top: 0.5rem;
+}
+
+.highlight-card-note-textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.highlight-card-note-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.highlight-card-note-textarea:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+.highlight-card-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
+.highlight-card-note-cancel,
+.highlight-card-note-save {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: none;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.highlight-card-note-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.highlight-card-note-cancel:hover {
+  background: var(--bg-primary);
+}
+
+.highlight-card-note-save {
+  background: var(--accent);
+  color: #fff;
+}
+
+.highlight-card-note-save:hover {
+  background: var(--accent-hover);
+}
+
+.highlight-card-time {
+  display: block;
+  margin-top: 0.375rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+}
+
+/* ================================================================
+   Responsive — collapse related grid on narrow screens
+   ================================================================ */
+
+@media (max-width: 900px) {
+  .reader-margin {
+    display: none;
+  }
+
+  .reader-body {
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .reader-related-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .highlight-panel {
+    width: 100%;
+  }
+
+  .reader-content-wrapper {
+    padding: 1.5rem 1rem 4rem;
+  }
+
+  .reader-view .reader-text {
+    font-size: 1.0625rem;
+  }
+}

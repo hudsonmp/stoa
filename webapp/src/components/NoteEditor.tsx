@@ -1,10 +1,9 @@
-"use client";
+import { useEffect, useState } from "react";
 
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Placeholder from "@tiptap/extension-placeholder";
-import { Bold, Italic, List, Heading2, Code, Quote } from "lucide-react";
-
+/**
+ * Lightweight note editor. Uses TipTap when available,
+ * falls back to a plain textarea if the import fails at runtime.
+ */
 interface NoteEditorProps {
   content: string;
   onChange: (content: string) => void;
@@ -14,92 +13,72 @@ interface NoteEditorProps {
 export default function NoteEditor({
   content,
   onChange,
-  placeholder = "Write a note...",
+  placeholder = "Write your notes...",
 }: NoteEditorProps) {
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder }),
-    ],
-    content,
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
-    },
-    editorProps: {
-      attributes: {
-        class:
-          "prose prose-invert prose-sm max-w-none focus:outline-none min-h-[120px] p-3",
-      },
-    },
-  });
+  const [TipTapEditor, setTipTapEditor] = useState<React.ComponentType<{
+    content: string;
+    onChange: (c: string) => void;
+    placeholder: string;
+  }> | null>(null);
 
-  if (!editor) return null;
+  useEffect(() => {
+    // Lazy-load TipTap to keep bundle small if it's installed
+    Promise.all([
+      import("@tiptap/react"),
+      import("@tiptap/starter-kit"),
+      import("@tiptap/extension-placeholder"),
+    ])
+      .then(([{ useEditor, EditorContent }, { default: StarterKit }, { default: Placeholder }]) => {
+        // Create a wrapper component
+        const TipTap = ({
+          content: c,
+          onChange: onC,
+          placeholder: ph,
+        }: {
+          content: string;
+          onChange: (c: string) => void;
+          placeholder: string;
+        }) => {
+          const editor = useEditor({
+            extensions: [
+              StarterKit,
+              Placeholder.configure({ placeholder: ph }),
+            ],
+            content: c,
+            onUpdate: ({ editor: ed }) => onC(ed.getHTML()),
+          });
+          return <EditorContent editor={editor} />;
+        };
+        setTipTapEditor(() => TipTap);
+      })
+      .catch(() => {
+        // TipTap not installed, stay with fallback
+      });
+  }, []);
 
-  const ToolbarButton = ({
-    onClick,
-    isActive,
-    children,
-  }: {
-    onClick: () => void;
-    isActive?: boolean;
-    children: React.ReactNode;
-  }) => (
-    <button
-      onClick={onClick}
-      className={`p-1.5 rounded transition-colors ${
-        isActive ? "bg-accent/20 text-accent" : "text-muted hover:text-foreground hover:bg-surface-2"
-      }`}
-    >
-      {children}
-    </button>
-  );
-
-  return (
-    <div className="rounded-lg border border-border bg-surface overflow-hidden">
-      {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border">
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBold().run()}
-          isActive={editor.isActive("bold")}
-        >
-          <Bold size={14} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleItalic().run()}
-          isActive={editor.isActive("italic")}
-        >
-          <Italic size={14} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() =>
-            editor.chain().focus().toggleHeading({ level: 2 }).run()
-          }
-          isActive={editor.isActive("heading", { level: 2 })}
-        >
-          <Heading2 size={14} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          isActive={editor.isActive("bulletList")}
-        >
-          <List size={14} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-          isActive={editor.isActive("codeBlock")}
-        >
-          <Code size={14} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          isActive={editor.isActive("blockquote")}
-        >
-          <Quote size={14} />
-        </ToolbarButton>
+  if (TipTapEditor) {
+    return (
+      <div className="border border-border rounded-card p-3 bg-bg-primary focus-within:border-accent/30 transition-warm">
+        <TipTapEditor
+          content={content}
+          onChange={onChange}
+          placeholder={placeholder}
+        />
       </div>
+    );
+  }
 
-      {/* Editor */}
-      <EditorContent editor={editor} />
-    </div>
+  // Fallback textarea
+  return (
+    <textarea
+      value={content}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={6}
+      className="w-full px-3 py-2.5 rounded-card border border-border
+                 bg-bg-primary text-sm text-text-primary font-sans
+                 placeholder:text-text-tertiary outline-none resize-none
+                 focus:border-accent/30 transition-warm leading-relaxed"
+    />
   );
 }

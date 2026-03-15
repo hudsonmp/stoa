@@ -1,34 +1,26 @@
 """Spaced repetition review endpoints."""
 
-import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
-from supabase import create_client
-
+from services.auth import get_supabase_service, get_user_id
 from services.spaced_rep import next_review
 
 router = APIRouter()
 
 
-def get_supabase():
-    return create_client(
-        os.getenv("SUPABASE_URL"),
-        os.getenv("SUPABASE_SERVICE_KEY"),
-    )
-
-
 class ReviewResponse(BaseModel):
     review_id: str
-    quality: int  # 0=forgot, 1=hard, 2=good, 3=easy
+    quality: int = Field(ge=0, le=3)  # 0=forgot, 1=hard, 2=good, 3=easy
 
 
 @router.post("/next")
-async def get_next_reviews(user_id: str, limit: int = 5):
+async def get_next_reviews(request: Request, limit: int = 5):
     """Get highlights due for review."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
     now = datetime.now(timezone.utc).isoformat()
 
     result = (
@@ -45,14 +37,21 @@ async def get_next_reviews(user_id: str, limit: int = 5):
 
 
 @router.post("/respond")
-async def respond_to_review(req: ReviewResponse):
+async def respond_to_review(req: ReviewResponse, request: Request):
     """Update review schedule based on user response."""
-    supabase = get_supabase()
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
 
-    # Get current review state
-    result = supabase.table("review_queue").select("*").eq("id", req.review_id).execute()
+    # Get current review state — scoped to this user
+    result = (
+        supabase.table("review_queue")
+        .select("*")
+        .eq("id", req.review_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
     if not result.data:
-        return {"error": "Review not found"}
+        raise HTTPException(status_code=404, detail="Review not found")
 
     review = result.data[0]
 

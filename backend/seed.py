@@ -37,6 +37,14 @@ PEOPLE = [
 ]
 
 ITEMS = [
+    # Books (from hudsonmp.github.io/library)
+    {"title": "Zero to One", "type": "book", "domain": "Peter Thiel & Blake Masters", "reading_status": "read"},
+    {"title": "The Worlds I See", "type": "book", "domain": "Fei-Fei Li", "reading_status": "read"},
+    {"title": "The Alchemist", "type": "book", "domain": "Paulo Coelho", "reading_status": "read"},
+    {"title": "Elon Musk", "type": "book", "domain": "Walter Isaacson", "reading_status": "read"},
+    {"title": "Einstein: His Life and Universe", "type": "book", "domain": "Walter Isaacson", "reading_status": "read"},
+    {"title": "Architects of Intelligence", "type": "book", "domain": "Martin Ford", "reading_status": "read"},
+    # Blogs (milieu)
     {"title": "Marginal Revolution", "url": "https://marginalrevolution.com", "type": "blog", "domain": "marginalrevolution.com"},
     {"title": "Escaping Flatland", "url": "https://henrikkarlsson.xyz", "type": "blog", "domain": "henrikkarlsson.xyz"},
     {"title": "First We Shape Our Social Graph, Then It Shapes Us", "url": "https://henrikkarlsson.xyz/p/first-we-shape-our-social-graph", "type": "blog", "domain": "henrikkarlsson.xyz"},
@@ -47,6 +55,26 @@ ITEMS = [
     {"title": "The Intrinsic Perspective", "url": "https://theintrinsicperspective.com", "type": "blog", "domain": "theintrinsicperspective.com"},
     {"title": "benkuhn.net/college", "url": "https://benkuhn.net/college", "type": "blog", "domain": "benkuhn.net"},
     {"title": "Advice - Patrick Collison", "url": "https://patrickcollison.com/advice", "type": "blog", "domain": "patrickcollison.com"},
+    # Hudson's writings
+    {"title": "Transforming Societies", "url": "https://hudsonmp.github.io/blog/2026/transforming-societies/", "type": "blog", "domain": "hudsonmp.github.io", "reading_status": "read"},
+    {"title": "Why do we Learn STEM?", "url": "https://hudsonmp.github.io/blog/2026/why-do-we-learn-stem/", "type": "blog", "domain": "hudsonmp.github.io", "reading_status": "read"},
+    {"title": "Who Was I (part I)?", "url": "https://hudsonmp.github.io/blog/2026/first-post/", "type": "blog", "domain": "hudsonmp.github.io", "reading_status": "read"},
+    # Podcasts (from hudsonmp.github.io/library)
+    {"title": "Dwarkesh Podcast - Demis Hassabis", "url": "https://www.dwarkeshpatel.com/p/demis-hassabis", "type": "podcast", "domain": "dwarkeshpatel.com"},
+    {"title": "Lex Fridman - Andrej Karpathy", "url": "https://lexfridman.com/andrej-karpathy/", "type": "podcast", "domain": "lexfridman.com"},
+    {"title": "The Future of Everything", "type": "podcast", "domain": "Stanford Engineering", "summary": "Hosted by Russ Altman"},
+    {"title": "Education Futures", "type": "podcast", "domain": "Svenia Busson"},
+    {"title": "Founders Podcast", "type": "podcast", "domain": "David Senra"},
+    {"title": "The Diary of a CEO", "type": "podcast", "domain": "Steven Bartlett"},
+    {"title": "HCI Ideas", "type": "podcast", "domain": "CMU HCII"},
+    {"title": "EdTech Insiders", "type": "podcast", "domain": "Alex Sarlin & Ben Kornell"},
+    {"title": "The Daily", "type": "podcast", "domain": "The New York Times"},
+    # Papers
+    {"title": "Attention Is All You Need", "url": "https://arxiv.org/abs/1706.03762", "type": "paper", "domain": "arxiv.org"},
+    {"title": "The Unreasonable Effectiveness of Mathematics", "url": "https://www.dartmouth.edu/~matc/MathDrama/reading/Wigner.html", "type": "paper", "domain": "dartmouth.edu"},
+    {"title": "Constructionism vs Instructionism", "url": "https://www.papert.org/articles/SituatingConstructionism.html", "type": "paper", "domain": "papert.org"},
+    {"title": "A Mathematical Theory of Communication", "url": "https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf", "type": "paper", "domain": "harvard.edu"},
+    {"title": "The Cognitive Apprenticeship Framework", "url": "https://doi.org/10.1207/s15326985ep2101_1", "type": "paper", "domain": "doi.org"},
 ]
 
 COLLECTIONS = [

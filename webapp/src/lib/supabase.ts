@@ -1,16 +1,22 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder";
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL || "https://placeholder.supabase.co";
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY || "placeholder";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Types matching our database schema
+// ----------------------------------------------------------------
+// Database types matching Supabase schema
+// ----------------------------------------------------------------
+
 export interface Person {
   id: string;
   user_id: string;
   name: string;
   bio?: string;
+  email?: string;
   website_url?: string;
   twitter_handle?: string;
   avatar_url?: string;
@@ -26,7 +32,7 @@ export interface Item {
   user_id: string;
   url?: string;
   title: string;
-  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video";
+  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing";
   favicon_url?: string;
   cover_image_url?: string;
   spine_color?: string;
@@ -46,9 +52,6 @@ export interface Highlight {
   user_id: string;
   text: string;
   context?: string;
-  css_selector?: string;
-  start_offset?: number;
-  end_offset?: number;
   color: string;
   note?: string;
   created_at: string;
@@ -72,22 +75,18 @@ export interface Collection {
   name: string;
   description?: string;
   is_public: boolean;
-  cover_image_url?: string;
   created_at: string;
 }
 
 export interface Citation {
   id: string;
   item_id: string;
-  authors?: { name: string; affiliation?: string }[];
+  authors?: { name: string }[];
   year?: number;
   venue?: string;
   doi?: string;
   arxiv_id?: string;
-  bibtex?: string;
   abstract?: string;
-  pdf_storage_path?: string;
-  csl_json?: Record<string, unknown>;
 }
 
 export interface Tag {

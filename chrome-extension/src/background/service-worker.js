@@ -4,21 +4,36 @@
  * - Manage tab groups save/restore
  * - Context menus
  * - Keyboard shortcuts
+ * - Badge showing highlight count on current page
  */
 
-const STOA_API = "http://localhost:8000";
+// --- Auth + Config Helpers ---
+async function getConfig() {
+  const stored = await chrome.storage.local.get([
+    "stoa_api_url",
+    "stoa_user_id",
+    "stoa_token",
+  ]);
+  return {
+    apiUrl: stored.stoa_api_url || "http://localhost:8000",
+    userId: stored.stoa_user_id || null,
+    token: stored.stoa_token || null,
+  };
+}
+
+function buildAuthHeaders(config) {
+  const headers = { "Content-Type": "application/json" };
+  if (config.token) {
+    headers["Authorization"] = `Bearer ${config.token}`;
+  } else if (config.userId) {
+    headers["X-User-Id"] = config.userId;
+  }
+  return headers;
+}
 
 // --- Message Handling ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
-    case "SAVE_HIGHLIGHT":
-      handleSaveHighlight(message.payload).then(sendResponse);
-      return true;
-
-    case "GET_HIGHLIGHTS":
-      handleGetHighlights(message.payload).then(sendResponse);
-      return true;
-
     case "SAVE_SCROLL":
       handleSaveScroll(message.payload);
       return false;
@@ -30,40 +45,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "SAVE_PAGE":
       handleSavePage(message.payload).then(sendResponse);
       return true;
+
+    case "SAVE_TAB_GROUP":
+      saveCurrentTabGroup().then(sendResponse);
+      return true;
+
+    case "SET_BADGE":
+      setBadge(message.payload.count, sender.tab?.id);
+      return false;
+
+    case "UPDATE_BADGE":
+      incrementBadge(message.payload.delta, sender.tab?.id);
+      return false;
+
+    case "SYNC_SCROLL":
+      handleSyncScroll(message.payload);
+      return false;
+
+    case "SYNC_ENGAGEMENT":
+      handleSyncEngagement(message.payload);
+      return false;
   }
 });
 
-// --- Highlight Management ---
-async function handleSaveHighlight(data) {
-  try {
-    // Store locally for quick re-injection
-    const key = `highlights:${data.url}`;
-    const stored = await chrome.storage.local.get(key);
-    const highlights = stored[key] || [];
-    highlights.push({
-      text: data.text,
-      context: data.context,
-      css_selector: data.css_selector,
-      color: data.color,
-      note: data.note,
-      created_at: new Date().toISOString(),
-    });
-    await chrome.storage.local.set({ [key]: highlights });
+// --- Badge Management ---
+const tabBadgeCounts = {};
 
-    // Also send to API for persistence
-    // (The content script already calls /ingest, so the item should exist)
-    return { success: true };
-  } catch (err) {
-    console.error("[Stoa] Save highlight error:", err);
-    return { success: false, error: err.message };
-  }
+function setBadge(count, tabId) {
+  if (!tabId) return;
+  tabBadgeCounts[tabId] = count;
+  const text = count > 0 ? String(count) : "";
+  chrome.action.setBadgeText({ text, tabId });
+  chrome.action.setBadgeBackgroundColor({ color: "#C2410C", tabId });
 }
 
-async function handleGetHighlights(data) {
-  const key = `highlights:${data.url}`;
-  const stored = await chrome.storage.local.get(key);
-  return { highlights: stored[key] || [] };
+function incrementBadge(delta, tabId) {
+  if (!tabId) return;
+  const current = tabBadgeCounts[tabId] || 0;
+  setBadge(current + delta, tabId);
 }
+
+// Clear badge when tab closes
+chrome.tabs.onRemoved.addListener((tabId) => {
+  delete tabBadgeCounts[tabId];
+});
 
 // --- Scroll Position ---
 async function handleSaveScroll(data) {
@@ -77,80 +102,126 @@ async function handleGetScroll(data) {
   return { scroll_position: stored[key] || null };
 }
 
-// --- Page Save ---
+// --- Auto-detect type from URL ---
+const PAPER_DOMAINS = [
+  "arxiv.org", "dl.acm.org", "link.springer.com", "ieeexplore.ieee.org",
+  "aclanthology.org", "openreview.net", "proceedings.mlr.press",
+  "papers.nips.cc", "semanticscholar.org", "scholar.google.com",
+  "nature.com", "science.org", "biorxiv.org", "medrxiv.org",
+];
+
+function detectType(url, fallback = "blog") {
+  try {
+    const host = new URL(url).hostname;
+    if (PAPER_DOMAINS.some((d) => host.endsWith(d))) return "paper";
+  } catch {}
+  if (url.endsWith(".pdf")) return "paper";
+  return fallback;
+}
+
+// --- Page Save (with auth headers) ---
 async function handleSavePage(data) {
   try {
-    const resp = await fetch(`${STOA_API}/ingest`, {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+    const type = data.type || detectType(data.url);
+
+    const body = {
+      url: data.url,
+      type,
+      tags: data.tags || [],
+    };
+    if (data.collection_id) body.collection_id = data.collection_id;
+
+    const resp = await fetch(`${config.apiUrl}/ingest`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      headers,
+      body: JSON.stringify(body),
     });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error("[Stoa] Ingest failed:", resp.status, text);
+      return { success: false, error: `API ${resp.status}` };
+    }
+
     const result = await resp.json();
     return { success: true, item: result.item };
   } catch (err) {
+    console.error("[Stoa] Save page error:", err);
     return { success: false, error: err.message };
   }
 }
 
 // --- Tab Group Management ---
 async function saveCurrentTabGroup() {
-  const stored = await chrome.storage.local.get("stoa_user_id");
-  const userId = stored.stoa_user_id;
-  if (!userId) return;
+  const config = await getConfig();
+  if (!config.userId) return { success: false, error: "Not authenticated" };
 
   // Get current tab to find its group
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!activeTab || activeTab.groupId === -1) {
-    // No group — save all tabs in window
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    const tabData = tabs.map((t) => ({
-      url: t.url,
-      title: t.title,
-      favicon_url: t.favIconUrl,
-    }));
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+  if (!activeTab) return { success: false, error: "No active tab" };
 
-    await chrome.storage.local.set({
-      [`tabgroup:ungrouped:${Date.now()}`]: {
-        name: "Saved Tabs",
-        tabs: tabData,
-        created_at: new Date().toISOString(),
-      },
+  let groupName = "Saved Tabs";
+  let tabsToSave;
+
+  if (activeTab.groupId === -1) {
+    // No group — save all tabs in window
+    tabsToSave = await chrome.tabs.query({ currentWindow: true });
+  } else {
+    // Get all tabs in this group
+    tabsToSave = await chrome.tabs.query({
+      currentWindow: true,
+      groupId: activeTab.groupId,
     });
-    return;
+    try {
+      const group = await chrome.tabGroups.get(activeTab.groupId);
+      groupName = group.title || "Untitled Group";
+    } catch (e) {
+      // tabGroups API may fail
+    }
   }
 
-  // Get all tabs in this group
-  const groupTabs = await chrome.tabs.query({
-    currentWindow: true,
-    groupId: activeTab.groupId,
-  });
-
-  const group = await chrome.tabGroups.get(activeTab.groupId);
-
-  const tabData = groupTabs.map((t) => ({
+  const tabData = tabsToSave.map((t) => ({
     url: t.url,
     title: t.title,
     favicon_url: t.favIconUrl,
   }));
 
-  const groupData = {
-    name: group.title || "Untitled Group",
+  const groupPayload = {
+    name: groupName,
     tabs: tabData,
-    chrome_group_color: group.color,
     created_at: new Date().toISOString(),
   };
 
   // Store locally
-  const key = `tabgroup:${group.title || "untitled"}:${Date.now()}`;
-  await chrome.storage.local.set({ [key]: groupData });
+  const key = `tabgroup:${groupName}:${Date.now()}`;
+  await chrome.storage.local.set({ [key]: groupPayload });
 
-  // Also send to API
+  // Save each tab's URL to the API as an item
+  const headers = buildAuthHeaders(config);
   try {
-    // This would go to Supabase via the API
-    console.log("[Stoa] Tab group saved:", groupData.name, tabData.length, "tabs");
+    for (const tab of tabData) {
+      if (!tab.url || tab.url.startsWith("chrome://") || tab.url.startsWith("chrome-extension://")) continue;
+      await fetch(`${config.apiUrl}/ingest`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          url: tab.url,
+          type: detectType(tab.url, "page"),
+          tags: [`tab-group:${groupName}`],
+        }),
+      });
+    }
   } catch (err) {
-    console.error("[Stoa] Failed to save tab group:", err);
+    console.error("[Stoa] Failed to save tab group to API:", err);
+    return { success: false, error: err.message };
   }
+
+  return { success: true, name: groupName, count: tabData.length };
 }
 
 async function restoreTabGroup(groupData) {
@@ -169,25 +240,98 @@ async function restoreTabGroup(groupData) {
   }
 }
 
-// --- Keyboard Shortcuts ---
-chrome.commands.onCommand.addListener((command) => {
-  switch (command) {
-    case "save-page":
-      chrome.tabs.query({ active: true, currentWindow: true }, async ([tab]) => {
-        if (!tab) return;
-        const stored = await chrome.storage.local.get("stoa_user_id");
-        if (!stored.stoa_user_id) return;
-        handleSavePage({
-          url: tab.url,
-          user_id: stored.stoa_user_id,
-          type: "blog",
-        });
-      });
-      break;
+// --- Scroll Sync to Backend ---
+async function handleSyncScroll(data) {
+  if (!data.item_id || !data.scroll_position) return;
+  try {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+    await fetch(`${config.apiUrl}/items/${data.item_id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ scroll_position: data.scroll_position }),
+    });
+  } catch (err) {
+    console.error("[Stoa] Scroll sync failed:", err);
+  }
+}
 
-    case "save-tab-group":
-      saveCurrentTabGroup();
-      break;
+// --- Engagement Sync to Backend ---
+async function handleSyncEngagement(data) {
+  if (!data.item_id || !data.session) return;
+  try {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+
+    // Get current engagement data
+    const getResp = await fetch(`${config.apiUrl}/items/${data.item_id}`, { headers });
+    if (!getResp.ok) return;
+    const itemData = await getResp.json();
+    const existing = itemData.item?.metadata?.engagement || {
+      total_time_ms: 0,
+      max_depth_pct: 0,
+      visit_count: 0,
+      total_highlights: 0,
+      sessions: [],
+    };
+
+    // Merge session
+    existing.total_time_ms += data.session.time_ms || 0;
+    existing.max_depth_pct = Math.max(existing.max_depth_pct, data.session.depth_pct || 0);
+    existing.total_highlights += data.session.highlights || 0;
+    existing.visit_count += 1;
+    existing.sessions.push(data.session);
+    // Keep only last 20 sessions
+    if (existing.sessions.length > 20) {
+      existing.sessions = existing.sessions.slice(-20);
+    }
+
+    // Update metadata
+    const currentMetadata = itemData.item?.metadata || {};
+    currentMetadata.engagement = existing;
+
+    // Unfortunately we can't PATCH metadata directly via items endpoint.
+    // Use a dedicated call or store engagement separately.
+    // For now, we'll use a direct supabase-style approach via a custom endpoint.
+    // Falling back to storing in chrome.storage.local until backend supports it.
+    const storageKey = `engagement:${data.item_id}`;
+    await chrome.storage.local.set({ [storageKey]: existing });
+  } catch (err) {
+    console.error("[Stoa] Engagement sync failed:", err);
+  }
+}
+
+// --- Keyboard Shortcuts ---
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "save-page") {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    if (!tab) return;
+    const config = await getConfig();
+    if (!config.userId) return;
+
+    const result = await handleSavePage({
+      url: tab.url,
+      type: detectType(tab.url),
+    });
+
+    // Flash badge briefly to confirm
+    if (result.success) {
+      chrome.action.setBadgeText({ text: "\u2713", tabId: tab.id });
+      chrome.action.setBadgeBackgroundColor({ color: "#15803D", tabId: tab.id });
+      setTimeout(() => {
+        const count = tabBadgeCounts[tab.id] || 0;
+        chrome.action.setBadgeText({
+          text: count > 0 ? String(count) : "",
+          tabId: tab.id,
+        });
+        chrome.action.setBadgeBackgroundColor({ color: "#C2410C", tabId: tab.id });
+      }, 2000);
+    }
+  } else if (command === "save-tab-group") {
+    saveCurrentTabGroup();
   }
 });
 
@@ -206,20 +350,12 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const stored = await chrome.storage.local.get("stoa_user_id");
-  if (!stored.stoa_user_id) return;
+  const config = await getConfig();
+  if (!config.userId) return;
 
   if (info.menuItemId === "stoa-save-page") {
-    handleSavePage({
-      url: tab.url,
-      user_id: stored.stoa_user_id,
-      type: "blog",
-    });
+    handleSavePage({ url: tab.url, type: detectType(tab.url) });
   } else if (info.menuItemId === "stoa-save-link") {
-    handleSavePage({
-      url: info.linkUrl,
-      user_id: stored.stoa_user_id,
-      type: "blog",
-    });
+    handleSavePage({ url: info.linkUrl, type: detectType(info.linkUrl) });
   }
 });

@@ -1,0 +1,394 @@
+"""Item list/detail endpoints."""
+
+import logging
+import math
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from services.auth import get_supabase_service, get_user_id
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.get("")
+async def list_items(
+    request: Request,
+    status: Optional[str] = None,
+    type: Optional[str] = None,
+    limit: int = 200,
+):
+    """List items for the authenticated user."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Use lightweight select for list view (skip extracted_text which can be huge)
+    select_fields = "id, user_id, url, title, type, favicon_url, cover_image_url, spine_color, text_color, domain, scroll_position, reading_status, metadata, summary, created_at"
+    query = (
+        supabase.table("items")
+        .select(select_fields)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
+    if status:
+        query = query.eq("reading_status", status)
+    if type:
+        query = query.eq("type", type)
+
+    result = query.execute()
+    return {"items": result.data or []}
+
+
+@router.get("/counts")
+async def get_item_counts(request: Request):
+    """Return item counts by reading_status and type. Lightweight endpoint for sidebar."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("items")
+        .select("reading_status, type")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    items = result.data or []
+
+    return {
+        "to_read": sum(1 for i in items if i["reading_status"] == "to_read" and i["type"] != "writing"),
+        "read": sum(1 for i in items if i["reading_status"] == "read" and i["type"] != "writing"),
+        "writing": sum(1 for i in items if i["type"] == "writing"),
+        "total": len(items),
+    }
+
+
+@router.get("/collections")
+async def list_collections(request: Request):
+    """List all collections for the authenticated user."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("collections")
+        .select("id, name, description")
+        .eq("user_id", user_id)
+        .order("name")
+        .execute()
+    )
+    return {"collections": result.data or []}
+
+
+@router.get("/by-url")
+async def get_item_by_url(request: Request, url: str):
+    """Look up an item by URL. Used by Chrome extension for scroll sync."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("items")
+        .select("id, title, url, type, reading_status, scroll_position")
+        .eq("user_id", user_id)
+        .eq("url", url)
+        .limit(1)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found for this URL")
+    return {"item": result.data[0]}
+
+
+@router.get("/{item_id}")
+async def get_item(item_id: str, request: Request):
+    """Get a single item with highlights, notes, and citation."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Fetch related data in parallel-ish
+    hl_res = (
+        supabase.table("highlights")
+        .select("*")
+        .eq("item_id", item_id)
+        .eq("user_id", user_id)
+        .order("created_at")
+        .execute()
+    )
+    note_res = (
+        supabase.table("notes")
+        .select("*")
+        .eq("item_id", item_id)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    cit_res = (
+        supabase.table("citations")
+        .select("*")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    # Related items: try embedding similarity first, fall back to same-type
+    related = []
+    try:
+        related_res = supabase.rpc("find_related_items", {
+            "source_item_id": item_id,
+            "filter_user_id": user_id,
+            "match_count": 4,
+        }).execute()
+        related = related_res.data or []
+    except Exception:
+        logger.debug("find_related_items RPC unavailable, falling back to type match")
+
+    if not related:
+        fallback_res = (
+            supabase.table("items")
+            .select("id, title, url, type, domain, favicon_url")
+            .eq("user_id", user_id)
+            .eq("type", item_res.data["type"])
+            .neq("id", item_id)
+            .order("created_at", desc=True)
+            .limit(4)
+            .execute()
+        )
+        related = fallback_res.data or []
+
+    return {
+        "item": item_res.data,
+        "highlights": hl_res.data or [],
+        "notes": note_res.data or [],
+        "citation": cit_res.data[0] if cit_res.data else None,
+        "related": related,
+    }
+
+
+@router.patch("/{item_id}")
+async def update_item(item_id: str, request: Request):
+    """Update item fields (e.g. reading_status)."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+
+    # Only allow safe fields
+    allowed = {"reading_status", "title", "type", "summary", "scroll_position"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    result = (
+        supabase.table("items")
+        .update(updates)
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"item": result.data[0]}
+
+
+@router.put("/{item_id}/tags")
+async def set_item_tags(item_id: str, request: Request):
+    """Replace all tags on an item. Body: {"tags": ["tag1", "tag2"]}"""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+    tag_names: list[str] = body.get("tags", [])
+
+    # Verify item belongs to user
+    item_res = (
+        supabase.table("items").select("id").eq("id", item_id).eq("user_id", user_id).execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Clear existing tags
+    supabase.table("item_tags").delete().eq("item_id", item_id).execute()
+
+    # Upsert + link new tags
+    linked = []
+    for name in tag_names:
+        name = name.strip().lower()
+        if not name:
+            continue
+        tag_res = supabase.table("tags").upsert(
+            {"user_id": user_id, "name": name}, on_conflict="user_id,name"
+        ).execute()
+        tag_id = tag_res.data[0]["id"]
+        supabase.table("item_tags").insert({"item_id": item_id, "tag_id": tag_id}).execute()
+        linked.append(name)
+
+    return {"tags": linked}
+
+
+@router.get("/{item_id}/tags")
+async def get_item_tags(item_id: str, request: Request):
+    """Get tags for an item."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("item_tags")
+        .select("tag_id, tags(name)")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    tags = [row["tags"]["name"] for row in (result.data or []) if row.get("tags")]
+    return {"tags": tags}
+
+
+@router.get("/{item_id}/related-by-ideas")
+async def related_by_ideas(item_id: str, request: Request, limit: int = 5):
+    """Find related items using SPECTER2 paper embeddings (idea-level similarity).
+
+    Computes cosine similarity between the source item's SPECTER embedding
+    and all other items that have SPECTER embeddings. Returns top matches.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Get the source item's SPECTER embedding
+    source_res = (
+        supabase.table("items")
+        .select("id, metadata")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not source_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    source_meta = source_res.data.get("metadata") or {}
+    source_embedding = source_meta.get("specter_embedding")
+    if not source_embedding:
+        raise HTTPException(
+            status_code=404,
+            detail="No SPECTER embedding for this item. Only papers resolved via Semantic Scholar have embeddings.",
+        )
+
+    # Fetch all other items with metadata (filter for those with SPECTER embeddings)
+    all_items_res = (
+        supabase.table("items")
+        .select("id, title, url, type, domain, favicon_url, metadata")
+        .eq("user_id", user_id)
+        .neq("id", item_id)
+        .execute()
+    )
+
+    # Compute cosine similarity for items that have SPECTER embeddings
+    candidates = []
+    for item in (all_items_res.data or []):
+        meta = item.get("metadata") or {}
+        emb = meta.get("specter_embedding")
+        if not emb or len(emb) != len(source_embedding):
+            continue
+        sim = _cosine_similarity(source_embedding, emb)
+        candidates.append({
+            "id": item["id"],
+            "title": item["title"],
+            "url": item.get("url"),
+            "type": item["type"],
+            "domain": item.get("domain"),
+            "favicon_url": item.get("favicon_url"),
+            "similarity": round(sim, 4),
+        })
+
+    # Sort by similarity descending, return top N
+    candidates.sort(key=lambda x: x["similarity"], reverse=True)
+    return {"related": candidates[:limit], "total_with_embeddings": len(candidates)}
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors. Pure Python, no numpy needed."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
+@router.post("/{item_id}/re-extract")
+async def re_extract_item(item_id: str, request: Request):
+    """Re-extract content for an item using the latest extraction pipeline.
+    For papers with stored PDFs, re-runs pymupdf4llm markdown extraction."""
+    import httpx
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_res.data
+    url = item.get("url", "")
+
+    # For arXiv papers: download PDF and re-extract
+    import re
+    arxiv_match = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5}(?:v\d+)?)", url)
+    if arxiv_match:
+        arxiv_id = arxiv_match.group(1)
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            pdf_resp = await client.get(pdf_url)
+            pdf_bytes = pdf_resp.content
+
+        from services.extraction import extract_from_pdf
+        extracted = extract_from_pdf(pdf_bytes)
+
+        supabase.table("items").update({
+            "extracted_text": extracted["extracted_text"],
+        }).eq("id", item_id).execute()
+
+        return {"success": True, "text_length": len(extracted["extracted_text"]), "is_markdown": "## " in extracted["extracted_text"][:500]}
+
+    # For items with URLs: re-extract from URL
+    if url:
+        from services.extraction import extract_from_url
+        extracted = await extract_from_url(url)
+        supabase.table("items").update({
+            "extracted_text": extracted["extracted_text"],
+        }).eq("id", item_id).execute()
+        return {"success": True, "text_length": len(extracted["extracted_text"] or "")}
+
+    return {"success": False, "error": "No URL or PDF to re-extract from"}
+
+
+@router.delete("/{item_id}")
+async def delete_item(item_id: str, request: Request):
+    """Delete an item and all its related data (cascades via FK constraints)."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("items")
+        .delete()
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"deleted": True, "id": item_id}

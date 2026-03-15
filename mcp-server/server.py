@@ -30,6 +30,11 @@ def _supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def _escape_ilike(value: str) -> str:
+    """Escape ILIKE special characters."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @mcp.tool()
 async def search_library(
     query: str,
@@ -80,12 +85,53 @@ def get_highlights(
         List of highlights with text, context, note, and source info
     """
     sb = _supabase()
+    user_id = _get_user_id()
     query = sb.table("highlights").select("*, items(title, url, type)")
 
     if item_id:
         query = query.eq("item_id", item_id)
 
-    query = query.eq("user_id", _get_user_id()).order("created_at", desc=True).limit(20)
+    if person:
+        # Find items by this person, then filter highlights to those items
+        people = (
+            sb.table("people")
+            .select("id")
+            .eq("user_id", user_id)
+            .ilike("name", f"%{_escape_ilike(person)}%")
+            .execute()
+        )
+        if people.data:
+            person_items = (
+                sb.table("person_items")
+                .select("item_id")
+                .eq("person_id", people.data[0]["id"])
+                .execute()
+            )
+            if person_items.data:
+                item_ids = [pi["item_id"] for pi in person_items.data]
+                query = query.in_("item_id", item_ids)
+
+    if tag:
+        # Find items with this tag
+        tags = (
+            sb.table("tags")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("name", tag)
+            .execute()
+        )
+        if tags.data:
+            tagged_items = (
+                sb.table("item_tags")
+                .select("item_id")
+                .eq("tag_id", tags.data[0]["id"])
+                .execute()
+            )
+            if tagged_items.data:
+                item_ids = [ti["item_id"] for ti in tagged_items.data]
+                query = query.in_("item_id", item_ids)
+
+    query = query.eq("user_id", user_id).order("created_at", desc=True).limit(20)
     result = query.execute()
     return result.data or []
 
@@ -102,10 +148,23 @@ def get_notes(
         person: Get notes about a specific person (by name)
     """
     sb = _supabase()
-    query = sb.table("notes").select("*").eq("user_id", _get_user_id())
+    user_id = _get_user_id()
+    query = sb.table("notes").select("*").eq("user_id", user_id)
 
     if item_id:
         query = query.eq("item_id", item_id)
+
+    if person:
+        # Look up person by name, then filter notes by person_id
+        people = (
+            sb.table("people")
+            .select("id")
+            .eq("user_id", user_id)
+            .ilike("name", f"%{_escape_ilike(person)}%")
+            .execute()
+        )
+        if people.data:
+            query = query.eq("person_id", people.data[0]["id"])
 
     result = query.order("updated_at", desc=True).limit(20).execute()
     return result.data or []
@@ -143,6 +202,50 @@ async def add_item(
 
 
 @mcp.tool()
+async def log_book(title_or_isbn: str) -> dict:
+    """Log a physical book Hudson is reading. Searches Open Library for metadata.
+
+    Args:
+        title_or_isbn: Book title (e.g., "Zero to One") or ISBN
+
+    Returns:
+        The created book item with cover image and author links
+    """
+    headers = {"X-User-Id": _get_user_id(), "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Search Open Library
+        lookup_resp = await client.get(
+            f"{STOA_API}/ingest/book/lookup",
+            params={"q": title_or_isbn},
+            headers=headers,
+        )
+        results = lookup_resp.json().get("results", [])
+        if not results:
+            return {"error": f"No book found matching '{title_or_isbn}'"}
+
+        # Take the best match
+        best = results[0]
+
+        # Create book item
+        resp = await client.post(
+            f"{STOA_API}/ingest/book",
+            json={
+                "title": best["title"],
+                "authors": best["authors"],
+                "isbn": best.get("isbn"),
+                "cover_url": best.get("cover_url"),
+                "year": best.get("year"),
+                "publisher": best.get("publisher"),
+                "page_count": best.get("page_count"),
+                "subjects": best.get("subjects", []),
+                "reading_status": "reading",
+            },
+            headers=headers,
+        )
+        return resp.json()
+
+
+@mcp.tool()
 async def add_citation(
     arxiv_id: Optional[str] = None,
     doi: Optional[str] = None,
@@ -154,21 +257,39 @@ async def add_citation(
 
     Args:
         arxiv_id: arXiv paper ID (e.g., "2301.00234")
-        doi: DOI identifier
+        doi: DOI identifier (e.g., "10.1145/3544548.3581388")
         bibtex: Raw BibTeX entry
     """
+    headers = {"X-User-Id": _get_user_id(), "Content-Type": "application/json"}
     if arxiv_id:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{STOA_API}/ingest/arxiv/{arxiv_id}",
-                params={"user_id": _get_user_id()},
+                headers=headers,
+            )
+            return resp.json()
+    elif doi:
+        # Resolve DOI via citation resolver, then create item
+        async with httpx.AsyncClient(timeout=60) as client:
+            # Use the ingest endpoint with the DOI URL
+            doi_url = f"https://doi.org/{doi}"
+            resp = await client.post(
+                f"{STOA_API}/ingest",
+                json={
+                    "url": doi_url,
+                    "type": "paper",
+                    "tags": [],
+                    "person_ids": [],
+                },
+                headers=headers,
             )
             return resp.json()
     elif bibtex:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 f"{STOA_API}/citations/import",
-                json={"bibtex": bibtex, "user_id": _get_user_id()},
+                json={"bibtex": bibtex},
+                headers=headers,
             )
             return resp.json()
     else:
@@ -332,7 +453,7 @@ def get_person(name: str) -> dict:
         sb.table("people")
         .select("*")
         .eq("user_id", user_id)
-        .ilike("name", f"%{name}%")
+        .ilike("name", f"%{_escape_ilike(name)}%")
         .execute()
     )
 
@@ -365,8 +486,14 @@ def get_person(name: str) -> dict:
 
 
 def _get_user_id() -> str:
-    """Get the configured user ID."""
-    return os.getenv("STOA_USER_ID", "")
+    """Get the configured user ID. Raises if not set."""
+    user_id = os.getenv("STOA_USER_ID", "")
+    if not user_id:
+        raise ValueError(
+            "STOA_USER_ID not set. Configure it in your environment "
+            "or .env file before using the Stoa MCP server."
+        )
+    return user_id
 
 
 if __name__ == "__main__":
