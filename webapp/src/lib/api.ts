@@ -102,6 +102,18 @@ export function getPdfEmbedUrl(item: { url?: string; metadata?: Record<string, u
   return null;
 }
 
+/**
+ * Get ar5iv HTML URL for arXiv papers (LaTeX→HTML compilation with equations, figures).
+ * Returns null for non-arXiv papers.
+ */
+export function getAr5ivUrl(item: { url?: string }): string | null {
+  const url = item.url;
+  if (!url) return null;
+  const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivMatch) return `https://ar5iv.labs.arxiv.org/html/${arxivMatch[1]}`;
+  return null;
+}
+
 export async function search(data: {
   query: string;
   type?: string;

@@ -22,7 +22,7 @@ import {
   Copy,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, exportBibtex } from "@/lib/api";
+import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
@@ -53,6 +53,7 @@ export default function ItemDetail() {
   const [highlightPanelOpen, setHighlightPanelOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
   const [pdfMode, setPdfMode] = useState(false);
+  const [ar5ivMode, setAr5ivMode] = useState(false);
 
   // Inline editing state
   const [editingHighlightNote, setEditingHighlightNote] = useState<string | null>(null);
@@ -78,6 +79,7 @@ export default function ItemDetail() {
   }, [id]);
 
   const pdfUrl = item ? getPdfEmbedUrl(item) : null;
+  const ar5ivUrl = item ? getAr5ivUrl(item) : null;
 
   // Auto-enter reader mode if there's extracted text
   useEffect(() => {
@@ -86,8 +88,15 @@ export default function ItemDetail() {
     }
   }, [item]);
 
-  // Papers default to Annotate view (not PDF) when extracted text is available
-  // PDF mode is a manual toggle for when users want the original layout
+  // arXiv papers default to ar5iv HTML view (best quality rendering)
+  // Other papers default to Annotate view
+  useEffect(() => {
+    if (item && ar5ivUrl) {
+      setAr5ivMode(true);
+      setReaderMode(false);
+      setPdfMode(false);
+    }
+  }, [item, ar5ivUrl]);
 
   const loadItem = async () => {
     setLoading(true);
@@ -295,15 +304,24 @@ export default function ItemDetail() {
           {/* View mode switcher */}
           <div className="flex gap-1.5 bg-bg-secondary rounded-card p-1">
             <button
-              onClick={() => { setPdfMode(false); setReaderMode(false); }}
-              className={`reader-mode-toggle ${!pdfMode && !readerMode ? "active" : ""}`}
+              onClick={() => { setPdfMode(false); setReaderMode(false); setAr5ivMode(false); }}
+              className={`reader-mode-toggle ${!pdfMode && !readerMode && !ar5ivMode ? "active" : ""}`}
             >
               Detail
             </button>
+            {ar5ivUrl && (
+              <button
+                onClick={() => { setAr5ivMode(true); setPdfMode(false); setReaderMode(false); }}
+                className={`reader-mode-toggle ${ar5ivMode ? "active" : ""}`}
+              >
+                <BookOpen size={13} />
+                Read
+              </button>
+            )}
             {item.extracted_text && (
               <button
-                onClick={() => { setPdfMode(false); setReaderMode(true); }}
-                className={`reader-mode-toggle ${!pdfMode && readerMode ? "active" : ""}`}
+                onClick={() => { setPdfMode(false); setReaderMode(true); setAr5ivMode(false); }}
+                className={`reader-mode-toggle ${!pdfMode && readerMode && !ar5ivMode ? "active" : ""}`}
               >
                 <Highlighter size={13} />
                 Annotate
@@ -311,7 +329,7 @@ export default function ItemDetail() {
             )}
             {pdfUrl && (
               <button
-                onClick={() => { setPdfMode(true); setReaderMode(false); }}
+                onClick={() => { setPdfMode(true); setReaderMode(false); setAr5ivMode(false); }}
                 className={`reader-mode-toggle ${pdfMode ? "active" : ""}`}
               >
                 <FileText size={13} />
@@ -479,8 +497,20 @@ export default function ItemDetail() {
             </div>
           </header>
 
+          {/* ar5iv HTML mode — best quality for arXiv papers */}
+          {ar5ivMode && ar5ivUrl && (
+            <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "85vh" }}>
+              <iframe
+                src={ar5ivUrl}
+                title={`${item.title} (ar5iv HTML)`}
+                className="w-full h-full"
+                style={{ border: "none" }}
+              />
+            </div>
+          )}
+
           {/* PDF embed mode */}
-          {pdfMode && pdfUrl && (
+          {pdfMode && pdfUrl && !ar5ivMode && (
             <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "80vh" }}>
               <iframe
                 src={pdfUrl}
@@ -492,7 +522,7 @@ export default function ItemDetail() {
           )}
 
           {/* Reader mode or detail view */}
-          {!pdfMode && readerMode && item.extracted_text ? (
+          {!pdfMode && !ar5ivMode && readerMode && item.extracted_text ? (
             <ReaderView
               item={item}
               highlights={highlights}
@@ -501,7 +531,7 @@ export default function ItemDetail() {
               onCreateHighlight={handleCreateHighlight}
               onNoteForLastHighlight={handleNoteForLastHighlight}
             />
-          ) : !pdfMode ? (
+          ) : !pdfMode && !ar5ivMode ? (
             <>
               {citation && (
                 <div className="reader-detail-citation">
