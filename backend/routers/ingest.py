@@ -184,6 +184,9 @@ async def ingest_url(req: IngestURLRequest, request: Request):
                     "abstract": citation_data.get("abstract"),
                     "bibtex": citation_data.get("bibtex"),
                 }).execute()
+                # Store SPECTER embedding in item metadata
+                if citation_data.get("specter_embedding"):
+                    _store_specter_embedding(supabase, item_id, citation_data["specter_embedding"])
                 # Link citation authors as people
                 for author in citation_data.get("authors", []):
                     _link_or_create_person(supabase, user_id, author["name"], item_id)
@@ -268,6 +271,9 @@ async def ingest_pdf(
                 "bibtex": citation_data.get("bibtex"),
                 "pdf_storage_path": storage_path,
             }).execute()
+            # Store SPECTER embedding in item metadata
+            if citation_data.get("specter_embedding"):
+                _store_specter_embedding(supabase, item["id"], citation_data["specter_embedding"])
             for author in citation_data.get("authors", []):
                 _link_or_create_person(supabase, user_id, author["name"], item["id"])
     except Exception:
@@ -403,6 +409,9 @@ async def ingest_batch_pdf(
                         "bibtex": citation_data.get("bibtex"),
                         "pdf_storage_path": storage_path,
                     }).execute()
+                    # Store SPECTER embedding in item metadata
+                    if citation_data.get("specter_embedding"):
+                        _store_specter_embedding(supabase, item_id, citation_data["specter_embedding"])
                     for author in citation_data.get("authors", []):
                         _link_or_create_person(supabase, user_id, author["name"], item_id)
             except Exception:
@@ -503,6 +512,15 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
         "pdf_storage_path": storage_path,
     }
     supabase.table("citations").insert(citation_data).execute()
+
+    # Fetch SPECTER embedding from Semantic Scholar for arXiv papers
+    try:
+        from services.citation_resolver import resolve_via_semantic_scholar
+        s2_data = await resolve_via_semantic_scholar(meta["arxiv_id"], id_type="ArXiv")
+        if s2_data and s2_data.get("specter_embedding"):
+            _store_specter_embedding(supabase, item["id"], s2_data["specter_embedding"])
+    except Exception:
+        logger.debug("SPECTER embedding fetch failed for arXiv %s", arxiv_id)
 
     # Link authors as people (create if needed)
     for author in meta["authors"]:
@@ -841,6 +859,17 @@ async def extract_metadata(req: MetadataRequest, request: Request):
 
 
 # --- Helper functions ---
+
+def _store_specter_embedding(supabase, item_id: str, embedding: list[float]):
+    """Store SPECTER2 embedding in item metadata.specter_embedding (JSONB merge)."""
+    try:
+        item_res = supabase.table("items").select("metadata").eq("id", item_id).single().execute()
+        existing_meta = (item_res.data or {}).get("metadata") or {}
+        existing_meta["specter_embedding"] = embedding
+        supabase.table("items").update({"metadata": existing_meta}).eq("id", item_id).execute()
+    except Exception:
+        logger.debug("Failed to store SPECTER embedding for item %s", item_id)
+
 
 def _link_author_to_item(supabase, user_id: str, author_name: str, item_id: str):
     """Fuzzy-match extracted author against existing people and link."""

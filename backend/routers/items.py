@@ -1,6 +1,7 @@
 """Item list/detail endpoints."""
 
 import logging
+import math
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -247,6 +248,78 @@ async def get_item_tags(item_id: str, request: Request):
     )
     tags = [row["tags"]["name"] for row in (result.data or []) if row.get("tags")]
     return {"tags": tags}
+
+
+@router.get("/{item_id}/related-by-ideas")
+async def related_by_ideas(item_id: str, request: Request, limit: int = 5):
+    """Find related items using SPECTER2 paper embeddings (idea-level similarity).
+
+    Computes cosine similarity between the source item's SPECTER embedding
+    and all other items that have SPECTER embeddings. Returns top matches.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Get the source item's SPECTER embedding
+    source_res = (
+        supabase.table("items")
+        .select("id, metadata")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not source_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    source_meta = source_res.data.get("metadata") or {}
+    source_embedding = source_meta.get("specter_embedding")
+    if not source_embedding:
+        raise HTTPException(
+            status_code=404,
+            detail="No SPECTER embedding for this item. Only papers resolved via Semantic Scholar have embeddings.",
+        )
+
+    # Fetch all other items with metadata (filter for those with SPECTER embeddings)
+    all_items_res = (
+        supabase.table("items")
+        .select("id, title, url, type, domain, favicon_url, metadata")
+        .eq("user_id", user_id)
+        .neq("id", item_id)
+        .execute()
+    )
+
+    # Compute cosine similarity for items that have SPECTER embeddings
+    candidates = []
+    for item in (all_items_res.data or []):
+        meta = item.get("metadata") or {}
+        emb = meta.get("specter_embedding")
+        if not emb or len(emb) != len(source_embedding):
+            continue
+        sim = _cosine_similarity(source_embedding, emb)
+        candidates.append({
+            "id": item["id"],
+            "title": item["title"],
+            "url": item.get("url"),
+            "type": item["type"],
+            "domain": item.get("domain"),
+            "favicon_url": item.get("favicon_url"),
+            "similarity": round(sim, 4),
+        })
+
+    # Sort by similarity descending, return top N
+    candidates.sort(key=lambda x: x["similarity"], reverse=True)
+    return {"related": candidates[:limit], "total_with_embeddings": len(candidates)}
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors. Pure Python, no numpy needed."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 @router.post("/{item_id}/re-extract")
