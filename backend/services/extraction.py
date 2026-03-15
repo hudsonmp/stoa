@@ -67,45 +67,46 @@ async def extract_from_url(url: str) -> dict:
 
 
 def extract_from_pdf(pdf_bytes: bytes) -> dict:
-    """Extract structured markdown and metadata from a PDF using pymupdf4llm."""
-    import pymupdf4llm
+    """Extract structured markdown from a PDF using Docling (IBM).
+
+    Docling handles: two-column layout, ligatures, tables, equations, figures,
+    reading order — no post-processing cleanup needed.
+    Falls back to pymupdf4llm if Docling fails.
+    """
     import tempfile
     import os
 
+    # Get basic metadata from PyMuPDF (fast)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     meta = doc.metadata or {}
     page_count = len(doc)
     doc.close()
 
-    # pymupdf4llm needs a file path, so write to temp file
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(pdf_bytes)
         tmp_path = tmp.name
 
+    markdown_text = ""
     try:
-        # Extract as markdown — don't embed images (causes 80-96% bloat)
-        # Images are referenced as placeholders; the PDF view has the real images
-        markdown_text = pymupdf4llm.to_markdown(
-            tmp_path,
-            write_images=False,
-            show_progress=False,
-        )
+        from docling.document_converter import DocumentConverter
+        converter = DocumentConverter()
+        result = converter.convert(tmp_path)
+        markdown_text = result.document.export_to_markdown()
     except Exception:
-        # Fallback to basic extraction if pymupdf4llm fails
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        pages = [page.get_text() for page in doc]
-        markdown_text = "\n\n".join(pages)
-        doc.close()
+        logger.warning("Docling extraction failed, falling back to pymupdf4llm")
+        try:
+            import pymupdf4llm
+            markdown_text = pymupdf4llm.to_markdown(tmp_path, write_images=False, show_progress=False)
+            markdown_text = _clean_pdf_markdown(markdown_text)
+        except Exception:
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            pages = [page.get_text() for page in doc]
+            markdown_text = "\n\n".join(pages)
+            doc.close()
     finally:
         os.unlink(tmp_path)
 
-    # Clean up common pymupdf4llm artifacts
-    markdown_text = _clean_pdf_markdown(markdown_text)
-
-    # Detect if the paper is two-column layout
     is_two_column = _detect_two_column(pdf_bytes)
-
-    # Title: use PDF metadata, fall back to extracting from markdown text
     title = meta.get("title") or _extract_title_from_text(markdown_text)
 
     return {
