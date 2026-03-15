@@ -350,11 +350,16 @@ async def re_extract_item(item_id: str, request: Request):
         from services.extraction import extract_from_pdf
         extracted = extract_from_pdf(pdf_bytes)
 
+        # Merge is_two_column into existing metadata
+        existing_meta = item.get("metadata") or {}
+        existing_meta["is_two_column"] = extracted.get("is_two_column", False)
+
         supabase.table("items").update({
             "extracted_text": extracted["extracted_text"],
+            "metadata": existing_meta,
         }).eq("id", item_id).execute()
 
-        return {"success": True, "text_length": len(extracted["extracted_text"]), "is_markdown": "## " in extracted["extracted_text"][:500]}
+        return {"success": True, "text_length": len(extracted["extracted_text"]), "is_two_column": extracted.get("is_two_column", False)}
 
     # For items with URLs: re-extract from URL
     if url:
