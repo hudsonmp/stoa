@@ -146,6 +146,161 @@ def _clean_pdf_markdown(text: str) -> str:
     return text.strip()
 
 
+
+def _normalize_name(name: str) -> str:
+    """Normalize name for matching: strip diacritics, lowercase, collapse whitespace."""
+    nfkd = unicodedata.normalize("NFKD", name)
+    ascii_name = "".join(c for c in nfkd if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", ascii_name.strip().lower())
+
+
+def _is_personal_email(email: str) -> bool:
+    """Filter out group/departmental emails."""
+    local = email.split("@")[0].lower()
+    reject_patterns = [
+        "info", "admin", "contact", "office", "dept", "department",
+        "lab", "group", "team", "help", "support", "noreply", "no-reply",
+        "webmaster", "postmaster", "secretary", "general",
+    ]
+    return not any(p in local for p in reject_patterns)
+
+
+def _name_matches_email(name: str, email: str) -> float:
+    """Score how well a name matches an email address (0.0 to 1.0)."""
+    local = email.split("@")[0].lower().replace(".", " ").replace("-", " ").replace("_", " ")
+    name_parts = _normalize_name(name).split()
+    if not name_parts:
+        return 0.0
+
+    matches = 0
+    for part in name_parts:
+        if len(part) >= 2 and part in local:
+            matches += 1
+        elif len(part) >= 1 and part[0] in local:
+            matches += 0.3
+
+    return matches / len(name_parts)
+
+
+def extract_authors_and_emails(pdf_bytes: bytes) -> list[dict]:
+    """Extract author names and emails from the first page of a PDF.
+
+    Returns list of {"name": str, "email": str|None, "affiliation": str|None}.
+    """
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if len(doc) == 0:
+        doc.close()
+        return []
+
+    first_page_text = doc[0].get_text()
+    # Also check second page for papers with large title blocks
+    second_page_text = doc[1].get_text() if len(doc) > 1 else ""
+    doc.close()
+
+    text = first_page_text + "\n" + second_page_text
+
+    # 1. Extract all emails
+    emails = re.findall(r"[\w.+-]+@[\w.-]+\.\w{2,}", text)
+    emails = [e for e in emails if _is_personal_email(e)]
+
+    # 2. Extract author block: text before "Abstract" or "Introduction"
+    abstract_pos = None
+    for marker in ["Abstract", "ABSTRACT", "Introduction", "INTRODUCTION", "1.", "I."]:
+        idx = text.find(marker)
+        if idx > 50:  # must be after some content
+            if abstract_pos is None or idx < abstract_pos:
+                abstract_pos = idx
+
+    author_block = text[:abstract_pos] if abstract_pos else text[:2000]
+
+    # 3. Extract affiliations from author block (lines with university/institute keywords)
+    affiliation_lines = []
+    for line in author_block.split("\n"):
+        line_lower = line.strip().lower()
+        if any(kw in line_lower for kw in ["university", "institute", "college", "lab", "department", "dept", "school of"]):
+            affiliation_lines.append(line.strip())
+
+    # 4. Try to extract author names from citation metadata if available
+    # For now, use heuristic: lines in author block that look like names
+    # (2-4 capitalized words, no digits, not too long)
+    potential_names = []
+    # Skip the first 1-2 non-empty lines (likely the title)
+    lines = [l.strip() for l in author_block.split("\n") if l.strip()]
+    title_skip = min(2, len(lines))  # skip first 2 lines (title + subtitle)
+    for line in lines[title_skip:]:
+        # Clean up common PDF artifacts
+        line = re.sub(r"[∗†‡§¶\*\+\d]", "", line).strip()
+        line = re.sub(r"\s*[,;]\s*$", "", line)
+        if not line:
+            continue
+        # Check if line looks like a personal name (2-4 words, all capitalized,
+        # reasonable length, no common academic/title words)
+        words = line.split()
+        if 2 <= len(words) <= 4 and 5 < len(line) < 35:
+            if all(w[0].isupper() or w[0] in "dvl" for w in words if len(w) > 0):
+                if not any(c.isdigit() for c in line):
+                    line_lower = line.lower()
+                    # Reject lines that contain non-name words
+                    reject = ["university", "institute", "abstract", "department",
+                              "http", "@", "arxiv", "ieee", "acm", "proceedings"]
+                    if not any(kw in line_lower for kw in reject):
+                        potential_names.append(line)
+
+    # 5. Also try splitting comma/and-separated author lines
+    expanded_names = []
+    for name in potential_names:
+        if ", " in name and " and " not in name.lower():
+            # Could be "Last, First" format or "Name1, Name2"
+            parts = [p.strip() for p in name.split(",")]
+            if all(len(p.split()) <= 3 for p in parts):
+                expanded_names.extend(parts)
+            else:
+                expanded_names.append(name)
+        elif " and " in name.lower():
+            parts = re.split(r"\s+and\s+", name, flags=re.IGNORECASE)
+            expanded_names.extend(p.strip() for p in parts)
+        else:
+            expanded_names.append(name)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_names = []
+    for n in expanded_names:
+        key = _normalize_name(n)
+        if key not in seen and len(key) > 3:
+            seen.add(key)
+            unique_names.append(n)
+
+    # 6. Match emails to names
+    unmatched_emails = list(emails)
+    results = []
+
+    for name in unique_names:
+        best_email = None
+        best_score = 0.0
+        for email in unmatched_emails:
+            score = _name_matches_email(name, email)
+            if score > best_score:
+                best_score = score
+                best_email = email
+
+        matched_email = None
+        if best_email and best_score >= 0.3:
+            matched_email = best_email
+            unmatched_emails.remove(best_email)
+
+        # Find closest affiliation
+        affiliation = affiliation_lines[0] if affiliation_lines else None
+
+        results.append({
+            "name": name,
+            "email": matched_email,
+            "affiliation": affiliation,
+        })
+
+    return results
+
+
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict:
     """Fetch paper metadata from arXiv API."""
     clean_id = arxiv_id.replace("arxiv:", "").replace("arXiv:", "")
