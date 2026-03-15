@@ -83,10 +83,11 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
         tmp_path = tmp.name
 
     try:
-        # Extract as markdown with embedded images and table structure
+        # Extract as markdown — don't embed images (causes 80-96% bloat)
+        # Images are referenced as placeholders; the PDF view has the real images
         markdown_text = pymupdf4llm.to_markdown(
             tmp_path,
-            embed_images=True,   # Embed images as base64 data URIs in markdown
+            write_images=False,
             show_progress=False,
         )
     except Exception:

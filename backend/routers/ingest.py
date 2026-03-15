@@ -50,6 +50,7 @@ class IngestBookRequest(BaseModel):
 
 
 import re
+from urllib.parse import urlparse
 
 # Domains that should auto-classify as "paper"
 PAPER_DOMAINS = {
@@ -87,6 +88,41 @@ async def ingest_url(req: IngestURLRequest, request: Request):
     arxiv_id = _extract_arxiv_id(req.url)
     if arxiv_id:
         return await ingest_arxiv(arxiv_id, request)
+
+    # Auto-detect direct PDF URLs — download and process as PDF
+    if req.url.lower().endswith(".pdf"):
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+                pdf_resp = await client.get(req.url)
+                if pdf_resp.headers.get("content-type", "").startswith("application/pdf") or req.url.endswith(".pdf"):
+                    from fastapi import UploadFile
+                    from io import BytesIO
+                    # Route through the PDF pipeline
+                    extracted = extract_from_pdf(pdf_resp.content)
+                    item_data = {
+                        "user_id": user_id,
+                        "url": req.url,
+                        "title": extracted["title"] if extracted["title"] != "Untitled PDF" else req.url.split("/")[-1].replace(".pdf", ""),
+                        "type": "paper",
+                        "domain": extracted.get("domain") or urlparse(req.url).hostname,
+                        "extracted_text": extracted["extracted_text"],
+                        "metadata": {"page_count": extracted["page_count"], "is_two_column": extracted.get("is_two_column", False)},
+                        "reading_status": "to_read",
+                    }
+                    result = supabase.table("items").insert(item_data).execute()
+                    item = result.data[0]
+                    # Non-fatal embedding
+                    chunks = []
+                    try:
+                        chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
+                        if chunks:
+                            supabase.table("chunks").insert(chunks).execute()
+                    except Exception:
+                        pass
+                    return {"item": item, "chunks_created": len(chunks)}
+        except Exception:
+            logger.warning("Direct PDF download failed for %s, falling back to URL extraction", req.url)
 
     # Auto-classify paper URLs
     if req.type in ("blog", "page") and _is_paper_url(req.url):
