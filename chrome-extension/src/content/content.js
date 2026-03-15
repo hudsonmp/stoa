@@ -87,22 +87,32 @@ function updateProgressBar() {
 
 // --- Highlight Toolbar ---
 function setupSelectionListener() {
-  document.addEventListener("mouseup", (e) => {
-    const selection = window.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      selection.toString().trim().length < 3
-    ) {
-      removeToolbar();
-      return;
-    }
+  // On Stoa webapp: show toolbar on any text selection (single click)
+  // On other sites: only show toolbar on double-click
+  const isStoa = window.location.hostname === "localhost" && window.location.port === "3000";
 
-    // Don't show toolbar inside our own UI
-    if (e.target.closest(".stoa-toolbar")) return;
-
-    showToolbar(selection, e);
-  });
+  if (isStoa) {
+    document.addEventListener("mouseup", (e) => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) {
+        removeToolbar();
+        return;
+      }
+      if (e.target.closest(".stoa-toolbar")) return;
+      showToolbar(selection, e);
+    });
+  } else {
+    // External sites: double-click to show toolbar
+    document.addEventListener("dblclick", (e) => {
+      // Wait a tick for the browser to expand the selection
+      setTimeout(() => {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
+        if (e.target.closest(".stoa-toolbar")) return;
+        showToolbar(selection, e);
+      }, 50);
+    });
+  }
 
   document.addEventListener("mousedown", (e) => {
     if (!e.target.closest(".stoa-toolbar")) {
