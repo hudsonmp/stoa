@@ -122,13 +122,25 @@ def _clean_pdf_markdown(text: str) -> str:
     # Clean affiliation blockquote markers: > _∗_ or > _†_ → just the text
     text = re.sub(r"^>\s*_?[∗†‡§¶\*]+_?\s*", "", text, flags=re.MULTILINE)
 
-    # Clean numeric footnote refs in author names: [1] [2] etc. in first 500 chars
+    # Clean blockquote affiliation numbers: "> 1 Meta 2 NYU" → "Meta, NYU"
+    text = re.sub(r"^>\s*(\d+\s+\w)", lambda m: m.group(0).lstrip("> "), text, flags=re.MULTILINE)
+
+    # Clean numeric footnote refs in author names: [1] [2] etc. in first 800 chars
     # (but keep [1] references in body text which are citation refs)
     header = text[:800]
     body = text[800:]
     header = re.sub(r"\s*\[\d+\]\s*", " ", header)
     header = re.sub(r"\s*_\[,\]_\s*", ", ", header)  # _[,]_ separator → comma
     text = header + body
+
+    # Clean redundant bold inside headers: ## **Title** → ## Title
+    text = re.sub(r"^(#{1,6})\s+\*\*(.+?)\*\*\s*$", r"\1 \2", text, flags=re.MULTILINE)
+
+    # Clean "-----" separator lines that aren't HRs (picture text markers)
+    text = re.sub(r"^----- (?:Start|End) of picture text -----$", "", text, flags=re.MULTILINE)
+
+    # Clean picture placeholder text blocks
+    text = re.sub(r"^==> picture \[\d+ x \d+\] intentionally omitted <==$", "", text, flags=re.MULTILINE)
 
     # Collapse excessive blank lines (3+ → 2)
     text = re.sub(r"\n{4,}", "\n\n\n", text)

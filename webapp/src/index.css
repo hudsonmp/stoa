@@ -601,7 +601,8 @@ body::before {
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 8px 10px;
+  min-width: 220px;
   background: #1C1917;
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.06);
@@ -1046,16 +1047,10 @@ mark.stoa-hl-active {
   line-height: 1.7;
 }
 
-/* Drop cap on first paragraph (optional elegance) */
-.reader-text-content p:first-of-type::first-letter {
-  font-family: "Newsreader", Georgia, serif;
-  font-size: 3.25em;
-  float: left;
-  line-height: 0.8;
-  padding-right: 0.1em;
-  padding-top: 0.05em;
-  color: var(--text-primary);
-  font-weight: 600;
+/* First heading flush with top */
+.reader-text-content > h1:first-child,
+.reader-text-content > h2:first-child {
+  margin-top: 0;
 }
 
 /* Markdown-rendered content styles */
