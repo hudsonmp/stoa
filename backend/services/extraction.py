@@ -106,6 +106,9 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
     finally:
         os.unlink(tmp_path)
 
+    # Strip null bytes — Postgres TEXT columns reject \u0000
+    markdown_text = markdown_text.replace("\x00", "")
+
     is_two_column = _detect_two_column(pdf_bytes)
     title = meta.get("title") or _extract_title_from_text(markdown_text)
 
