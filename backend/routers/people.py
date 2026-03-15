@@ -99,6 +99,35 @@ async def list_authors(request: Request):
     return {"authors": authors}
 
 
+@router.post("/{person_id}/resolve-email")
+async def resolve_email(person_id: str, request: Request):
+    """Try to find a person's email via faculty page scraping."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    person_res = (
+        supabase.table("people")
+        .select("*")
+        .eq("id", person_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not person_res.data:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    person = person_res.data
+    from services.faculty_lookup import resolve_faculty_email
+    email = await resolve_faculty_email(person["name"], person.get("affiliation"))
+
+    if email:
+        # Store in bio field (until email column migration)
+        supabase.table("people").update({"bio": email}).eq("id", person_id).execute()
+        return {"email": email, "resolved": True}
+
+    return {"email": None, "resolved": False}
+
+
 @router.patch("/{person_id}")
 async def update_person(person_id: str, request: Request):
     """Update person fields."""
