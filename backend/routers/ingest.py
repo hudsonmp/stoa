@@ -237,7 +237,7 @@ async def ingest_pdf(
         "title": title or extracted["title"],
         "type": "paper",
         "extracted_text": extracted["extracted_text"],
-        "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path},
+        "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path, "is_two_column": extracted.get("is_two_column", False)},
         "reading_status": "to_read",
     }
 
@@ -340,7 +340,7 @@ async def ingest_batch_pdf(
                 "title": extracted["title"],
                 "type": "paper",
                 "extracted_text": extracted["extracted_text"],
-                "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path},
+                "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path, "is_two_column": extracted.get("is_two_column", False)},
                 "reading_status": "to_read",
             }
 

@@ -1144,6 +1144,21 @@ mark.stoa-hl-active {
   margin: 2em 0;
 }
 
+/* Two-column paper layout */
+.reader-two-column {
+  column-count: 2;
+  column-gap: 2rem;
+  column-rule: 1px solid var(--border-light);
+}
+.reader-two-column h1,
+.reader-two-column h2 { column-span: all; }
+.reader-two-column img,
+.reader-two-column table,
+.reader-two-column blockquote { break-inside: avoid; }
+@media (max-width: 900px) {
+  .reader-two-column { column-count: 1; }
+}
+
 .reader-empty {
   color: var(--text-tertiary);
   font-family: "DM Sans", system-ui, sans-serif;

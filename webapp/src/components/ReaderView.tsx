@@ -41,6 +41,7 @@ export default function ReaderView({
   const text = item.extracted_text || "";
   const hasMarkdown = useMemo(() => isMarkdown(text), [text]);
   const readingTime = useMemo(() => estimateReadingTime(text), [text]);
+  const isTwoColumn = (item.metadata as Record<string, unknown>)?.is_two_column === true;
 
   // --- Scroll progress tracking ---
   const handleScroll = useCallback(() => {
@@ -142,7 +143,7 @@ export default function ReaderView({
       </div>
 
       {/* Body text — position: relative for toolbar positioning */}
-      <div ref={bodyRef} className="reader-text-content" style={{ position: "relative" }}>
+      <div ref={bodyRef} className={`reader-text-content${isTwoColumn ? " reader-two-column" : ""}`} style={{ position: "relative" }}>
         {text ? (
           hasMarkdown ? (
             <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>

@@ -300,6 +300,13 @@ export async function listCollections() {
   }>("/items/collections");
 }
 
+export async function getPapersByTopic() {
+  return apiFetch<{
+    groups: Record<string, { papers: unknown[]; count: number }>;
+    total: number;
+  }>("/items/papers/by-topic");
+}
+
 export async function extractMetadata(url: string) {
   return apiFetch<{
     title: string;

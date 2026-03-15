@@ -1,58 +1,65 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon } from "lucide-react";
+import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon, Search } from "lucide-react";
 import type { Item } from "@/lib/supabase";
 import ItemRow from "@/components/ItemRow";
-import { ingestUrl, ingestPdf } from "@/lib/api";
-import { useItems } from "@/hooks/useItems";
+import { ingestUrl, ingestPdf, getPapersByTopic } from "@/lib/api";
 
-/** Known academic sources → display label */
-const SOURCE_LABELS: Record<string, string> = {
-  "arxiv.org": "arXiv",
-  "dl.acm.org": "ACM DL",
-  "link.springer.com": "Springer",
-  "ieeexplore.ieee.org": "IEEE Xplore",
-  "aclanthology.org": "ACL Anthology",
-  "openreview.net": "OpenReview",
-  "semanticscholar.org": "Semantic Scholar",
-  "scholar.google.com": "Google Scholar",
-  "nature.com": "Nature",
-  "science.org": "Science",
-  "proceedings.mlr.press": "PMLR",
-  "papers.nips.cc": "NeurIPS",
-};
-
-function getSourceKey(domain?: string): string {
-  if (!domain) return "other";
-  for (const key of Object.keys(SOURCE_LABELS)) {
-    if (domain.includes(key)) return key;
-  }
-  return domain;
-}
-
-function getSourceLabel(key: string): string {
-  return SOURCE_LABELS[key] || key;
+interface TopicGroup {
+  papers: Item[];
+  count: number;
 }
 
 export default function Papers() {
-  const { items: papers, loading, reload } = useItems(undefined, "paper");
-  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [groups, setGroups] = useState<Record<string, TopicGroup>>({});
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
 
-  const grouped = useMemo(() => {
-    const groups: Record<string, Item[]> = {};
-    for (const p of papers) {
-      const key = getSourceKey(p.domain);
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(p);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getPapersByTopic();
+      setGroups(data.groups as Record<string, TopicGroup>);
+      setTotal(data.total);
+    } catch {
+      // fall through
+    } finally {
+      setLoading(false);
     }
-    // Sort groups by count descending
-    return Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
-  }, [papers]);
+  }, []);
 
-  const displayed = selectedSource
-    ? papers.filter((p) => getSourceKey(p.domain) === selectedSource)
-    : papers;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const topicEntries = Object.entries(groups).sort((a, b) => {
+    // "Uncategorized" always last
+    if (a[0] === "Uncategorized") return 1;
+    if (b[0] === "Uncategorized") return -1;
+    return b[1].count - a[1].count;
+  });
+
+  const topicCount = topicEntries.length;
+
+  // Collect displayed papers: filter by topic, then by search query
+  let displayed: Item[] = [];
+  if (selectedTopic) {
+    displayed = groups[selectedTopic]?.papers || [];
+  } else {
+    displayed = topicEntries.flatMap(([, g]) => g.papers);
+  }
+
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    displayed = displayed.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.domain?.toLowerCase().includes(q)
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-8 py-8">
@@ -63,8 +70,8 @@ export default function Papers() {
               Papers
             </h1>
             <p className="text-sm text-text-tertiary mt-1">
-              {papers.length} paper{papers.length !== 1 ? "s" : ""} across{" "}
-              {grouped.length} source{grouped.length !== 1 ? "s" : ""}
+              {total} paper{total !== 1 ? "s" : ""} across{" "}
+              {topicCount} topic{topicCount !== 1 ? "s" : ""}
             </p>
           </div>
           <button
@@ -78,13 +85,13 @@ export default function Papers() {
           </button>
         </div>
 
-        {loading && papers.length === 0 && (
+        {loading && total === 0 && (
           <p className="text-center py-20 text-sm text-text-tertiary">
             Loading...
           </p>
         )}
 
-        {!loading && papers.length === 0 && (
+        {!loading && total === 0 && (
           <div className="text-center py-20">
             <FileText size={32} className="mx-auto mb-4 text-text-tertiary/40" />
             <p className="font-serif text-sm text-text-secondary">
@@ -96,18 +103,35 @@ export default function Papers() {
           </div>
         )}
 
-        {papers.length > 0 && (
+        {total > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* Source sidebar */}
+            {/* Topic sidebar */}
             <div className="space-y-0.5 bg-bg-secondary/50 rounded-card p-2 border border-border-light">
               <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-widest px-2 pt-1 pb-2">
-                Sources
+                Topics
               </p>
+
+              {/* Search */}
+              <div className="px-2 pb-2">
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px]
+                                bg-bg-primary border border-border">
+                  <Search size={12} className="text-text-tertiary flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter..."
+                    className="flex-1 bg-transparent border-none outline-none
+                               text-[12px] text-text-primary placeholder:text-text-tertiary"
+                  />
+                </div>
+              </div>
+
               <button
-                onClick={() => setSelectedSource(null)}
+                onClick={() => setSelectedTopic(null)}
                 className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                            ${
-                             selectedSource === null
+                             selectedTopic === null
                                ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
                                : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                            }`}
@@ -115,28 +139,28 @@ export default function Papers() {
                 <span className="flex items-center justify-between">
                   All
                   <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded">
-                    {papers.length}
+                    {total}
                   </span>
                 </span>
               </button>
 
               <div className="h-px bg-border my-2 mx-1" />
 
-              {grouped.map(([sourceKey, items]) => (
+              {topicEntries.map(([topic, group]) => (
                 <button
-                  key={sourceKey}
-                  onClick={() => setSelectedSource(sourceKey)}
+                  key={topic}
+                  onClick={() => setSelectedTopic(topic)}
                   className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                              ${
-                               selectedSource === sourceKey
+                               selectedTopic === topic
                                  ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
                                  : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                              }`}
                 >
                   <span className="flex items-center justify-between">
-                    <span className="truncate">{getSourceLabel(sourceKey)}</span>
+                    <span className="truncate">{topic}</span>
                     <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded ml-2">
-                      {items.length}
+                      {group.count}
                     </span>
                   </span>
                 </button>
@@ -145,19 +169,24 @@ export default function Papers() {
 
             {/* Paper list */}
             <div className="md:col-span-3 space-y-0.5">
-              {selectedSource && (
+              {selectedTopic && (
                 <div className="mb-4">
                   <h2 className="font-serif text-lg font-medium text-text-primary">
-                    {getSourceLabel(selectedSource)}
+                    {selectedTopic}
                   </h2>
                 </div>
+              )}
+              {displayed.length === 0 && searchQuery && (
+                <p className="text-sm text-text-tertiary py-8 text-center">
+                  No papers matching &ldquo;{searchQuery}&rdquo;
+                </p>
               )}
               {displayed.map((item, i) => (
                 <ItemRow
                   key={item.id}
                   item={item}
                   index={i}
-                  onDeleted={reload}
+                  onDeleted={load}
                 />
               ))}
             </div>
@@ -171,7 +200,7 @@ export default function Papers() {
           onClose={() => setShowAdd(false)}
           onAdded={() => {
             setShowAdd(false);
-            reload();
+            load();
           }}
         />
       )}

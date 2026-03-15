@@ -101,12 +101,41 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
     # Clean up common pymupdf4llm artifacts
     markdown_text = _clean_pdf_markdown(markdown_text)
 
+    # Detect if the paper is two-column layout
+    is_two_column = _detect_two_column(pdf_bytes)
+
     return {
         "title": meta.get("title") or "Untitled PDF",
         "author": meta.get("author"),
         "extracted_text": markdown_text,
         "page_count": page_count,
+        "is_two_column": is_two_column,
     }
+
+
+def _detect_two_column(pdf_bytes: bytes) -> bool:
+    """Detect if a PDF uses a two-column layout by analyzing text block positions."""
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if len(doc) < 2:
+            doc.close()
+            return False
+        # Check page 2 (body pages, skip title page)
+        page = doc[min(1, len(doc) - 1)]
+        blocks = page.get_text("dict")["blocks"]
+        text_blocks = [b for b in blocks if b.get("type") == 0]
+        doc.close()
+
+        if len(text_blocks) < 6:
+            return False
+
+        page_width = page.rect.width
+        midpoint = page_width / 2
+        left = sum(1 for b in text_blocks if b["bbox"][0] < midpoint - 20)
+        right = sum(1 for b in text_blocks if b["bbox"][0] > midpoint - 20)
+        return left >= 3 and right >= 3
+    except Exception:
+        return False
 
 
 def _clean_pdf_markdown(text: str) -> str:

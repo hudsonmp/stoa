@@ -64,6 +64,72 @@ async def get_item_counts(request: Request):
     }
 
 
+@router.get("/papers/by-topic")
+async def papers_by_topic(request: Request, limit: int = 200):
+    """Return papers grouped by research topic using keyword classification.
+
+    Combines item metadata (propositions), citation data (abstract, venue),
+    and item tags to assign each paper a topic label.
+    """
+    from services.topic_classifier import classify_papers_batch
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Fetch papers
+    select_fields = (
+        "id, user_id, url, title, type, favicon_url, cover_image_url, "
+        "spine_color, text_color, domain, reading_status, metadata, summary, created_at"
+    )
+    papers_res = (
+        supabase.table("items")
+        .select(select_fields)
+        .eq("user_id", user_id)
+        .eq("type", "paper")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    papers = papers_res.data or []
+    if not papers:
+        return {"groups": {}, "total": 0}
+
+    paper_ids = [p["id"] for p in papers]
+
+    # Fetch citations for these papers (abstract + venue)
+    citations_res = (
+        supabase.table("citations")
+        .select("item_id, abstract, venue")
+        .in_("item_id", paper_ids)
+        .execute()
+    )
+    citations_map = {c["item_id"]: c for c in (citations_res.data or [])}
+
+    # Fetch tags for these papers
+    tags_res = (
+        supabase.table("item_tags")
+        .select("item_id, tags(name)")
+        .in_("item_id", paper_ids)
+        .execute()
+    )
+    tags_map: dict[str, list[str]] = {}
+    for row in tags_res.data or []:
+        iid = row["item_id"]
+        tag_name = row.get("tags", {}).get("name")
+        if tag_name:
+            tags_map.setdefault(iid, []).append(tag_name)
+
+    groups = classify_papers_batch(papers, citations_map, tags_map)
+
+    return {
+        "groups": {
+            topic: {"papers": topic_papers, "count": len(topic_papers)}
+            for topic, topic_papers in groups.items()
+        },
+        "total": len(papers),
+    }
+
+
 @router.get("/collections")
 async def list_collections(request: Request):
     """List all collections for the authenticated user."""
