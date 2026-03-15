@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from services.auth import get_supabase_service, get_user_id
 from services.url_validator import validate_url
-from services.extraction import extract_from_url, extract_from_pdf, fetch_arxiv_metadata
+from services.extraction import extract_from_url, extract_from_pdf, fetch_arxiv_metadata, extract_authors_and_emails
 from services.embedding import chunk_and_embed
 from services.citation_resolver import resolve_citation
 from services.book_lookup import search_books
@@ -272,6 +272,23 @@ async def ingest_pdf(
                 _link_or_create_person(supabase, user_id, author["name"], item["id"])
     except Exception:
         logger.warning("Citation resolution failed for PDF %s", safe_filename, exc_info=True)
+
+    # Fallback: extract authors + emails directly from PDF if citation didn't provide them
+    if not citation_data or not citation_data.get("authors"):
+        try:
+            pdf_authors = extract_authors_and_emails(pdf_bytes)
+            for author_info in pdf_authors:
+                person_data = {"role": "researcher"}
+                if author_info.get("affiliation"):
+                    person_data["affiliation"] = author_info["affiliation"]
+                _link_or_create_person(supabase, user_id, author_info["name"], item["id"], extra=person_data)
+                # Store email in person bio field (until email column migration)
+                if author_info.get("email"):
+                    existing = supabase.table("people").select("id, bio").eq("user_id", user_id).eq("name", author_info["name"]).limit(1).execute()
+                    if existing.data and not existing.data[0].get("bio"):
+                        supabase.table("people").update({"bio": author_info["email"]}).eq("id", existing.data[0]["id"]).execute()
+        except Exception:
+            logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
 
     return {"item": item, "chunks_created": len(chunks), "citation": citation_data}
 
@@ -701,8 +718,8 @@ def _link_author_to_item(supabase, user_id: str, author_name: str, item_id: str)
             pass  # Duplicate link, ignore
 
 
-def _link_or_create_person(supabase, user_id: str, name: str, item_id: str):
-    """Find or create a person, then link to item."""
+def _link_or_create_person(supabase, user_id: str, name: str, item_id: str, extra: dict | None = None):
+    """Find or create a person, then link to item. Optional extra fields on create."""
     existing = (
         supabase.table("people")
         .select("id")
@@ -713,12 +730,23 @@ def _link_or_create_person(supabase, user_id: str, name: str, item_id: str):
     )
     if existing.data:
         person_id = existing.data[0]["id"]
+        # Update affiliation if provided and person doesn't have one
+        if extra and extra.get("affiliation"):
+            try:
+                person_full = supabase.table("people").select("affiliation").eq("id", person_id).single().execute()
+                if person_full.data and not person_full.data.get("affiliation"):
+                    supabase.table("people").update({"affiliation": extra["affiliation"]}).eq("id", person_id).execute()
+            except Exception:
+                pass
     else:
-        person_result = supabase.table("people").insert({
+        person_data = {
             "user_id": user_id,
             "name": name,
             "role": "researcher",
-        }).execute()
+        }
+        if extra:
+            person_data.update({k: v for k, v in extra.items() if v})
+        person_result = supabase.table("people").insert(person_data).execute()
         person_id = person_result.data[0]["id"]
 
     try:
