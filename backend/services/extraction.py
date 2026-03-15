@@ -105,8 +105,11 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
     # Detect if the paper is two-column layout
     is_two_column = _detect_two_column(pdf_bytes)
 
+    # Title: use PDF metadata, fall back to extracting from markdown text
+    title = meta.get("title") or _extract_title_from_text(markdown_text)
+
     return {
-        "title": meta.get("title") or "Untitled PDF",
+        "title": title,
         "author": meta.get("author"),
         "extracted_text": markdown_text,
         "page_count": page_count,
@@ -139,8 +142,68 @@ def _detect_two_column(pdf_bytes: bytes) -> bool:
         return False
 
 
+def _extract_title_from_text(markdown: str) -> str:
+    """Extract paper title from markdown when PDF metadata is missing."""
+    _SKIP_HEADERS = {
+        'OPEN ACCESS', 'RESEARCH-ARTICLE', 'ORIGINAL ARTICLE',
+        'VIEW ALL', 'RESEARCH ARTICLE', 'REVIEW ARTICLE',
+    }
+    for line in markdown.split('\n'):
+        line = line.strip()
+        # Skip image placeholders and empty lines
+        if 'intentionally omitted' in line or not line:
+            continue
+        # Skip very short lines (journal name, page markers)
+        if len(line) < 10:
+            continue
+        # Use first substantial ## header as title
+        if line.startswith('## '):
+            title = line[3:].strip()
+            if title.upper() not in _SKIP_HEADERS and len(title) > 10:
+                return title
+        # Use first # header as title
+        if line.startswith('# ') and not line.startswith('# Table'):
+            title = line[2:].strip()
+            if title.upper() not in _SKIP_HEADERS and len(title) > 10:
+                return title
+    return "Untitled PDF"
+
+
 def _clean_pdf_markdown(text: str) -> str:
     """Clean common artifacts from pymupdf4llm markdown output."""
+
+    # --- Phase 0: Strip ACM Digital Library wrapper page ---
+    # ACM DL PDFs downloaded from the web viewer prepend a metadata page with
+    # navigation, citation counts, download stats, and Open Access badges.
+    if 'Latest updates:' in text[:500] or 'Total Citations:' in text[:1000]:
+        lines = text.split('\n')
+        # Strategy: find the line containing the ACM reference format block
+        # or the repeated paper title that marks the start of the actual paper.
+        # The DL wrapper typically ends with "EISSN:" or a DOI line, followed
+        # by the paper title repeated as a ## header.
+        cut_line = 0
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Look for EISSN (marks end of DL metadata) or ACM Reference Format
+            if 'EISSN:' in stripped or 'ISSN:' in stripped:
+                # The actual paper content starts shortly after this
+                # Find the next ## header after this line
+                for j in range(i + 1, min(i + 10, len(lines))):
+                    if lines[j].strip().startswith('## ') or lines[j].strip().startswith('# '):
+                        header_text = lines[j].strip().lstrip('#').strip()
+                        if len(header_text) > 15:  # Must be a real title, not a short label
+                            cut_line = j
+                            break
+                if cut_line > 0:
+                    break
+        if cut_line > 5:
+            text = '\n'.join(lines[cut_line:])
+
+    # --- Phase 1: Strip Private Use Area characters (ACM DL font ligatures) ---
+    text = re.sub(r'[\uE000-\uF8FF]', '', text)
+
+    # --- Phase 2: Character-level fixes ---
+
     # Remove stray page numbers on their own line (e.g., "1\n", "12\n")
     text = re.sub(r"^\d{1,3}\s*$", "", text, flags=re.MULTILINE)
 
@@ -164,6 +227,7 @@ def _clean_pdf_markdown(text: str) -> str:
     # Fix broken diacritics from PDF extraction (e.g., Maur´ıcio → Maurício)
     # Common pattern: acute/grave/circumflex followed by the base letter
     _DIACRITIC_MAP = {
+        # ASCII-style diacritics (from older PDF encodings)
         "´a": "\u00e1", "´e": "\u00e9", "´i": "\u00ed", "´ı": "\u00ed",
         "´o": "\u00f3", "´u": "\u00fa", "´y": "\u00fd",
         "´A": "\u00c1", "´E": "\u00c9", "´I": "\u00cd", "´O": "\u00d3",
@@ -175,9 +239,50 @@ def _clean_pdf_markdown(text: str) -> str:
         '"a': "\u00e4", '"e': "\u00eb", '"i': "\u00ef", '"o': "\u00f6", '"u': "\u00fc",
         '"A': "\u00c4", '"O': "\u00d6", '"U': "\u00dc",
         "¸c": "\u00e7", "¸C": "\u00c7",
+        # Unicode diacritic marks (from newer PDF encodings)
+        "\u00A8a": "\u00e4", "\u00A8e": "\u00eb", "\u00A8o": "\u00f6",
+        "\u00A8u": "\u00fc", "\u00A8i": "\u00ef",
+        "\u00A8A": "\u00c4", "\u00A8O": "\u00d6", "\u00A8U": "\u00dc",
+        "\u02DAa": "\u00e5", "\u02DAA": "\u00c5",  # ring above: ˚a → å
+        "\u00B4a": "\u00e1", "\u00B4e": "\u00e9", "\u00B4i": "\u00ed",
+        "\u00B4o": "\u00f3", "\u00B4u": "\u00fa",
     }
     for raw, fixed in _DIACRITIC_MAP.items():
         text = text.replace(raw, fixed)
+
+    # --- Phase 3: Fix ligature-broken words ---
+    # PDF fonts encode fi/fl/ff/ffi/ffl/ft as ligature glyphs that sometimes
+    # get dropped during extraction, producing broken words.
+    _LIGATURE_FIXES = [
+        # fi ligature
+        ("specifc", "specific"), ("Specifc", "Specific"), ("SPECIFC", "SPECIFIC"),
+        ("confdenc", "confidenc"), ("Confdenc", "Confidenc"),
+        ("identifcat", "identificat"), ("Identifcat", "Identificat"),
+        ("signicant", "significant"), ("Signicant", "Significant"),
+        ("scientifc", "scientific"), ("Scientifc", "Scientific"),
+        ("beneft", "benefit"), ("Beneft", "Benefit"),
+        ("defne", "define"), ("Defne", "Define"),
+        ("defnit", "definit"), ("Defnit", "Definit"),
+        ("certifcat", "certificat"),
+        # fl ligature
+        ("refect", "reflect"), ("Refect", "Reflect"),
+        ("confct", "conflict"), ("Confct", "Conflict"),
+        ("infuenc", "influenc"), ("Infuenc", "Influenc"),
+        # ff ligature
+        ("diferent", "different"), ("Diferent", "Different"),
+        ("afect", "affect"), ("Afect", "Affect"),
+        ("efectiv", "effectiv"), ("Efectiv", "Effectiv"),
+        ("oferr", "offerr"),
+        # ffi ligature
+        ("efcien", "efficien"), ("Efcien", "Efficien"),
+        ("difcult", "difficult"), ("Difcult", "Difficult"),
+        # ft ligature (ACM DL wrapper fonts)
+        ("soware", "software"), ("Soware", "Software"),
+    ]
+    for broken, fixed in _LIGATURE_FIXES:
+        text = text.replace(broken, fixed)
+
+    # --- Phase 4: Structural cleanup ---
 
     # Clean remaining _[,]_ and _[;]_ separators in body text
     text = re.sub(r"\s*_\[,\]_\s*", ", ", text)
@@ -189,6 +294,27 @@ def _clean_pdf_markdown(text: str) -> str:
     # Clean picture placeholder text and separator markers
     text = re.sub(r"^----- (?:Start|End) of picture text -----$", "", text, flags=re.MULTILINE)
     text = re.sub(r"^==> picture \[\d+ x \d+\] intentionally omitted <==$", "", text, flags=re.MULTILINE)
+
+    # Strip "Page X of Y" markers
+    text = re.sub(r"^Page \d+ of \d+\s*$", "", text, flags=re.MULTILINE)
+
+    # Strip ACM article page markers (e.g., "FSE072:3", "103:2")
+    text = re.sub(r"^[A-Z]{2,10}\d{2,5}:\d{1,3}\s*$", "", text, flags=re.MULTILINE)
+
+    # --- Phase 5: Strip running headers/footers ---
+    # Deduplicate lines appearing 3+ times that are >20 chars (running headers)
+    lines = text.split('\n')
+    line_counts: dict[str, int] = {}
+    for line in lines:
+        stripped = line.strip()
+        if len(stripped) > 20:
+            line_counts[stripped] = line_counts.get(stripped, 0) + 1
+    repeated = {k for k, v in line_counts.items() if v >= 3}
+    if repeated:
+        lines = [l for l in lines if l.strip() not in repeated]
+        text = '\n'.join(lines)
+
+    # --- Phase 6: Final cleanup ---
 
     # Collapse excessive blank lines (3+ → 2)
     text = re.sub(r"\n{4,}", "\n\n\n", text)
