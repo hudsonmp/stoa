@@ -94,6 +94,22 @@
       min-width: 60px;
       padding: 2px;
     }
+    textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: #111;
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      resize: vertical;
+      min-height: 52px;
+    }
+    textarea:focus {
+      border-color: #555;
+    }
 
     .actions {
       display: flex;
@@ -170,6 +186,11 @@
       <div class="tags-input" id="tags-container">
         <input type="text" id="tag-input" placeholder="Add tag (#syntax)" />
       </div>
+    </div>
+
+    <div class="form-group">
+      <label>Quick note</label>
+      <textarea id="note-input" placeholder="Why are you saving this?" rows="2"></textarea>
     </div>
 
     <div class="actions">

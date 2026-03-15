@@ -50,6 +50,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   if (!tab || !stored.stoa_user_id) return;
 
   const type = document.getElementById("type-select").value;
+  const note = document.getElementById("note-input").value.trim();
 
   const statusEl = document.getElementById("status");
   statusEl.className = "status";
@@ -65,6 +66,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
         user_id: stored.stoa_user_id,
         type,
         tags,
+        note,
       },
     },
     (response) => {

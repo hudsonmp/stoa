@@ -80,13 +80,33 @@ async function handleGetScroll(data) {
 // --- Page Save ---
 async function handleSavePage(data) {
   try {
+    const { note, ...ingestData } = data;
     const resp = await fetch(`${STOA_API}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify(ingestData),
     });
     const result = await resp.json();
-    return { success: true, item: result.item };
+    const item = result.item;
+
+    // Create note if provided
+    if (note && item?.id) {
+      try {
+        await fetch(`${STOA_API}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: data.user_id,
+            item_id: item.id,
+            content: note,
+          }),
+        });
+      } catch (noteErr) {
+        console.error("[Stoa] Failed to save note:", noteErr);
+      }
+    }
+
+    return { success: true, item };
   } catch (err) {
     return { success: false, error: err.message };
   }
