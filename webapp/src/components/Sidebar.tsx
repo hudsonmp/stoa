@@ -7,6 +7,7 @@ import {
   Search,
   LogOut,
   UserCheck,
+  FileInput,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -29,6 +30,7 @@ const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
+  { to: "/read-pdf", label: "Open PDF", icon: FileInput },
 ];
 
 export default function Sidebar({ counts, reviewDue = 0 }: SidebarProps) {
