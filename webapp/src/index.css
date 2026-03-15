@@ -1594,3 +1594,99 @@ mark.stoa-hl-active {
     font-size: 1.0625rem;
   }
 }
+
+/* PDF Annotation View */
+.pdf-annotation-container {
+  width: 100%;
+  height: 85vh;
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.pdf-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.875rem;
+}
+
+.pdf-annotation-tip {
+  background: rgba(0,0,0,0.5);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-annotation-tip-inner {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: 380px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+}
+
+.pdf-annotation-tip-text {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+
+.pdf-annotation-tip-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  outline: none;
+  margin-bottom: 0.75rem;
+}
+
+.pdf-annotation-tip-input:focus {
+  border-color: var(--accent);
+}
+
+.pdf-annotation-tip-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pdf-annotation-tip-save {
+  flex: 1;
+  padding: 0.5rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.pdf-annotation-tip-save:hover {
+  background: var(--accent-hover);
+}
+
+.pdf-annotation-tip-cancel {
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}

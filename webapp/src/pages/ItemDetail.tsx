@@ -26,6 +26,7 @@ import { getItem, updateItem, createNote, createHighlight, updateHighlight, getI
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
+import PdfAnnotationView from "@/components/PdfAnnotationView";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -509,16 +510,14 @@ export default function ItemDetail() {
             </div>
           )}
 
-          {/* PDF embed mode */}
+          {/* PDF annotation mode */}
           {pdfMode && pdfUrl && !ar5ivMode && (
-            <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "80vh" }}>
-              <iframe
-                src={pdfUrl}
-                title={`${item.title} PDF`}
-                className="w-full h-full"
-                style={{ border: "none" }}
-              />
-            </div>
+            <PdfAnnotationView
+              pdfUrl={pdfUrl}
+              onCreateHighlight={(text, color, note) => {
+                handleCreateHighlight(text, color as "yellow", note, undefined);
+              }}
+            />
           )}
 
           {/* Reader mode or detail view */}
