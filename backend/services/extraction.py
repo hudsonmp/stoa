@@ -122,6 +122,7 @@ def _detect_two_column(pdf_bytes: bytes) -> bool:
             return False
         # Check page 2 (body pages, skip title page)
         page = doc[min(1, len(doc) - 1)]
+        page_width = page.rect.width
         blocks = page.get_text("dict")["blocks"]
         text_blocks = [b for b in blocks if b.get("type") == 0]
         doc.close()
@@ -129,7 +130,6 @@ def _detect_two_column(pdf_bytes: bytes) -> bool:
         if len(text_blocks) < 6:
             return False
 
-        page_width = page.rect.width
         midpoint = page_width / 2
         left = sum(1 for b in text_blocks if b["bbox"][0] < midpoint - 20)
         right = sum(1 for b in text_blocks if b["bbox"][0] > midpoint - 20)
