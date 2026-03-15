@@ -611,7 +611,7 @@ export default function ItemDetail() {
 
           {/* Highlights */}
           {highlights.length > 0 && (() => {
-            const hasPositions = readerMode && Object.keys(hlPositions).length > 0;
+            const hasPositions = Object.keys(hlPositions).length > 0;
             return (
             <>
               <div className="reader-margin-divider" />

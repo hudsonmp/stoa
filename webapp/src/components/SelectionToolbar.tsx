@@ -1,30 +1,15 @@
 /**
- * SelectionToolbar — Floating annotation toolbar for text selection in the reader.
+ * SelectionToolbar — Floating note input for text selection in the reader.
  *
- * Interaction-first design grounded in ICAP framework (Chi & Wylie 2014):
- * The biggest learning jump is Active → Constructive. After highlighting
- * (Active), the toolbar transitions to a note prompt (Constructive nudge)
- * rather than dismissing immediately. Users can skip or type a thought.
- *
- * Three modes:
- * - "actions": Primary [Highlight] [Note] buttons + secondary color dots
- * - "note": Note-first flow — write thought, pick color, creates highlight+note
- * - "prompted": Post-highlight nudge — highlight already created, note prompt shown
+ * Simplified: selecting text shows a single input. Type a thought and press
+ * Enter (or click submit) to create a yellow highlight with the note attached.
+ * Press Enter with an empty input to create a highlight with no note.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Send } from "lucide-react";
 
-const COLORS = [
-  { name: "yellow", bg: "#FEF3C7", solid: "#F59E0B" },
-  { name: "green", bg: "#D1FAE5", solid: "#10B981" },
-  { name: "blue", bg: "#DBEAFE", solid: "#3B82F6" },
-  { name: "pink", bg: "#FCE7F3", solid: "#EC4899" },
-  { name: "purple", bg: "#EDE9FE", solid: "#8B5CF6" },
-] as const;
-
-export type HighlightColor = (typeof COLORS)[number]["name"];
-
-type ToolbarMode = "actions" | "note" | "prompted";
+export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
 
 interface SelectionToolbarProps {
   /** Called to create a highlight (with optional note + context) */
@@ -37,22 +22,18 @@ interface SelectionToolbarProps {
 
 export default function SelectionToolbar({
   onHighlight,
-  onNoteForLastHighlight,
   containerRef,
 }: SelectionToolbarProps) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [selectedText, setSelectedText] = useState("");
   const [selectedContext, setSelectedContext] = useState("");
-  const [mode, setMode] = useState<ToolbarMode>("actions");
-  const [activeColor, setActiveColor] = useState<HighlightColor>("yellow");
   const [noteText, setNoteText] = useState("");
   const toolbarRef = useRef<HTMLDivElement>(null);
   const noteInputRef = useRef<HTMLInputElement>(null);
 
   const dismiss = useCallback(() => {
     setVisible(false);
-    setMode("actions");
     setNoteText("");
     setSelectedText("");
     setSelectedContext("");
@@ -90,9 +71,9 @@ export default function SelectionToolbar({
       const rect = range.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
 
-      const TOOLBAR_HEIGHT = 80; // approximate toolbar height
-      const TOOLBAR_WIDTH = 300; // approximate toolbar width (min-width 280 + padding)
-      const GAP = 10; // gap between selection and toolbar
+      const TOOLBAR_HEIGHT = 50;
+      const TOOLBAR_WIDTH = 300;
+      const GAP = 10;
 
       // Position above the selection by default
       let top = rect.top - containerRect.top - TOOLBAR_HEIGHT - GAP;
@@ -118,7 +99,6 @@ export default function SelectionToolbar({
       setSelectedText(text);
       setSelectedContext(ctx);
       setVisible(true);
-      setMode("actions");
       setNoteText("");
     };
 
@@ -126,93 +106,40 @@ export default function SelectionToolbar({
     return () => container.removeEventListener("mouseup", handleMouseUp);
   }, [containerRef, dismiss]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcut: Escape to dismiss
   useEffect(() => {
     if (!visible) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") {
-        if (e.key === "Escape") {
-          if (mode === "note") {
-            setMode("actions");
-            setNoteText("");
-          } else if (mode === "prompted") {
-            dismiss();
-          }
-        }
-        return;
-      }
-
-      if (mode !== "actions") return;
-
       if (e.key === "Escape") {
         dismiss();
         window.getSelection()?.removeAllRanges();
-        return;
-      }
-
-      // h for highlight with active color → transitions to note prompt
-      if (e.key === "h") {
-        e.preventDefault();
-        doHighlight(activeColor);
-        return;
-      }
-
-      // 1-5 for instant color highlight (power user shortcut)
-      if (e.key >= "1" && e.key <= "5") {
-        const color = COLORS[parseInt(e.key) - 1].name;
-        setActiveColor(color);
-        doHighlight(color);
-        return;
-      }
-
-      // n for note-first mode
-      if (e.key === "n") {
-        e.preventDefault();
-        setMode("note");
       }
     };
 
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [visible, mode, selectedText, selectedContext, activeColor, onHighlight, dismiss]);
+  }, [visible, dismiss]);
 
-  // Focus note input when entering note or prompted mode
+  // Focus note input when toolbar appears
   useEffect(() => {
-    if ((mode === "note" || mode === "prompted") && noteInputRef.current) {
+    if (visible && noteInputRef.current) {
       noteInputRef.current.focus();
     }
-  }, [mode]);
+  }, [visible]);
 
-  // Core action: create highlight and transition to note prompt
-  const doHighlight = useCallback(
-    (color: HighlightColor) => {
-      onHighlight(selectedText, color, undefined, selectedContext || undefined);
-      window.getSelection()?.removeAllRanges();
-      setMode("prompted");
-    },
-    [selectedText, selectedContext, onHighlight]
-  );
-
-  // Save note in note-first mode (creates highlight+note together)
-  const handleNoteFirstSave = (color: HighlightColor = activeColor) => {
-    onHighlight(selectedText, color, noteText || undefined, selectedContext || undefined);
+  const handleSubmit = () => {
+    onHighlight(
+      selectedText,
+      "yellow",
+      noteText.trim() || undefined,
+      selectedContext || undefined
+    );
     window.getSelection()?.removeAllRanges();
     dismiss();
   };
 
-  // Save note in post-highlight prompted mode (updates existing highlight)
-  const handlePromptedSave = () => {
-    if (noteText.trim() && onNoteForLastHighlight) {
-      onNoteForLastHighlight(noteText.trim());
-    }
-    dismiss();
-  };
-
   if (!visible) return null;
-
-  const activeColorObj = COLORS.find((c) => c.name === activeColor) || COLORS[0];
 
   return (
     <div
@@ -220,51 +147,26 @@ export default function SelectionToolbar({
       className="stoa-selection-toolbar"
       style={{ top: `${position.top}px`, left: `${position.left}px` }}
     >
-      {/* Color dots — click to highlight immediately */}
-      <div className="stoa-st-color-row">
-        {COLORS.map((c, i) => (
-          <button
-            key={c.name}
-            className={`stoa-st-dot${activeColor === c.name ? " active" : ""}`}
-            style={{ backgroundColor: c.solid }}
-            onClick={() => {
-              setActiveColor(c.name);
-              doHighlight(c.name);
-            }}
-            title={`${c.name} (${i + 1})`}
-          />
-        ))}
-      </div>
-
-      {/* Note input — always visible below colors */}
       <div className="stoa-st-note-row">
         <input
           ref={noteInputRef}
           type="text"
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
-          placeholder={mode === "prompted" ? "Add a thought..." : "Note (optional)"}
+          placeholder="Add a thought..."
           className="stoa-st-note-input"
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              if (mode === "prompted") {
-                handlePromptedSave();
-              } else {
-                handleNoteFirstSave();
-              }
-            }
+            if (e.key === "Enter") handleSubmit();
             if (e.key === "Escape") dismiss();
           }}
         />
-        {mode === "prompted" && (
-          <button
-            className="stoa-st-skip"
-            onClick={dismiss}
-            title="Skip (Esc)"
-          >
-            ✓
-          </button>
-        )}
+        <button
+          className="stoa-st-submit"
+          onClick={handleSubmit}
+          title="Highlight (Enter)"
+        >
+          <Send size={13} />
+        </button>
       </div>
     </div>
   );
