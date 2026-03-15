@@ -97,12 +97,46 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
     finally:
         os.unlink(tmp_path)
 
+    # Clean up common pymupdf4llm artifacts
+    markdown_text = _clean_pdf_markdown(markdown_text)
+
     return {
         "title": meta.get("title") or "Untitled PDF",
         "author": meta.get("author"),
         "extracted_text": markdown_text,
         "page_count": page_count,
     }
+
+
+def _clean_pdf_markdown(text: str) -> str:
+    """Clean common artifacts from pymupdf4llm markdown output."""
+    # Remove stray page numbers on their own line (e.g., "1\n", "12\n")
+    text = re.sub(r"^\d{1,3}\s*$", "", text, flags=re.MULTILINE)
+
+    # Remove stray single-character lines (!, -, etc.)
+    text = re.sub(r"^[!\-–—]\s*$", "", text, flags=re.MULTILINE)
+
+    # Clean footnote markers: _[∗]_ _[†]_ _[1]_ → remove entirely or simplify
+    text = re.sub(r"\s*_?\[[\*†‡§∗¶]+\]_?", "", text)
+
+    # Clean affiliation blockquote markers: > _∗_ or > _†_ → just the text
+    text = re.sub(r"^>\s*_?[∗†‡§¶\*]+_?\s*", "", text, flags=re.MULTILINE)
+
+    # Clean numeric footnote refs in author names: [1] [2] etc. in first 500 chars
+    # (but keep [1] references in body text which are citation refs)
+    header = text[:800]
+    body = text[800:]
+    header = re.sub(r"\s*\[\d+\]\s*", " ", header)
+    header = re.sub(r"\s*_\[,\]_\s*", ", ", header)  # _[,]_ separator → comma
+    text = header + body
+
+    # Collapse excessive blank lines (3+ → 2)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+
+    # Remove leading/trailing whitespace on lines
+    text = "\n".join(line.rstrip() for line in text.split("\n"))
+
+    return text.strip()
 
 
 async def fetch_arxiv_metadata(arxiv_id: str) -> dict:
