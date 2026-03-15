@@ -280,10 +280,14 @@ async def ingest_pdf(
     result = supabase.table("items").insert(item_data).execute()
     item = result.data[0]
 
-    # Chunk and embed
-    chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
-    if chunks:
-        supabase.table("chunks").insert(chunks).execute()
+    # Chunk and embed (non-fatal)
+    chunks = []
+    try:
+        chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
+    except Exception:
+        logger.warning("Embedding failed for PDF %s, paper saved without chunks", safe_filename)
 
     # Auto-resolve citation for PDFs (C)
     citation_data = None
