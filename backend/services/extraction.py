@@ -88,10 +88,16 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
 
     markdown_text = ""
     try:
-        from docling.document_converter import DocumentConverter
-        converter = DocumentConverter()
+        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling_core.types.doc.base import ImageRefMode
+
+        pipeline_opts = PdfPipelineOptions(generate_picture_images=True)
+        converter = DocumentConverter(
+            format_options={"pdf": PdfFormatOption(pipeline_options=pipeline_opts)}
+        )
         result = converter.convert(tmp_path)
-        markdown_text = result.document.export_to_markdown()
+        markdown_text = result.document.export_to_markdown(image_mode=ImageRefMode.EMBEDDED)
     except Exception:
         logger.warning("Docling extraction failed, falling back to pymupdf4llm")
         try:
@@ -109,6 +115,9 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
     # Strip null bytes — Postgres TEXT columns reject \u0000
     markdown_text = markdown_text.replace("\x00", "")
 
+    # Link in-text citations [N] to the References section
+    markdown_text = _link_citations(markdown_text)
+
     is_two_column = _detect_two_column(pdf_bytes)
     title = meta.get("title") or _extract_title_from_text(markdown_text)
 
@@ -119,6 +128,34 @@ def extract_from_pdf(pdf_bytes: bytes) -> dict:
         "page_count": page_count,
         "is_two_column": is_two_column,
     }
+
+
+def _link_citations(text: str) -> str:
+    """Add anchor links between in-text citations [N] and the References section."""
+    ref_match = re.search(r"^(#{1,3}\s*(?:References|REFERENCES|Bibliography|BIBLIOGRAPHY))", text, re.MULTILINE)
+    if not ref_match:
+        return text
+
+    ref_start = ref_match.start()
+    before_refs = text[:ref_start]
+    refs_section = text[ref_start:]
+
+    # Add anchor IDs to numbered references in the section
+    # Handles both "- [1] Author..." and "[1] Author..." formats
+    refs_section = re.sub(
+        r"^(- )?\[(\d+)\]",
+        r'\1<a id="ref-\2"></a>[\2]',
+        refs_section, flags=re.MULTILINE,
+    )
+
+    # Link in-text citations [N] to anchors (only in body text, not refs)
+    before_refs = re.sub(
+        r"\[(\d{1,3})\]",
+        r"[\1](#ref-\1)",
+        before_refs,
+    )
+
+    return before_refs + refs_section
 
 
 def _detect_two_column(pdf_bytes: bytes) -> bool:
