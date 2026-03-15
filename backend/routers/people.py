@@ -55,6 +55,75 @@ async def create_person(req: CreatePersonRequest, request: Request):
     return {"person": result.data[0]}
 
 
+@router.get("/authors")
+async def list_authors(request: Request):
+    """List people who have authored at least one paper, with paper counts."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Get all person_items with relation=authored
+    links = (
+        supabase.table("person_items")
+        .select("person_id, item_id")
+        .eq("relation", "authored")
+        .execute()
+    )
+    if not links.data:
+        return {"authors": []}
+
+    # Count papers per person
+    from collections import Counter
+    person_ids = [l["person_id"] for l in links.data]
+    paper_counts = Counter(person_ids)
+
+    # Get unique person records
+    unique_ids = list(paper_counts.keys())
+    people_res = (
+        supabase.table("people")
+        .select("*")
+        .eq("user_id", user_id)
+        .in_("id", unique_ids)
+        .order("name")
+        .execute()
+    )
+
+    # Attach paper_count to each person
+    authors = []
+    for p in (people_res.data or []):
+        p["paper_count"] = paper_counts.get(p["id"], 0)
+        authors.append(p)
+
+    # Sort by paper count descending, then name
+    authors.sort(key=lambda a: (-a["paper_count"], a["name"]))
+
+    return {"authors": authors}
+
+
+@router.patch("/{person_id}")
+async def update_person(person_id: str, request: Request):
+    """Update person fields."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+
+    allowed = {"name", "affiliation", "role", "website_url", "twitter_handle", "notes", "bio", "tags"}
+    updates = {k: v for k, v in body.items() if k in allowed}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    result = (
+        supabase.table("people")
+        .update(updates)
+        .eq("id", person_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    return {"person": result.data[0]}
+
+
 @router.get("/{person_id}")
 async def get_person(person_id: str, request: Request):
     """Get a person with their items."""
