@@ -130,6 +130,13 @@ def _clean_pdf_markdown(text: str) -> str:
     header = re.sub(r"\s*_\[,\]_\s*", ", ", header)  # _[,]_ separator → comma
     text = header + body
 
+    # Clean redundant bold inside headers: ## **Title** → ## Title
+    text = re.sub(r"^(#{1,6})\s+\*\*(.+?)\*\*\s*$", r"\1 \2", text, flags=re.MULTILINE)
+
+    # Clean picture placeholder text and separator markers
+    text = re.sub(r"^----- (?:Start|End) of picture text -----$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^==> picture \[\d+ x \d+\] intentionally omitted <==$", "", text, flags=re.MULTILINE)
+
     # Collapse excessive blank lines (3+ → 2)
     text = re.sub(r"\n{4,}", "\n\n\n", text)
 
