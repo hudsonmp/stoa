@@ -514,8 +514,13 @@ export default function ItemDetail() {
           {pdfMode && pdfUrl && !ar5ivMode && (
             <PdfAnnotationView
               pdfUrl={pdfUrl}
-              onCreateHighlight={(text, color, note) => {
-                handleCreateHighlight(text, color as "yellow", note, undefined);
+              highlights={highlights}
+              notes={notes}
+              onCreateNote={async (content) => {
+                if (!item) return;
+                const result = await createNote({ item_id: item.id, content });
+                const newNote = (result as { note: Note }).note;
+                setNotes((prev) => [newNote, ...prev]);
               }}
             />
           )}

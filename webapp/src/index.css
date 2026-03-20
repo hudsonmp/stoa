@@ -1595,18 +1595,158 @@ mark.stoa-hl-active {
   }
 }
 
-/* Native PDF Viewer — browser's built-in renderer */
-.pdf-native-viewer {
+/* PDF Split View — native embed + annotation sidebar */
+.pdf-split-view {
+  display: flex;
+  gap: 0;
   margin-top: 1rem;
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: white;
+  height: 85vh;
 }
 
-.pdf-native-embed {
+.pdf-split-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pdf-split-embed {
   width: 100%;
-  height: 85vh;
+  height: 100%;
   display: block;
   border: none;
+}
+
+.pdf-split-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-primary);
+  overflow-y: auto;
+  padding: 1rem 0.75rem;
+}
+
+.pdf-sidebar-heading {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  padding: 0 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.pdf-sidebar-input {
+  margin-bottom: 1rem;
+}
+
+.pdf-sidebar-input textarea {
+  width: 100%;
+  min-height: 3rem;
+  max-height: 8rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.pdf-sidebar-input textarea:focus {
+  border-color: rgba(194, 65, 12, 0.3);
+}
+
+.pdf-sidebar-send {
+  margin-top: 0.375rem;
+  padding: 0.375rem;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.pdf-sidebar-send:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.pdf-sidebar-divider {
+  height: 1px;
+  background: var(--border-light);
+  margin: 0.75rem 0;
+}
+
+.pdf-sidebar-card {
+  padding: 0.5rem 0.625rem;
+  margin-bottom: 0.375rem;
+  border-radius: 6px;
+  border-left: 2px solid var(--accent);
+  padding-left: calc(0.625rem - 2px);
+}
+
+.pdf-sidebar-card:hover {
+  background: var(--bg-secondary);
+}
+
+.pdf-sidebar-quote {
+  font-family: "Newsreader", Georgia, serif;
+  font-style: italic;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.pdf-sidebar-note {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+  margin-top: 0.25rem;
+}
+
+.pdf-sidebar-note-content {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.pdf-sidebar-time {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5625rem;
+  color: var(--text-tertiary);
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.pdf-sidebar-empty {
+  padding: 1rem 0.25rem;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .pdf-split-view {
+    flex-direction: column;
+    height: auto;
+  }
+  .pdf-split-main {
+    height: 70vh;
+  }
+  .pdf-split-sidebar {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 40vh;
+  }
 }
