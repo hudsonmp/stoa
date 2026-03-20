@@ -23,26 +23,21 @@ import MentionList, { type MentionItem, type MentionListRef } from "./MentionLis
 import ReactDOM from "react-dom/client";
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 
-// Hardcoded suggestions for now — will wire to API later
-const HARDCODED_SUGGESTIONS: MentionItem[] = [
-  { id: "1", label: "Context Engineering" },
-  { id: "2", label: "Requirement Engineering" },
-  { id: "3", label: "Software Testing" },
-  { id: "4", label: "CS Education" },
-  { id: "5", label: "Human-AI Interaction" },
-  { id: "6", label: "Learning Science" },
-  { id: "7", label: "Cognitive Load Theory" },
-  { id: "8", label: "Transfer Theory" },
-  { id: "9", label: "Intelligent Tutoring Systems" },
-  { id: "10", label: "Vibe Coding" },
-];
+import { search } from "@/lib/api";
 
 function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
   return {
-    items: ({ query }) => {
-      return HARDCODED_SUGGESTIONS.filter((item) =>
-        item.label.toLowerCase().includes(query.toLowerCase())
-      ).slice(0, 8);
+    items: async ({ query }) => {
+      if (!query || query.length < 2) return [];
+      try {
+        const data = await search({ query, limit: 8 });
+        return (data.results as Array<{ id: string; title: string; type: string; domain?: string }>).map((r) => ({
+          id: r.id,
+          label: r.title,
+        }));
+      } catch {
+        return [];
+      }
     },
     render: () => {
       let root: ReactDOM.Root | null = null;
@@ -292,7 +287,23 @@ export default function ResearchEditor({
         HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
       }),
       Mention.configure({
-        HTMLAttributes: { class: "stoa-mention" },
+        HTMLAttributes: {
+          class: "stoa-mention",
+          onclick: "if(this.dataset.id){window.location.href='/item/'+this.dataset.id}",
+        },
+        renderHTML({ options, node }) {
+          return [
+            "a",
+            {
+              ...options.HTMLAttributes,
+              "data-type": "mention",
+              "data-id": node.attrs.id,
+              href: `/item/${node.attrs.id}`,
+              class: "stoa-mention",
+            },
+            `@${node.attrs.label ?? node.attrs.id}`,
+          ];
+        },
         suggestion: makeSuggestion(),
       }),
     ],
