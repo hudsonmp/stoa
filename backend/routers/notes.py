@@ -33,9 +33,13 @@ class LinkNoteRequest(BaseModel):
 
 def _build_tags(note_type: str, item_ids: list[str], extra_tags: list[str]) -> list[str]:
     """Build the tags array: note_type + ref:item_id entries + user tags."""
-    tags = []
-    if note_type in NOTE_TYPES:
-        tags.append(note_type)
+    # If user passed a note type in extra_tags, use it instead of the default
+    effective_type = note_type
+    for t in extra_tags:
+        if t in NOTE_TYPES:
+            effective_type = t
+            break
+    tags = [effective_type] if effective_type in NOTE_TYPES else []
     for iid in item_ids:
         tags.append(f"ref:{iid}")
     tags.extend(t for t in extra_tags if t and t not in NOTE_TYPES and not t.startswith("ref:"))

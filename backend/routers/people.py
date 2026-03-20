@@ -87,9 +87,19 @@ async def list_authors(request: Request):
         .execute()
     )
 
-    # Attach paper_count to each person
+    # Filter out garbage names from PDF metadata extraction
+    GARBAGE_NAMES = {
+        "pdf download", "total citations:", "total downloads:", "canada",
+        "cambridge", "open access", "research-article", "view all",
+        "united states", "germany", "australia", "china", "india",
+    }
+
+    # Attach paper_count to each person, filter garbage
     authors = []
     for p in (people_res.data or []):
+        name_lower = p["name"].strip().lower()
+        if name_lower in GARBAGE_NAMES or len(p["name"].strip()) < 3:
+            continue
         p["paper_count"] = paper_counts.get(p["id"], 0)
         authors.append(p)
 
