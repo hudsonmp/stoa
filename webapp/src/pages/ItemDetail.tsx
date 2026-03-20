@@ -292,6 +292,50 @@ export default function ItemDetail() {
 
   const Icon = typeIcons[item.type] || Bookmark;
 
+  // PDF fullscreen mode — takes over the entire page
+  if (pdfMode && pdfUrl) {
+    return (
+      <div className="pdf-fullscreen">
+        <div className="pdf-fullscreen-bar">
+          <button onClick={() => setPdfMode(false)} className="pdf-fullscreen-back">
+            <ArrowLeft size={14} />
+            {item.title.slice(0, 50)}{item.title.length > 50 ? "..." : ""}
+          </button>
+          <div className="flex items-center gap-2">
+            {citation && (
+              <button
+                onClick={async () => {
+                  try {
+                    const data = await exportBibtex(item.id);
+                    await navigator.clipboard.writeText(data.bibtex);
+                  } catch {}
+                }}
+                className="pdf-fullscreen-btn"
+              >
+                <Copy size={12} /> Cite
+              </button>
+            )}
+            {item.url && (
+              <a href={item.url} target="_blank" rel="noopener noreferrer" className="pdf-fullscreen-btn">
+                <ExternalLink size={12} /> Original
+              </a>
+            )}
+          </div>
+        </div>
+        <PdfAnnotationView
+          pdfUrl={pdfUrl}
+          highlights={highlights}
+          notes={notes}
+          onCreateNote={async (content) => {
+            const result = await createNote({ item_id: item.id, content });
+            const newNote = (result as { note: Note }).note;
+            setNotes((prev) => [newNote, ...prev]);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div ref={scrollContainerRef} className="reader-page" data-reader-scroll>
       {/* Top bar */}
@@ -510,20 +554,7 @@ export default function ItemDetail() {
             </div>
           )}
 
-          {/* PDF annotation mode */}
-          {pdfMode && pdfUrl && !ar5ivMode && (
-            <PdfAnnotationView
-              pdfUrl={pdfUrl}
-              highlights={highlights}
-              notes={notes}
-              onCreateNote={async (content) => {
-                if (!item) return;
-                const result = await createNote({ item_id: item.id, content });
-                const newNote = (result as { note: Note }).note;
-                setNotes((prev) => [newNote, ...prev]);
-              }}
-            />
-          )}
+          {/* PDF mode handled by early return above */}
 
           {/* Reader mode or detail view */}
           {!pdfMode && !ar5ivMode && readerMode && item.extracted_text ? (
