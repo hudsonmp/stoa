@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 
 /**
- * Lightweight note editor. Uses TipTap when available,
- * falls back to a plain textarea if the import fails at runtime.
+ * Lightweight note editor for margin/inline use.
+ * Lazy-loads TipTap with StarterKit + Placeholder + Image + Underline + Link + Mention.
+ * Falls back to a plain textarea if imports fail.
  */
 interface NoteEditorProps {
   content: string;
@@ -22,35 +23,52 @@ export default function NoteEditor({
   }> | null>(null);
 
   useEffect(() => {
-    // Lazy-load TipTap to keep bundle small if it's installed
     Promise.all([
       import("@tiptap/react"),
       import("@tiptap/starter-kit"),
       import("@tiptap/extension-placeholder"),
+      import("@tiptap/extension-image"),
+      import("@tiptap/extension-underline"),
+      import("@tiptap/extension-link"),
     ])
-      .then(([{ useEditor, EditorContent }, { default: StarterKit }, { default: Placeholder }]) => {
-        // Create a wrapper component
-        const TipTap = ({
-          content: c,
-          onChange: onC,
-          placeholder: ph,
-        }: {
-          content: string;
-          onChange: (c: string) => void;
-          placeholder: string;
-        }) => {
-          const editor = useEditor({
-            extensions: [
-              StarterKit,
-              Placeholder.configure({ placeholder: ph }),
-            ],
+      .then(
+        ([
+          { useEditor, EditorContent },
+          { default: StarterKit },
+          { default: Placeholder },
+          { default: Image },
+          { default: Underline },
+          { default: Link },
+        ]) => {
+          const TipTap = ({
             content: c,
-            onUpdate: ({ editor: ed }) => onC(ed.getHTML()),
-          });
-          return <EditorContent editor={editor} />;
-        };
-        setTipTapEditor(() => TipTap);
-      })
+            onChange: onC,
+            placeholder: ph,
+          }: {
+            content: string;
+            onChange: (c: string) => void;
+            placeholder: string;
+          }) => {
+            const editor = useEditor({
+              extensions: [
+                StarterKit,
+                Placeholder.configure({ placeholder: ph }),
+                Image.configure({ allowBase64: true }),
+                Underline,
+                Link.configure({
+                  openOnClick: true,
+                  autolink: true,
+                  HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
+                }),
+              ],
+              content: c,
+              onUpdate: ({ editor: ed }) => onC(ed.getHTML()),
+            });
+            return <EditorContent editor={editor} />;
+          };
+          setTipTapEditor(() => TipTap);
+        }
+      )
       .catch(() => {
         // TipTap not installed, stay with fallback
       });

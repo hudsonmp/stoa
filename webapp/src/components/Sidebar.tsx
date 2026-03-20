@@ -7,6 +7,7 @@ import {
   Search,
   LogOut,
   UserCheck,
+  PenLine,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -27,6 +28,7 @@ const navItems = [
 
 const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
+  { to: "/notes", label: "Notes", icon: PenLine },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
 ];

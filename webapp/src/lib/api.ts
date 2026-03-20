@@ -178,10 +178,23 @@ export async function createNote(data: {
   item_id?: string;
   person_id?: string;
   content: string;
+  title?: string;
+  tags?: string[];
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function getNotes() {
+  return apiFetch<{ notes: unknown[] }>("/notes");
+}
+
+export async function updateNote(noteId: string, updates: Record<string, unknown>) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
   });
 }
 

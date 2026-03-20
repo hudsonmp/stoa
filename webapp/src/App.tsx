@@ -11,6 +11,7 @@ import Review from "@/pages/Review";
 import Collections from "@/pages/Collections";
 import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
+import Notes from "@/pages/Notes";
 
 export default function App() {
   return (
@@ -28,6 +29,8 @@ export default function App() {
               <Route path="/search" element={<Search />} />
               <Route path="/review" element={<Review />} />
               <Route path="/papers" element={<Papers />} />
+              <Route path="/notes" element={<Notes />} />
+              <Route path="/notes/:id" element={<Notes />} />
               <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
             </Route>

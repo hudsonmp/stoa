@@ -1750,3 +1750,84 @@ mark.stoa-hl-active {
     max-height: 40vh;
   }
 }
+
+/* ================================================================
+   Research Editor (full-page TipTap)
+   ================================================================ */
+
+.research-editor .ProseMirror {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 11pt;
+  line-height: 1.6;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 2rem 2rem 20rem;
+  min-height: 80vh;
+  outline: none;
+}
+
+.research-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+.research-editor .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1rem 0;
+}
+
+.research-editor .ProseMirror blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1rem;
+  margin-left: 0;
+  color: var(--text-secondary);
+}
+
+.research-editor .ProseMirror a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.research-editor .ProseMirror h1 {
+  font-size: 1.75em;
+  font-weight: 700;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.research-editor .ProseMirror h2 {
+  font-size: 1.4em;
+  font-weight: 600;
+  margin-top: 1.25em;
+  margin-bottom: 0.4em;
+}
+
+.research-editor .ProseMirror h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+}
+
+.research-editor .ProseMirror ul,
+.research-editor .ProseMirror ol {
+  padding-left: 1.5em;
+}
+
+/* Mention chip */
+.stoa-mention {
+  background: rgba(194, 65, 12, 0.1);
+  color: #C2410C;
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.9em;
+  cursor: pointer;
+}
