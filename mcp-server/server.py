@@ -496,5 +496,135 @@ def _get_user_id() -> str:
     return user_id
 
 
+def _headers() -> dict:
+    """Standard headers for Stoa API requests."""
+    return {"X-User-Id": _get_user_id(), "Content-Type": "application/json"}
+
+
+# ── Phase 6: Notes tools ──────────────────────────────────────────────
+
+
+@mcp.tool()
+async def create_note(
+    content: str,
+    title: Optional[str] = None,
+    note_type: str = "marginalia",
+    tags: Optional[list[str]] = None,
+    item_id: Optional[str] = None,
+    item_ids: Optional[list[str]] = None,
+) -> dict:
+    """Create a standalone note in Hudson's knowledge base.
+
+    Args:
+        content: Note content (plain text or HTML)
+        title: Optional note title
+        note_type: One of "marginalia", "synthesis", "journal"
+        tags: Optional user tags
+        item_id: Optional single item to link to
+        item_ids: Optional list of item IDs to link (for synthesis notes)
+
+    Returns:
+        The created note
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{STOA_API}/notes",
+            json={
+                "content": content,
+                "title": title,
+                "note_type": note_type,
+                "tags": tags or [],
+                "item_id": item_id,
+                "item_ids": item_ids or [],
+            },
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text, "status": resp.status_code}
+        return resp.json()
+
+
+@mcp.tool()
+async def search_notes(query: str) -> list[dict]:
+    """Search Hudson's notes by title and content.
+
+    Args:
+        query: Search string (min 2 chars, case-insensitive substring match)
+
+    Returns:
+        List of matching notes with note_type and ref_item_ids
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{STOA_API}/notes/search",
+            params={"q": query},
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            return [{"error": resp.text, "status": resp.status_code}]
+        return resp.json().get("notes", [])
+
+
+@mcp.tool()
+async def get_note(note_id: str) -> dict:
+    """Get a single note with its linked item titles.
+
+    Args:
+        note_id: UUID of the note
+
+    Returns:
+        Note with note_type, ref_item_ids, and linked_items
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{STOA_API}/notes/{note_id}",
+            headers=_headers(),
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text, "status": resp.status_code}
+        return resp.json().get("note", {})
+
+
+@mcp.tool()
+async def search_all(query: str) -> dict:
+    """Search across both items and notes in Hudson's knowledge base.
+
+    Args:
+        query: Search string
+
+    Returns:
+        Dict with "items" (from hybrid search) and "notes" (from ILIKE search)
+    """
+    items = []
+    notes = []
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Search items via hybrid search
+        try:
+            items_resp = await client.post(
+                f"{STOA_API}/search",
+                json={"query": query, "limit": 10},
+                headers=_headers(),
+            )
+            if items_resp.status_code < 400:
+                items = items_resp.json().get("results", [])
+        except Exception:
+            pass
+
+        # Search notes
+        try:
+            notes_resp = await client.get(
+                f"{STOA_API}/notes/search",
+                params={"q": query},
+                headers=_headers(),
+            )
+            if notes_resp.status_code < 400:
+                notes = notes_resp.json().get("notes", [])
+        except Exception:
+            pass
+
+    return {"items": items, "notes": notes}
+
+
 if __name__ == "__main__":
     mcp.run()
