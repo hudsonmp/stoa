@@ -1,142 +1,146 @@
 /**
- * PdfAnnotationView — Annotatable PDF viewer using react-pdf-highlighter-extended.
- * Replaces the plain iframe PDF embed with a proper PDF.js viewer that supports
- * text selection → highlight creation with notes.
+ * PdfAnnotationView — Clean PDF viewer that blends with the site theme.
+ * Renders each page as a canvas using react-pdf, with text layer for selection.
+ * Select text → floating note input → creates highlight.
+ * No ugly external PDF viewer chrome — just pages flowing like content.
  */
 
-import { useState, useCallback, useRef } from "react";
-import {
-  PdfLoader,
-  PdfHighlighter,
-  TextHighlight,
-  MonitoredHighlightContainer,
-  useHighlightContainerContext,
-} from "react-pdf-highlighter-extended";
-import type {
-  Highlight as PdfHighlight,
-  GhostHighlight,
-  PdfSelection,
-  PdfHighlighterUtils,
-  ScaledPosition,
-} from "react-pdf-highlighter-extended";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+import { Send } from "lucide-react";
 
+// PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 interface PdfAnnotationViewProps {
   pdfUrl: string;
-  onCreateHighlight: (text: string, color: string, note?: string, position?: ScaledPosition) => void;
-}
-
-// Inner component for rendering each highlight
-function HighlightRenderer() {
-  const { highlight, isScrolledTo } = useHighlightContainerContext();
-  return (
-    <MonitoredHighlightContainer>
-      <TextHighlight highlight={highlight} isScrolledTo={isScrolledTo} />
-    </MonitoredHighlightContainer>
-  );
+  onCreateHighlight: (text: string, color: string, note?: string) => void;
 }
 
 export default function PdfAnnotationView({
   pdfUrl,
   onCreateHighlight,
 }: PdfAnnotationViewProps) {
-  const [selection, setSelection] = useState<PdfSelection | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [selectedText, setSelectedText] = useState("");
   const [noteText, setNoteText] = useState("");
-  const [pdfHighlights, setPdfHighlights] = useState<PdfHighlight[]>([]);
-  const utilsRef = useRef<PdfHighlighterUtils | null>(null);
-  let idCounter = useRef(0);
+  const [tipPosition, setTipPosition] = useState<{ top: number; left: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const noteInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSelection = useCallback((sel: PdfSelection) => {
-    setSelection(sel);
-    setNoteText("");
+  const onDocumentLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
+    setNumPages(n);
   }, []);
 
-  const handleSaveHighlight = useCallback(() => {
-    if (!selection) return;
-    const ghost = selection.makeGhostHighlight();
-    const text = ghost.content.text || "";
+  // Listen for text selection in the PDF pages
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-    // Create a local PDF highlight for immediate rendering
-    const newHl: PdfHighlight = {
-      id: `local-${++idCounter.current}`,
-      type: "text",
-      position: ghost.position,
+    const handleMouseUp = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) return;
+      const text = selection.toString().trim();
+      if (text.length < 3) return;
+
+      // Check selection is within our container
+      const range = selection.getRangeAt(0);
+      if (!container.contains(range.commonAncestorContainer)) return;
+
+      const rect = range.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      setSelectedText(text);
+      setTipPosition({
+        top: rect.bottom - containerRect.top + container.scrollTop + 8,
+        left: rect.left - containerRect.left + rect.width / 2 - 150,
+      });
+      setNoteText("");
     };
-    setPdfHighlights((prev) => [...prev, newHl]);
 
-    // Send to parent for API persistence
-    onCreateHighlight(text, "yellow", noteText || undefined, ghost.position);
+    container.addEventListener("mouseup", handleMouseUp);
+    return () => container.removeEventListener("mouseup", handleMouseUp);
+  }, []);
 
-    setSelection(null);
+  // Focus note input when tip appears
+  useEffect(() => {
+    if (tipPosition && noteInputRef.current) {
+      noteInputRef.current.focus();
+    }
+  }, [tipPosition]);
+
+  const handleSubmit = useCallback(() => {
+    if (!selectedText) return;
+    onCreateHighlight(selectedText, "yellow", noteText.trim() || undefined);
+    setSelectedText("");
+    setTipPosition(null);
     setNoteText("");
     window.getSelection()?.removeAllRanges();
-  }, [selection, noteText, onCreateHighlight]);
+  }, [selectedText, noteText, onCreateHighlight]);
 
-  const handleCancel = useCallback(() => {
-    setSelection(null);
+  const handleDismiss = useCallback(() => {
+    setSelectedText("");
+    setTipPosition(null);
     setNoteText("");
-    window.getSelection()?.removeAllRanges();
   }, []);
 
   return (
-    <div className="pdf-annotation-container">
-      <PdfLoader
-        document={pdfUrl}
-        beforeLoad={(progress) => (
-          <div className="pdf-loading">
-            Loading PDF... {progress.total ? Math.round((progress.loaded / progress.total) * 100) : 0}%
-          </div>
-        )}
+    <div
+      ref={containerRef}
+      className="pdf-clean-viewer"
+      onClick={(e) => {
+        // Dismiss tip if clicking outside it
+        if (tipPosition && !(e.target as HTMLElement).closest(".pdf-note-tip")) {
+          handleDismiss();
+        }
+      }}
+    >
+      <Document
+        file={pdfUrl}
+        onLoadSuccess={onDocumentLoadSuccess}
+        loading={<div className="pdf-clean-loading">Loading PDF...</div>}
+        error={<div className="pdf-clean-error">Failed to load PDF</div>}
       >
-        {(pdfDocument) => (
-          <PdfHighlighter
-            pdfDocument={pdfDocument}
-            highlights={pdfHighlights}
-            onSelection={handleSelection}
-            enableAreaSelection={() => false}
-            utilsRef={(utils) => { utilsRef.current = utils; }}
-            selectionTip={
-              <div className="pdf-selection-tip">
-                <button onClick={handleSaveHighlight} className="pdf-selection-tip-btn">
-                  Highlight
-                </button>
-              </div>
-            }
-            style={{ height: "85vh" }}
-          >
-            <HighlightRenderer />
-          </PdfHighlighter>
-        )}
-      </PdfLoader>
+        {Array.from({ length: numPages }, (_, i) => (
+          <div key={i + 1} className="pdf-clean-page">
+            <Page
+              pageNumber={i + 1}
+              width={Math.min(800, window.innerWidth - 400)}
+              renderTextLayer={true}
+              renderAnnotationLayer={false}
+            />
+            <div className="pdf-page-number">{i + 1}</div>
+          </div>
+        ))}
+      </Document>
 
-      {/* Note input modal when text is selected */}
-      {selection && (
-        <div className="pdf-annotation-tip" onClick={handleCancel}>
-          <div className="pdf-annotation-tip-inner" onClick={(e) => e.stopPropagation()}>
-            <p className="pdf-annotation-tip-text">
-              &ldquo;{(selection.content.text || "").slice(0, 120)}
-              {(selection.content.text || "").length > 120 ? "..." : ""}&rdquo;
-            </p>
+      {/* Floating note input at selection position */}
+      {tipPosition && selectedText && (
+        <div
+          className="pdf-note-tip"
+          style={{ top: tipPosition.top, left: Math.max(0, tipPosition.left) }}
+        >
+          <div className="pdf-note-tip-quote">
+            &ldquo;{selectedText.slice(0, 80)}{selectedText.length > 80 ? "..." : ""}&rdquo;
+          </div>
+          <div className="pdf-note-tip-row">
             <input
+              ref={noteInputRef}
               type="text"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               placeholder="Add a thought..."
-              className="pdf-annotation-tip-input"
-              autoFocus
+              className="pdf-note-tip-input"
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSaveHighlight();
-                if (e.key === "Escape") handleCancel();
+                if (e.key === "Enter") handleSubmit();
+                if (e.key === "Escape") handleDismiss();
               }}
             />
-            <div className="pdf-annotation-tip-actions">
-              <button onClick={handleSaveHighlight} className="pdf-annotation-tip-save">
-                Save
-              </button>
-              <button onClick={handleCancel} className="pdf-annotation-tip-cancel">
-                Cancel
-              </button>
-            </div>
+            <button onClick={handleSubmit} className="pdf-note-tip-send" title="Save">
+              <Send size={14} />
+            </button>
           </div>
         </div>
       )}
