@@ -315,6 +315,35 @@ async def get_item_tags(item_id: str, request: Request):
     return {"tags": tags}
 
 
+@router.get("/{item_id}/pdf")
+async def get_item_pdf(item_id: str, request: Request, user_id: str | None = None):
+    """Serve the stored PDF with correct Content-Type.
+    Accepts user_id as query param for embed/iframe use (can't send headers)."""
+    from fastapi.responses import Response
+    if not user_id:
+        user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("metadata")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    meta = item_res.data.get("metadata") or {}
+    storage_path = meta.get("pdf_storage_path")
+    if not storage_path:
+        raise HTTPException(status_code=404, detail="No PDF stored for this item")
+
+    pdf_bytes = supabase.storage.from_("documents").download(storage_path)
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
+
 @router.post("/{item_id}/re-extract")
 async def re_extract_item(item_id: str, request: Request):
     """Re-extract content for an item using the latest extraction pipeline.

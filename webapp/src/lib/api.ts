@@ -72,14 +72,12 @@ export async function ingestPdf(file: File, title?: string) {
  * Derive an embeddable PDF URL from an item's URL.
  * Returns null if no PDF can be derived.
  */
-export function getPdfEmbedUrl(item: { url?: string; metadata?: Record<string, unknown> }): string | null {
-  // Check for stored PDF path in metadata
+export function getPdfEmbedUrl(item: { id?: string; url?: string; metadata?: Record<string, unknown> }): string | null {
+  // For uploaded PDFs: serve through backend (correct Content-Type)
   const storagePath = item.metadata?.pdf_storage_path as string | undefined;
-  if (storagePath) {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (supabaseUrl) {
-      return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
-    }
+  if (storagePath && item.id) {
+    const uid = DEV_USER_ID || localStorage.getItem("stoa_user_id") || "";
+    return `${API_URL}/items/${item.id}/pdf?user_id=${uid}`;
   }
 
   const url = item.url;
