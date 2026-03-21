@@ -214,7 +214,7 @@ export default function Notes() {
                 {saving ? "Saving..." : "Saved"}
               </p>
             </div>
-            <div className="flex-1">
+            <div className="flex-1 notes-editor-fullwidth">
               <ResearchEditor
                 content={activeNote.content}
                 onSave={handleSave}

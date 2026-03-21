@@ -1910,3 +1910,9 @@ mark.stoa-hl-active {
   font-size: 0.9em;
   cursor: pointer;
 }
+
+/* Notes page: editor spans full width, no constrained column */
+.notes-editor-fullwidth .research-editor .ProseMirror {
+  max-width: 100%;
+  padding: 2rem 3rem 20rem;
+}

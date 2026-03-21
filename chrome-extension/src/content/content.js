@@ -93,6 +93,11 @@ function setupSelectionListener() {
 
   if (isStoa) {
     document.addEventListener("mouseup", (e) => {
+      // Don't show toolbar inside editors (ProseMirror, TipTap, contenteditable)
+      if (e.target.closest(".ProseMirror, .research-editor, [contenteditable]")) return;
+      // Don't show on notes page
+      if (window.location.pathname.startsWith("/notes")) return;
+
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) {
         removeToolbar();
