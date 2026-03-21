@@ -3,8 +3,18 @@
 @tailwind utilities;
 
 /* ================================================================
-   Stoa Design System - "Cambridge Study" aesthetic
-   Warm, scholarly, refined. A well-organized private library.
+   Stoa Design System — "European Intellectual Milieu"
+
+   Vienna coffeehouse meets academic journal. Serif-forward,
+   generous whitespace, editorial restraint. A place for dwelling
+   and thinking, not scanning and clicking.
+
+   Principles:
+   1. Serif dominates content. Sans is UI chrome only.
+   2. Whitespace is a thinking tool, not wasted space.
+   3. Information presents as editorial, not dashboard.
+   4. The reading experience should feel like a printed journal.
+   5. Sharp corners signal seriousness (2px, not 8px).
    ================================================================ */
 
 :root {
@@ -12,8 +22,9 @@
   --bg-secondary: #f3f1ec;
   --bg-sidebar: #f7f6f3;
   --bg-shelf: #e8e4dc;
+  --bg-editor: #fdfcfa;
   --text-primary: #1c1917;
-  --text-secondary: #78716c;
+  --text-secondary: #57534e;
   --text-tertiary: #a8a29e;
   --accent: #c2410c;
   --accent-hover: #9a3412;
@@ -22,11 +33,16 @@
   --border: #e7e5e4;
   --border-light: #f5f5f4;
   --shadow: rgba(28, 25, 23, 0.04);
+
+  /* Editorial spacing */
+  --section-gap: 3rem;
+  --reading-width: 680px;
 }
 
-/* Paper grain texture via SVG noise */
 body {
-  font-family: "DM Sans", system-ui, sans-serif;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 16px;
+  line-height: 1.7;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -192,9 +208,9 @@ body::before {
 .ProseMirror {
   outline: none;
   min-height: 120px;
-  font-family: "DM Sans", system-ui, sans-serif;
-  font-size: 0.875rem;
-  line-height: 1.6;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1rem;
+  line-height: 1.7;
   color: var(--text-primary);
 }
 
@@ -340,7 +356,7 @@ body::before {
 /* Content wrapper — the main reading column */
 .reader-content-wrapper {
   flex: 1;
-  max-width: 65ch;
+  max-width: var(--reading-width);
   padding: 2.5rem 2rem 6rem;
   margin: 0 auto;
 }
@@ -1048,10 +1064,11 @@ mark.stoa-hl-active {
   display: block;
   font-family: "Newsreader", Georgia, serif;
   font-size: 1.125rem;
-  line-height: 1.75;
+  line-height: 1.8;
   color: var(--text-primary);
-  letter-spacing: 0.005em;
+  letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
+  max-width: var(--reading-width);
 }
 
 .reader-text-content p {
@@ -1814,14 +1831,16 @@ mark.stoa-hl-active {
    ================================================================ */
 
 .research-editor .ProseMirror {
-  font-family: "Times New Roman", Times, serif;
-  font-size: 11pt;
-  line-height: 1.6;
-  max-width: 700px;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.8;
+  max-width: var(--reading-width);
   margin: 0 auto;
-  padding: 2rem 2rem 20rem;
-  min-height: 80vh;
+  padding: 3rem 4rem 20rem;
+  min-height: 85vh;
   outline: none;
+  background: var(--bg-editor);
+  letter-spacing: 0.005em;
 }
 
 .research-editor .ProseMirror p.is-editor-empty:first-child::before {
@@ -1841,10 +1860,12 @@ mark.stoa-hl-active {
 }
 
 .research-editor .ProseMirror blockquote {
-  border-left: 3px solid var(--border);
-  padding-left: 1rem;
+  border-left: 2px solid var(--accent);
+  padding-left: 1.25rem;
+  margin: 1.5rem 0;
   margin-left: 0;
   color: var(--text-secondary);
+  font-style: italic;
 }
 
 .research-editor .ProseMirror a {
