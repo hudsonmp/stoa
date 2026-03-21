@@ -355,17 +355,35 @@ export default function ItemDetail() {
           </button>
           <div className="flex items-center gap-2">
             {citation && (
-              <button
-                onClick={async () => {
-                  try {
-                    const data = await exportBibtex(item.id);
-                    await navigator.clipboard.writeText(data.bibtex);
-                  } catch {}
-                }}
-                className="pdf-fullscreen-btn"
-              >
-                <Copy size={12} /> Cite
-              </button>
+              <div ref={citeRef} className="relative">
+                <button
+                  onClick={() => setCiteDropdownOpen(!citeDropdownOpen)}
+                  className="pdf-fullscreen-btn"
+                >
+                  <Copy size={12} /> Cite <ChevronDown size={10} />
+                </button>
+                {citeDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px]
+                                  bg-bg-primary border border-border rounded-card shadow-warm-lg
+                                  py-1 text-sm">
+                    {(["apa", "mla", "bibtex"] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => copyCitation(fmt)}
+                        className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                   flex items-center justify-between gap-2"
+                      >
+                        <span className="font-sans text-text-primary">
+                          {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
+                        </span>
+                        {citeCopied === fmt && (
+                          <span className="text-[10px] text-green-600">Copied</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {item.url && (
               <a href={item.url} target="_blank" rel="noopener noreferrer" className="pdf-fullscreen-btn">

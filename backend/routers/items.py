@@ -132,7 +132,7 @@ async def papers_by_topic(request: Request, limit: int = 200):
 
 @router.get("/collections")
 async def list_collections(request: Request):
-    """List all collections for the authenticated user."""
+    """List all collections for the authenticated user, with item counts."""
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
@@ -143,7 +143,133 @@ async def list_collections(request: Request):
         .order("name")
         .execute()
     )
-    return {"collections": result.data or []}
+    collections = result.data or []
+
+    # Fetch item counts per collection
+    if collections:
+        col_ids = [c["id"] for c in collections]
+        counts_res = (
+            supabase.table("collection_items")
+            .select("collection_id")
+            .in_("collection_id", col_ids)
+            .execute()
+        )
+        count_map: dict[str, int] = {}
+        for row in counts_res.data or []:
+            cid = row["collection_id"]
+            count_map[cid] = count_map.get(cid, 0) + 1
+        for c in collections:
+            c["item_count"] = count_map.get(c["id"], 0)
+
+    return {"collections": collections}
+
+
+@router.patch("/collections/{collection_id}")
+async def rename_collection(collection_id: str, request: Request):
+    """Rename a collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    result = (
+        supabase.table("collections")
+        .update({"name": name})
+        .eq("id", collection_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"collection": result.data[0]}
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(collection_id: str, request: Request):
+    """Delete a collection (does not delete the items in it)."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Delete collection_items links first
+    supabase.table("collection_items").delete().eq("collection_id", collection_id).execute()
+
+    result = (
+        supabase.table("collections")
+        .delete()
+        .eq("id", collection_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"deleted": True, "id": collection_id}
+
+
+@router.post("/collections/{collection_id}/items")
+async def add_item_to_collection(collection_id: str, request: Request):
+    """Add an item to a collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+    item_id = body.get("item_id")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id is required")
+
+    # Verify collection ownership
+    col_check = supabase.table("collections").select("id").eq("id", collection_id).eq("user_id", user_id).execute()
+    if not col_check.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    # Verify item ownership
+    item_check = supabase.table("items").select("id").eq("id", item_id).eq("user_id", user_id).execute()
+    if not item_check.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Check for duplicate
+    existing = (
+        supabase.table("collection_items")
+        .select("id")
+        .eq("collection_id", collection_id)
+        .eq("item_id", item_id)
+        .execute()
+    )
+    if existing.data:
+        return {"already_exists": True}
+
+    # Get max sort_order
+    max_sort = (
+        supabase.table("collection_items")
+        .select("sort_order")
+        .eq("collection_id", collection_id)
+        .order("sort_order", desc=True)
+        .limit(1)
+        .execute()
+    )
+    next_order = (max_sort.data[0]["sort_order"] + 1) if max_sort.data else 0
+
+    supabase.table("collection_items").insert({
+        "collection_id": collection_id,
+        "item_id": item_id,
+        "sort_order": next_order,
+    }).execute()
+    return {"added": True}
+
+
+@router.get("/collections/{collection_id}/count")
+async def get_collection_item_count(collection_id: str, request: Request):
+    """Get item count for a collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Verify ownership
+    col_check = supabase.table("collections").select("id").eq("id", collection_id).eq("user_id", user_id).execute()
+    if not col_check.data:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    result = supabase.table("collection_items").select("id").eq("collection_id", collection_id).execute()
+    return {"count": len(result.data or [])}
 
 
 @router.get("/by-url")

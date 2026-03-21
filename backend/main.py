@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -8,9 +10,22 @@ from routers import ingest, search, rag, citations, review, highlights, items, p
 
 app = FastAPI(title="Stoa API", version="0.1.0")
 
+# Build CORS origins list: always include local dev + chrome extension
+_cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "chrome-extension://*",
+]
+# Add production frontend URL from env (e.g. https://stoa.vercel.app)
+_frontend_url = os.getenv("FRONTEND_URL")
+if _frontend_url:
+    _cors_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "chrome-extension://*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1,9 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon, Search } from "lucide-react";
+import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon, Search, Zap } from "lucide-react";
 import type { Item } from "@/lib/supabase";
 import ItemRow from "@/components/ItemRow";
 import { ingestUrl, ingestPdf, getPapersByTopic } from "@/lib/api";
+
+/**
+ * Normalize bare DOIs and arXiv IDs to full URLs.
+ */
+function normalizeInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (/^10\.\d{4,}/.test(trimmed)) return `https://doi.org/${trimmed}`;
+  if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(trimmed)) return `https://arxiv.org/abs/${trimmed}`;
+  return trimmed;
+}
 
 interface TopicGroup {
   papers: Item[];
@@ -17,6 +27,28 @@ export default function Papers() {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [quickInput, setQuickInput] = useState("");
+  const [quickLoading, setQuickLoading] = useState(false);
+  const [quickSuccess, setQuickSuccess] = useState(false);
+
+  const handleQuickAdd = async () => {
+    const raw = quickInput.trim();
+    if (!raw) return;
+    setQuickLoading(true);
+    try {
+      const finalUrl = normalizeInput(raw);
+      await ingestUrl({ url: finalUrl, type: "paper" });
+      setQuickInput("");
+      setQuickSuccess(true);
+      setTimeout(() => setQuickSuccess(false), 2000);
+      load();
+    } catch {
+      // Fall back to modal for errors
+      setShowAdd(true);
+    } finally {
+      setQuickLoading(false);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +115,39 @@ export default function Papers() {
             <Plus size={14} />
             Add Paper
           </button>
+        </div>
+
+        {/* Quick Add bar */}
+        <div className="mb-6">
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleQuickAdd(); }}
+            className="flex items-center gap-2"
+          >
+            <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-card
+                            border border-border focus-within:border-accent/30 transition-warm
+                            bg-bg-secondary/50">
+              <Zap size={14} className="text-text-tertiary flex-shrink-0" />
+              <input
+                type="text"
+                value={quickInput}
+                onChange={(e) => setQuickInput(e.target.value)}
+                placeholder="Quick add: paste URL, DOI (10.xxx), or arXiv ID (2401.10020)"
+                className="flex-1 bg-transparent border-none outline-none
+                           text-sm text-text-primary placeholder:text-text-tertiary"
+              />
+              {quickLoading && <Loader2 size={14} className="animate-spin text-text-tertiary" />}
+              {quickSuccess && <span className="text-[11px] text-green-600 font-medium">Added</span>}
+            </div>
+            <button
+              type="submit"
+              disabled={!quickInput.trim() || quickLoading}
+              className="px-3 py-2.5 rounded-card bg-accent text-white text-sm
+                         font-medium hover:bg-accent-hover transition-warm
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Add
+            </button>
+          </form>
         </div>
 
         {loading && total === 0 && (
@@ -229,7 +294,8 @@ function AddPaperModal({
     try {
       if (mode === "url") {
         if (!url.trim()) return;
-        await ingestUrl({ url, type: "paper" });
+        const finalUrl = normalizeInput(url);
+        await ingestUrl({ url: finalUrl, type: "paper" });
       } else {
         if (!pdfFile) return;
         await ingestPdf(pdfFile, title || undefined);
@@ -298,17 +364,17 @@ function AddPaperModal({
                               focus-within:border-accent/30 transition-warm">
                 <LinkIcon size={14} className="text-text-tertiary flex-shrink-0" />
                 <input
-                  type="url"
+                  type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://arxiv.org/abs/..."
+                  placeholder="URL, DOI (10.xxx), or arXiv ID (2401.10020)"
                   className="flex-1 bg-transparent border-none outline-none
                              text-sm text-text-primary placeholder:text-text-tertiary"
                   autoFocus
                 />
               </div>
               <p className="text-[11px] text-text-tertiary mt-1.5">
-                arXiv, ACM DL, Springer, OpenReview, or direct PDF links
+                arXiv, ACM DL, Springer, OpenReview, DOI, or direct PDF links
               </p>
             </div>
           )}

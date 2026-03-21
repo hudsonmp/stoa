@@ -60,10 +60,43 @@ export default function AddItemModal({
     }
   }, [isOpen]);
 
+  /**
+   * Normalize raw input: bare DOIs (10.xxx) and arXiv IDs (2401.10020)
+   * get expanded to full URLs before metadata extraction.
+   */
+  const normalizeInput = (raw: string): string => {
+    const trimmed = raw.trim();
+    // DOI: starts with "10."
+    if (/^10\.\d{4,}/.test(trimmed)) {
+      return `https://doi.org/${trimmed}`;
+    }
+    // arXiv ID: e.g. 2401.10020 or 2401.10020v2
+    if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(trimmed)) {
+      return `https://arxiv.org/abs/${trimmed}`;
+    }
+    return trimmed;
+  };
+
+  const handleUrlChange = (raw: string) => {
+    setUrl(raw);
+    // Auto-detect type for arXiv / DOI
+    const normalized = normalizeInput(raw);
+    if (normalized !== raw) {
+      if (normalized.includes("arxiv.org") || normalized.includes("doi.org")) {
+        setType("paper");
+      }
+    }
+  };
+
   const handleUrlBlur = async () => {
     if (!url.trim()) return;
+    // Apply normalization on blur so the URL field shows the full URL
+    const normalized = normalizeInput(url);
+    if (normalized !== url.trim()) {
+      setUrl(normalized);
+    }
     try {
-      const meta = await extractMetadata(url);
+      const meta = await extractMetadata(normalized);
       setPreview(meta);
     } catch {
       // Metadata extraction is optional
@@ -119,7 +152,8 @@ export default function AddItemModal({
     try {
       if (mode === "url") {
         if (!url.trim()) return;
-        await ingestUrl({ url, type, collection_id: collectionId || undefined });
+        const finalUrl = normalizeInput(url);
+        await ingestUrl({ url: finalUrl, type, collection_id: collectionId || undefined });
       } else if (mode === "text") {
         if (!textContent.trim()) return;
         await ingestPaste({
@@ -235,11 +269,11 @@ export default function AddItemModal({
                       className="text-text-tertiary flex-shrink-0"
                     />
                     <input
-                      type="url"
+                      type="text"
                       value={url}
-                      onChange={(e) => setUrl(e.target.value)}
+                      onChange={(e) => handleUrlChange(e.target.value)}
                       onBlur={handleUrlBlur}
-                      placeholder="https://..."
+                      placeholder="URL, DOI (10.xxx), or arXiv ID (2401.10020)"
                       className="flex-1 bg-transparent border-none outline-none
                                  text-sm text-text-primary placeholder:text-text-tertiary"
                     />
