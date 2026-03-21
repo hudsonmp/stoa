@@ -99,6 +99,21 @@ export default function ItemRow({ item, index = 0, onDeleted }: ItemRowProps) {
           {item.title}
         </span>
 
+        {/* Resume reading indicator */}
+        {item.scroll_position && item.scroll_position.progress > 0 && item.scroll_position.progress < 100 && (
+          <span className="flex-shrink-0 flex items-center gap-1" title={`${item.scroll_position.progress}% read`}>
+            <div className="reading-progress-track">
+              <div
+                className="reading-progress-bar"
+                style={{ width: `${item.scroll_position.progress}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono text-text-tertiary tabular-nums">
+              {item.scroll_position.progress}%
+            </span>
+          </span>
+        )}
+
         {/* Domain in italic serif */}
         {item.domain && (
           <span className="flex-shrink-0 text-[12px] font-serif italic text-text-tertiary">

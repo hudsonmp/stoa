@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   BookOpen,
   BookCheck,
+  BookMarked,
   FolderOpen,
   FileText,
   Search,
@@ -23,6 +24,7 @@ interface SidebarProps {
 
 const navItems = [
   { to: "/", label: "To Read", icon: BookOpen, countKey: "to_read" as const },
+  { to: "/reading", label: "Reading", icon: BookMarked, countKey: undefined },
   { to: "/read", label: "Read", icon: BookCheck, countKey: "read" as const },
 ];
 

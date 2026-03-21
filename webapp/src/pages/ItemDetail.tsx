@@ -447,24 +447,70 @@ export default function ItemDetail() {
           )}
 
           {citation && (
-            <button
-              onClick={async () => {
-                try {
-                  const data = await exportBibtex(item.id);
-                  await navigator.clipboard.writeText(data.bibtex);
-                  // Brief visual feedback
-                  const btn = document.getElementById("copy-cite-btn");
-                  if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Cite"; }, 1500); }
-                } catch { /* clipboard or API error */ }
-              }}
-              id="copy-cite-btn"
-              className="reader-external-link"
-              title="Copy BibTeX citation"
-            >
-              <Copy size={12} />
-              Cite
-            </button>
+            <div ref={citeRef} className="relative">
+              <button
+                onClick={() => setCiteDropdownOpen(!citeDropdownOpen)}
+                className="reader-external-link"
+                title="Copy citation"
+              >
+                <Copy size={12} />
+                Cite
+                <ChevronDown size={10} />
+              </button>
+              {citeDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px]
+                                bg-bg-primary border border-border rounded-card shadow-warm-lg
+                                py-1 text-sm">
+                  {(["apa", "mla", "bibtex"] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => copyCitation(fmt)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                 flex items-center justify-between gap-2"
+                    >
+                      <span className="font-sans text-text-primary">
+                        {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
+                      </span>
+                      {citeCopied === fmt && (
+                        <span className="text-[10px] text-green-600">Copied</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
+
+          {/* Add to collection */}
+          <div ref={collectionRef} className="relative">
+            <button
+              onClick={() => setCollectionDropdownOpen(!collectionDropdownOpen)}
+              className="reader-external-link"
+              title="Add to collection"
+            >
+              <FolderPlus size={12} />
+            </button>
+            {collectionDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px]
+                              bg-bg-primary border border-border rounded-card shadow-warm-lg
+                              py-1 text-sm max-h-[240px] overflow-y-auto">
+                {availableCollections.length === 0 ? (
+                  <p className="px-3 py-2 text-text-tertiary text-[12px]">No collections</p>
+                ) : (
+                  availableCollections.map((col) => (
+                    <button
+                      key={col.id}
+                      onClick={() => handleAddToCollection(col.id)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                 text-text-primary truncate"
+                    >
+                      {col.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {item.url && (
             <a

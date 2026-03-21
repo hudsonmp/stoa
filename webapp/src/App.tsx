@@ -6,6 +6,8 @@ import Library from "@/pages/Library";
 import People from "@/pages/People";
 import PersonDetail from "@/pages/PersonDetail";
 import ItemDetail from "@/pages/ItemDetail";
+import Reader from "@/pages/Reader";
+import Reading from "@/pages/Reading";
 import Search from "@/pages/Search";
 import Review from "@/pages/Review";
 import Collections from "@/pages/Collections";
@@ -26,6 +28,8 @@ export default function App() {
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetail />} />
               <Route path="/item/:id" element={<ItemDetail />} />
+              <Route path="/reader/:id" element={<Reader />} />
+              <Route path="/reading" element={<Reading />} />
               <Route path="/search" element={<Search />} />
               <Route path="/review" element={<Review />} />
               <Route path="/papers" element={<Papers />} />

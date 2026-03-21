@@ -1916,3 +1916,87 @@ mark.stoa-hl-active {
   max-width: 100%;
   padding: 2rem 3rem 20rem;
 }
+
+/* ================================================================
+   URL Reader — iframe + sidebar layout
+   ================================================================ */
+
+.url-reader {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+}
+
+.url-reader-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+  background: rgba(250, 250, 247, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.url-reader-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.url-reader-iframe-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.url-reader-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+
+.url-reader-sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  padding: 1.5rem 1rem 4rem;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-light);
+  background: var(--bg-primary);
+}
+
+.url-reader-sidebar::-webkit-scrollbar {
+  width: 3px;
+}
+
+.url-reader-sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+@media (max-width: 900px) {
+  .url-reader-sidebar {
+    display: none;
+  }
+}
+
+/* ================================================================
+   Reading page — progress bars
+   ================================================================ */
+
+.reading-progress-track {
+  width: 48px;
+  height: 3px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.reading-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
