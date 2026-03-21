@@ -4,10 +4,15 @@
  * Simplified: selecting text shows a single input. Type a thought and press
  * Enter (or click submit) to create a yellow highlight with the note attached.
  * Press Enter with an empty input to create a highlight with no note.
+ *
+ * "-> Notes" button: appends the selected text as a blockquote to an existing
+ * standalone note (fetched from GET /notes/standalone?limit=5).
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send } from "lucide-react";
+import { Send, StickyNote, ChevronDown } from "lucide-react";
+import { getStandaloneNotes, appendToNote } from "@/lib/api";
+import type { Note } from "@/lib/supabase";
 
 export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
 
@@ -20,6 +25,14 @@ interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement | null>;
 }
 
+function extractNoteTitle(note: Note): string {
+  if (note.title && note.title !== "Untitled") return note.title;
+  const text = note.content.replace(/<[^>]*>/g, "").trim();
+  if (!text) return "Untitled";
+  const firstLine = text.split("\n")[0];
+  return firstLine.length > 40 ? firstLine.slice(0, 40) + "..." : firstLine;
+}
+
 export default function SelectionToolbar({
   onHighlight,
   containerRef,
@@ -29,6 +42,9 @@ export default function SelectionToolbar({
   const [selectedText, setSelectedText] = useState("");
   const [selectedContext, setSelectedContext] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [notesDropdownOpen, setNotesDropdownOpen] = useState(false);
+  const [standaloneNotes, setStandaloneNotes] = useState<Note[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const noteInputRef = useRef<HTMLInputElement>(null);
 
@@ -37,6 +53,7 @@ export default function SelectionToolbar({
     setNoteText("");
     setSelectedText("");
     setSelectedContext("");
+    setNotesDropdownOpen(false);
   }, []);
 
   // Listen for text selection within the container
@@ -100,6 +117,7 @@ export default function SelectionToolbar({
       setSelectedContext(ctx);
       setVisible(true);
       setNoteText("");
+      setNotesDropdownOpen(false);
     };
 
     container.addEventListener("mouseup", handleMouseUp);
@@ -139,6 +157,37 @@ export default function SelectionToolbar({
     dismiss();
   };
 
+  const handleOpenNotesDropdown = useCallback(async () => {
+    if (notesDropdownOpen) {
+      setNotesDropdownOpen(false);
+      return;
+    }
+    setNotesDropdownOpen(true);
+    setLoadingNotes(true);
+    try {
+      const data = await getStandaloneNotes(5);
+      setStandaloneNotes((data.notes || []) as Note[]);
+    } catch {
+      setStandaloneNotes([]);
+    } finally {
+      setLoadingNotes(false);
+    }
+  }, [notesDropdownOpen]);
+
+  const handleAppendToNote = useCallback(
+    async (noteId: string) => {
+      const blockquote = `<blockquote><p>${selectedText}</p></blockquote>`;
+      try {
+        await appendToNote(noteId, blockquote);
+      } catch {
+        // silent
+      }
+      window.getSelection()?.removeAllRanges();
+      dismiss();
+    },
+    [selectedText, dismiss]
+  );
+
   if (!visible) return null;
 
   return (
@@ -167,6 +216,87 @@ export default function SelectionToolbar({
         >
           <Send size={13} />
         </button>
+        <div style={{ position: "relative" }}>
+          <button
+            className="stoa-st-submit"
+            onClick={handleOpenNotesDropdown}
+            title="Append to a note"
+            style={{ display: "flex", alignItems: "center", gap: "2px" }}
+          >
+            <StickyNote size={13} />
+            <ChevronDown size={9} />
+          </button>
+          {/* Notes dropdown */}
+          {notesDropdownOpen && (
+            <div
+              className="stoa-st-notes-dropdown"
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: "4px",
+                minWidth: "200px",
+                maxWidth: "260px",
+                background: "var(--bg-primary, #fff)",
+                border: "1px solid var(--border, #e5e7eb)",
+                borderRadius: "8px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                zIndex: 100,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: "var(--text-tertiary, #9ca3af)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  borderBottom: "1px solid var(--border, #e5e7eb)",
+                }}
+              >
+                Append to note
+              </div>
+              {loadingNotes ? (
+                <div style={{ padding: "10px", fontSize: "11px", color: "var(--text-tertiary, #9ca3af)", textAlign: "center" }}>
+                  Loading...
+                </div>
+              ) : standaloneNotes.length === 0 ? (
+                <div style={{ padding: "10px", fontSize: "11px", color: "var(--text-tertiary, #9ca3af)", textAlign: "center" }}>
+                  No notes yet
+                </div>
+              ) : (
+                standaloneNotes.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => handleAppendToNote(n.id)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 10px",
+                      fontSize: "12px",
+                      color: "var(--text-primary, #1f2937)",
+                      background: "none",
+                      border: "none",
+                      borderBottom: "1px solid var(--border, #f3f4f6)",
+                      cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.target as HTMLElement).style.background = "var(--bg-secondary, #f9fafb)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.target as HTMLElement).style.background = "none";
+                    }}
+                  >
+                    {extractNoteTitle(n)}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

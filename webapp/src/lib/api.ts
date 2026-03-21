@@ -135,6 +135,14 @@ export async function exportBibtex(itemId: string) {
   return apiFetch<{ bibtex: string }>(`/citations/${itemId}/bib`);
 }
 
+export async function exportApa(itemId: string) {
+  return apiFetch<{ apa: string }>(`/citations/${itemId}/apa`);
+}
+
+export async function exportMla(itemId: string) {
+  return apiFetch<{ mla: string }>(`/citations/${itemId}/mla`);
+}
+
 export async function importBibtex(bibtex: string) {
   return apiFetch("/citations/import", {
     method: "POST",
@@ -296,6 +304,17 @@ export async function deleteNote(noteId: string) {
   return apiFetch(`/notes/${noteId}`, { method: "DELETE" });
 }
 
+export async function getStandaloneNotes(limit = 5) {
+  return apiFetch<{ notes: unknown[] }>(`/notes/standalone?limit=${limit}`);
+}
+
+export async function appendToNote(noteId: string, content: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/append`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
 export async function deleteHighlight(highlightId: string) {
   return apiFetch(`/highlights/${highlightId}`, { method: "DELETE" });
 }
@@ -340,4 +359,26 @@ export async function extractMetadata(url: string) {
     method: "POST",
     body: JSON.stringify({ url }),
   });
+}
+
+export async function renameCollection(collectionId: string, name: string) {
+  return apiFetch(`/items/collections/${collectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteCollection(collectionId: string) {
+  return apiFetch(`/items/collections/${collectionId}`, { method: "DELETE" });
+}
+
+export async function addItemToCollection(collectionId: string, itemId: string) {
+  return apiFetch(`/items/collections/${collectionId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ item_id: itemId }),
+  });
+}
+
+export async function getCollectionItemCount(collectionId: string) {
+  return apiFetch<{ count: number }>(`/items/collections/${collectionId}/count`);
 }

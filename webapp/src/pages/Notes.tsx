@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText } from "lucide-react";
+import { Plus, Search, FileText, Trash2, Check, X } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
-import { getNotes, createNote, updateNote } from "@/lib/api";
+import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
 
 function formatRelativeDate(dateStr: string): string {
@@ -47,6 +47,11 @@ export default function Notes() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Inline title editing state
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -71,6 +76,14 @@ export default function Notes() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Focus title input when editing starts
+  useEffect(() => {
+    if (editingTitleId && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitleId]);
 
   const handleCreateNote = useCallback(async () => {
     try {
@@ -109,6 +122,57 @@ export default function Notes() {
     },
     [activeId]
   );
+
+  const handleDelete = useCallback(
+    async (noteId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      try {
+        await deleteNote(noteId);
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+        if (noteId === activeId) {
+          navigate("/notes");
+        }
+      } catch {
+        // silent
+      }
+    },
+    [activeId, navigate]
+  );
+
+  const startEditingTitle = useCallback(
+    (note: Note, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setEditingTitleId(note.id);
+      setTitleDraft(note.title && note.title !== "Untitled" ? note.title : "");
+    },
+    []
+  );
+
+  const saveTitle = useCallback(
+    async (noteId: string) => {
+      const trimmed = titleDraft.trim();
+      const newTitle = trimmed || "Untitled";
+      setEditingTitleId(null);
+      try {
+        await updateNote(noteId, { title: newTitle });
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === noteId
+              ? { ...n, title: newTitle, updated_at: new Date().toISOString() }
+              : n
+          )
+        );
+      } catch {
+        // silent
+      }
+    },
+    [titleDraft]
+  );
+
+  const cancelEditingTitle = useCallback(() => {
+    setEditingTitleId(null);
+    setTitleDraft("");
+  }, []);
 
   const filtered = searchQuery
     ? notes.filter((n) => {
@@ -168,20 +232,62 @@ export default function Notes() {
           )}
           {filtered.map((note) => {
             const badge = noteTypeBadge(note);
+            const isEditing = editingTitleId === note.id;
             return (
-              <button
+              <div
                 key={note.id}
-                onClick={() => navigate(`/notes/${note.id}`)}
-                className={`w-full text-left px-3 py-2.5 rounded-card transition-warm
+                className={`group/note relative w-full text-left px-3 py-2.5 rounded-card transition-warm cursor-pointer
                   ${
                     note.id === activeId
                       ? "bg-bg-primary border-l-2 border-accent pl-[10px] shadow-sm"
                       : "hover:bg-bg-primary/60"
                   }`}
+                onClick={() => {
+                  if (!isEditing) navigate(`/notes/${note.id}`);
+                }}
               >
-                <p className="text-sm font-medium text-text-primary truncate leading-tight">
-                  {extractTitle(note)}
-                </p>
+                {/* Title — inline editable on double-click */}
+                {isEditing ? (
+                  <div
+                    className="flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      ref={titleInputRef}
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveTitle(note.id);
+                        if (e.key === "Escape") cancelEditingTitle();
+                      }}
+                      onBlur={() => saveTitle(note.id)}
+                      className="flex-1 bg-transparent text-sm font-medium text-text-primary
+                                 outline-none border-b border-accent/40 leading-tight"
+                      placeholder="Note title..."
+                    />
+                    <button
+                      onClick={() => saveTitle(note.id)}
+                      className="p-0.5 text-accent hover:text-accent-hover"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      onClick={cancelEditingTitle}
+                      className="p-0.5 text-text-tertiary hover:text-text-primary"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <p
+                    className="text-sm font-medium text-text-primary truncate leading-tight"
+                    onDoubleClick={(e) => startEditingTitle(note, e)}
+                    title="Double-click to rename"
+                  >
+                    {extractTitle(note)}
+                  </p>
+                )}
+
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[10px] text-text-tertiary">
                     {formatRelativeDate(note.updated_at)}
@@ -192,7 +298,18 @@ export default function Notes() {
                     </span>
                   )}
                 </div>
-              </button>
+
+                {/* Delete button — appears on hover */}
+                <button
+                  onClick={(e) => handleDelete(note.id, e)}
+                  className="absolute top-2 right-2 opacity-0 group-hover/note:opacity-100
+                             transition-warm p-1 rounded text-text-tertiary hover:text-red-500
+                             hover:bg-red-50"
+                  title="Delete note"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             );
           })}
         </div>

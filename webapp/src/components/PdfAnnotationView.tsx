@@ -2,31 +2,40 @@
  * PdfAnnotationView — Native PDF embed + annotation sidebar.
  * PDF renders via browser's built-in viewer (left).
  * Notes + highlights for this item shown in sidebar (right).
+ *
+ * Notes created here are tagged with the source item (`ref:{item_id}`)
+ * and carry the "synthesis" tag so they also appear on the /notes page.
  */
 
 import { useState } from "react";
 import { Send, BookOpen } from "lucide-react";
+import NoteEditor from "@/components/NoteEditor";
 import type { Highlight, Note } from "@/lib/supabase";
 
 interface PdfAnnotationViewProps {
   pdfUrl: string;
   highlights: Highlight[];
   notes: Note[];
-  onCreateNote: (content: string) => void;
+  /** item_id of the current PDF — used for source tagging */
+  itemId: string;
+  /** Called when a note is created; should POST to /notes with synthesis + ref tags */
+  onCreateNote: (content: string, tags: string[]) => void;
 }
 
 export default function PdfAnnotationView({
   pdfUrl,
   highlights,
   notes,
+  itemId,
   onCreateNote,
 }: PdfAnnotationViewProps) {
-  const [noteText, setNoteText] = useState("");
+  const [noteContent, setNoteContent] = useState("");
 
   const handleSubmit = () => {
-    if (!noteText.trim()) return;
-    onCreateNote(noteText);
-    setNoteText("");
+    const trimmed = noteContent.trim();
+    if (!trimmed || trimmed === "<p></p>") return;
+    onCreateNote(noteContent, ["synthesis", `ref:${itemId}`]);
+    setNoteContent("");
   };
 
   return (
@@ -44,25 +53,18 @@ export default function PdfAnnotationView({
       <aside className="pdf-split-sidebar">
         <div className="pdf-sidebar-heading">Notes</div>
 
-        {/* Note input */}
+        {/* Rich-text note input via TipTap */}
         <div className="pdf-sidebar-input">
-          <textarea
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
+          <NoteEditor
+            content={noteContent}
+            onChange={setNoteContent}
             placeholder="Add a note about this paper..."
-            rows={3}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
           />
           <button
             onClick={handleSubmit}
-            disabled={!noteText.trim()}
+            disabled={!noteContent.trim() || noteContent === "<p></p>"}
             className="pdf-sidebar-send"
-            title="Save note (Cmd+Enter)"
+            title="Save note (also adds to Notes page)"
           >
             <Send size={13} />
           </button>

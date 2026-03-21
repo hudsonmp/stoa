@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -20,9 +20,11 @@ import {
   Send,
   Trash2,
   Copy,
+  ChevronDown,
+  FolderPlus,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex } from "@/lib/api";
+import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
@@ -44,6 +46,7 @@ const ITEM_TYPES = ["blog", "writing", "book", "paper", "podcast", "video", "pag
 
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [item, setItem] = useState<Item | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -64,10 +67,16 @@ export default function ItemDetail() {
   const [titleDraft, setTitleDraft] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [citeDropdownOpen, setCiteDropdownOpen] = useState(false);
+  const [citeCopied, setCiteCopied] = useState<string | null>(null);
+  const [collectionDropdownOpen, setCollectionDropdownOpen] = useState(false);
+  const [availableCollections, setAvailableCollections] = useState<{ id: string; name: string }[]>([]);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const marginRef = useRef<HTMLElement>(null);
   const hlContainerRef = useRef<HTMLDivElement>(null);
+  const citeRef = useRef<HTMLDivElement>(null);
+  const collectionRef = useRef<HTMLDivElement>(null);
 
   // Positional anchoring version — bumped when highlights change
   const hlVersion = highlights.length;
@@ -82,15 +91,7 @@ export default function ItemDetail() {
   const pdfUrl = item ? getPdfEmbedUrl(item) : null;
   const ar5ivUrl = item ? getAr5ivUrl(item) : null;
 
-  // Auto-enter reader mode if there's extracted text
-  useEffect(() => {
-    if (item?.extracted_text && item.extracted_text.length > 200) {
-      setReaderMode(true);
-    }
-  }, [item]);
-
   // arXiv papers default to ar5iv HTML view (best quality rendering)
-  // Other papers default to Annotate view
   useEffect(() => {
     if (item && ar5ivUrl) {
       setAr5ivMode(true);
@@ -119,6 +120,57 @@ export default function ItemDetail() {
       setItem(null);
     }
     setLoading(false);
+  };
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (citeRef.current && !citeRef.current.contains(e.target as Node)) {
+        setCiteDropdownOpen(false);
+      }
+      if (collectionRef.current && !collectionRef.current.contains(e.target as Node)) {
+        setCollectionDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Load collections when collection dropdown opens
+  useEffect(() => {
+    if (collectionDropdownOpen) {
+      listCollections()
+        .then((data) => setAvailableCollections(data.collections || []))
+        .catch(() => {});
+    }
+  }, [collectionDropdownOpen]);
+
+  const copyCitation = async (format: "bibtex" | "apa" | "mla") => {
+    if (!item) return;
+    try {
+      let text = "";
+      if (format === "bibtex") {
+        const data = await exportBibtex(item.id);
+        text = data.bibtex;
+      } else if (format === "apa") {
+        const data = await exportApa(item.id);
+        text = data.apa;
+      } else {
+        const data = await exportMla(item.id);
+        text = data.mla;
+      }
+      await navigator.clipboard.writeText(text);
+      setCiteCopied(format);
+      setTimeout(() => setCiteCopied(null), 1500);
+    } catch { /* clipboard or API error */ }
+  };
+
+  const handleAddToCollection = async (collectionId: string) => {
+    if (!item) return;
+    try {
+      await addItemToCollection(collectionId, item.id);
+      setCollectionDropdownOpen(false);
+    } catch { /* ignore */ }
   };
 
   const saveTitle = async () => {
@@ -326,8 +378,9 @@ export default function ItemDetail() {
           pdfUrl={pdfUrl}
           highlights={highlights}
           notes={notes}
-          onCreateNote={async (content) => {
-            const result = await createNote({ item_id: item.id, content });
+          itemId={item.id}
+          onCreateNote={async (content, tags) => {
+            const result = await createNote({ item_id: item.id, content, tags });
             const newNote = (result as { note: Note }).note;
             setNotes((prev) => [newNote, ...prev]);
           }}
@@ -363,13 +416,13 @@ export default function ItemDetail() {
                 Read
               </button>
             )}
-            {item.extracted_text && (
+            {!ar5ivUrl && !pdfUrl && item.url && (
               <button
-                onClick={() => { setPdfMode(false); setReaderMode(true); setAr5ivMode(false); }}
-                className={`reader-mode-toggle ${!pdfMode && readerMode && !ar5ivMode ? "active" : ""}`}
+                onClick={() => navigate(`/reader/${item.id}`)}
+                className="reader-mode-toggle"
               >
-                <Highlighter size={13} />
-                Annotate
+                <BookOpen size={13} />
+                Read
               </button>
             )}
             {pdfUrl && (
