@@ -23,21 +23,30 @@ import MentionList, { type MentionItem, type MentionListRef } from "./MentionLis
 import ReactDOM from "react-dom/client";
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 
-import { search } from "@/lib/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
+
+// Fast title search — no embeddings, just ILIKE
+async function quickSearch(query: string): Promise<Array<{ id: string; label: string }>> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (DEV_USER_ID) headers["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    const userId = localStorage.getItem("stoa_user_id");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    else if (userId) headers["X-User-Id"] = userId;
+  }
+  const res = await fetch(`${API_URL}/items/quick-search?q=${encodeURIComponent(query)}&limit=8`, { headers });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.results || []).map((r: { id: string; title: string }) => ({ id: r.id, label: r.title }));
+}
 
 function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
   return {
     items: async ({ query }) => {
-      if (!query || query.length < 2) return [];
-      try {
-        const data = await search({ query, limit: 8 });
-        return (data.results as Array<{ id: string; title: string; type: string; domain?: string }>).map((r) => ({
-          id: r.id,
-          label: r.title,
-        }));
-      } catch {
-        return [];
-      }
+      if (!query || query.length < 1) return [];
+      return quickSearch(query);
     },
     render: () => {
       let root: ReactDOM.Root | null = null;

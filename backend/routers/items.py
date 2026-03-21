@@ -545,3 +545,21 @@ async def delete_item(item_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Item not found")
 
     return {"deleted": True, "id": item_id}
+
+
+@router.get("/quick-search")
+async def quick_search(request: Request, q: str = "", limit: int = 8):
+    """Fast title prefix search for @ mentions. No embeddings, just ILIKE."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    if not q or len(q) < 2:
+        return {"results": []}
+    result = (
+        supabase.table("items")
+        .select("id, title, type, domain")
+        .eq("user_id", user_id)
+        .ilike("title", f"%{q}%")
+        .limit(limit)
+        .execute()
+    )
+    return {"results": result.data or []}
