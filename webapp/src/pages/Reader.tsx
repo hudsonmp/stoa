@@ -17,6 +17,8 @@ import {
   deleteHighlight,
   exportBibtex,
 } from "@/lib/api";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import NoteEditor from "@/components/NoteEditor";
 
 /**
@@ -33,6 +35,7 @@ export default function Reader() {
   const [noteContent, setNoteContent] = useState("");
   const [editingHighlightNote, setEditingHighlightNote] = useState<string | null>(null);
   const [highlightNoteDraft, setHighlightNoteDraft] = useState("");
+  const [iframeFailed, setIframeFailed] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -233,11 +236,10 @@ export default function Reader() {
           {item.url ? (
             <iframe
               ref={iframeRef}
-              src={item.url}
+              src={`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/items/${item.id}/proxy?user_id=${import.meta.env.VITE_DEV_USER_ID || localStorage.getItem("stoa_user_id") || ""}`}
               title={item.title}
               className="url-reader-iframe"
               onLoad={handleIframeLoad}
-              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
             />
           ) : (
             <div className="flex items-center justify-center h-full text-text-tertiary text-sm">

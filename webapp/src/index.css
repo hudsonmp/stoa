@@ -1682,6 +1682,50 @@ mark.stoa-hl-active {
   height: 85vh;
 }
 
+.pdf-pages-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg-secondary);
+}
+
+.pdf-page-wrapper {
+  position: relative;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  border-radius: 2px;
+}
+
+.pdf-page-wrapper canvas { display: block; }
+
+.pdf-page-wrapper .react-pdf__Page__textContent { opacity: 0.2; }
+.pdf-page-wrapper .react-pdf__Page__textContent ::selection {
+  background: rgba(194, 65, 12, 0.3);
+}
+
+.pdf-page-num {
+  position: absolute;
+  bottom: 6px;
+  right: 10px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.5625rem;
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+.pdf-page-loading {
+  padding: 4rem;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 0.875rem;
+}
+
 .pdf-split-main {
   flex: 1;
   min-width: 0;

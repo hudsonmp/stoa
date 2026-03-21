@@ -563,3 +563,40 @@ async def quick_search(request: Request, q: str = "", limit: int = 8):
         .execute()
     )
     return {"results": result.data or []}
+
+
+@router.get("/{item_id}/proxy")
+async def proxy_page(item_id: str, request: Request, user_id: str | None = None):
+    """Proxy an item's URL to bypass X-Frame-Options restrictions."""
+    import httpx
+    from fastapi.responses import HTMLResponse
+    if not user_id:
+        user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("url")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data or not item_res.data.get("url"):
+        raise HTTPException(status_code=404, detail="Item or URL not found")
+
+    url = item_res.data["url"]
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
+
+    # Inject base tag so relative URLs resolve correctly
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    html = resp.text
+    if "<head>" in html:
+        html = html.replace("<head>", f'<head><base href="{base_url}">', 1)
+    elif "<HEAD>" in html:
+        html = html.replace("<HEAD>", f'<HEAD><base href="{base_url}">', 1)
+
+    return HTMLResponse(content=html, status_code=200)
