@@ -218,8 +218,8 @@ function setupKeyboardShortcuts() {
     const inEditable = tag === "INPUT" || tag === "TEXTAREA" ||
       e.target.isContentEditable || e.target.closest(".stoa-note-input");
 
-    // Always allow Cmd/Ctrl+Shift+N to toggle sidebar, even in editable fields
-    if (e.key.toLowerCase() === "n" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    // Always allow Cmd/Ctrl+Shift+E to toggle sidebar, even in editable fields
+    if (e.key.toLowerCase() === "e" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
       toggleSidebar();
       return;
@@ -1097,7 +1097,7 @@ function createSidebarToggle() {
   const toggle = document.createElement("button");
   toggle.className = "stoa-sidebar-toggle";
   toggle.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 6h8M2 9h10M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-  toggle.title = "Notes & Highlights (Cmd+Shift+N)";
+  toggle.title = "Notes & Highlights (Cmd+Shift+E)";
   toggle.addEventListener("click", toggleSidebar);
   document.documentElement.appendChild(toggle);
 }
