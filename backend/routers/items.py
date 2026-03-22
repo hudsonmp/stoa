@@ -498,7 +498,7 @@ async def re_extract_item(item_id: str, request: Request):
     if arxiv_match:
         arxiv_id = arxiv_match.group(1)
         pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
             pdf_resp = await client.get(pdf_url)
             pdf_bytes = pdf_resp.content
 
@@ -586,7 +586,7 @@ async def proxy_page(item_id: str, request: Request, user_id: str | None = None)
         raise HTTPException(status_code=404, detail="Item or URL not found")
 
     url = item_res.data["url"]
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with httpx.AsyncClient(verify=False, timeout=30, follow_redirects=True) as client:
         resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
 
     # Inject base tag so relative URLs resolve correctly

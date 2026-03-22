@@ -13,7 +13,7 @@ async def extract_from_url(url: str) -> dict:
     """Extract article content and metadata from a URL."""
     from services.url_validator import validate_url
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=30) as client:
         resp = await client.get(url, headers={"User-Agent": "Stoa/1.0"})
         # Re-validate final URL after redirects to prevent redirect-based SSRF
         validate_url(str(resp.url))
@@ -542,7 +542,7 @@ async def fetch_arxiv_metadata(arxiv_id: str) -> dict:
 
     api_url = f"http://export.arxiv.org/api/query?id_list={clean_id}"
 
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with httpx.AsyncClient(verify=False, timeout=30, follow_redirects=True) as client:
         resp = await client.get(api_url)
 
     xml = resp.text

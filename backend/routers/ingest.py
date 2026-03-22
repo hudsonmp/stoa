@@ -93,7 +93,7 @@ async def ingest_url(req: IngestURLRequest, request: Request):
     if req.url.lower().endswith(".pdf"):
         import httpx
         try:
-            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
                 pdf_resp = await client.get(req.url)
                 if pdf_resp.headers.get("content-type", "").startswith("application/pdf") or req.url.endswith(".pdf"):
                     from fastapi import UploadFile
@@ -503,7 +503,7 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
         return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Download PDF (follow_redirects required for arXiv)
-    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+    async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
         pdf_resp = await client.get(meta["pdf_url"])
         pdf_bytes = pdf_resp.content
 
