@@ -574,9 +574,10 @@
   position: fixed;
   top: 0;
   right: 0;
-  bottom: 0;
-  width: 340px;
-  max-width: 90vw;
+  height: 100vh;
+  width: 35%;
+  max-width: 500px;
+  min-width: 320px;
   z-index: 2147483645;
   background: #FAFAF7;
   border-left: 1px solid #E7E5E4;
@@ -634,47 +635,127 @@
   color: #1C1917;
 }
 
-/* Note Input Area */
-.stoa-sb-input-area {
-  padding: 16px 20px;
+/* Source Bar — shows linked page info */
+.stoa-sb-source-bar {
+  padding: 10px 20px;
   border-bottom: 1px solid #F5F5F4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
 }
 
-.stoa-sb-note-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #E7E5E4;
-  border-radius: 8px;
-  background: #fff;
-  color: #1C1917;
-  font-family: Georgia, "Newsreader", serif;
-  font-size: 14px;
-  line-height: 1.6;
-  resize: vertical;
-  min-height: 60px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
+.stoa-sb-source-label {
+  font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #A8A29E;
+  flex-shrink: 0;
 }
 
-.stoa-sb-note-input::placeholder {
+.stoa-sb-source-title {
+  font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  color: #44403C;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Save Status Indicator */
+.stoa-sb-save-status {
+  font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
+  font-size: 10px;
   color: #A8A29E;
   font-style: italic;
 }
 
-.stoa-sb-note-input:focus {
-  border-color: #C2410C;
-  box-shadow: 0 0 0 2px rgba(194, 65, 12, 0.08);
-}
-
-.stoa-sb-input-actions {
+/* Formatting Toolbar */
+.stoa-sb-fmt-bar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
+  gap: 2px;
+  padding: 6px 20px;
+  border-bottom: 1px solid #F5F5F4;
+  flex-shrink: 0;
 }
 
+.stoa-sb-fmt-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #78716C;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 13px;
+  transition: all 0.12s ease;
+  padding: 0;
+}
+
+.stoa-sb-fmt-btn:hover {
+  background: #F3F1EC;
+  color: #1C1917;
+}
+
+/* Notepad — contenteditable rich text area */
+.stoa-sb-notepad {
+  flex: 1;
+  min-height: 200px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #F5F5F4;
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #1C1917;
+  outline: none;
+  overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.005em;
+}
+
+.stoa-sb-notepad:empty::before {
+  content: attr(data-placeholder);
+  color: #A8A29E;
+  font-style: italic;
+  pointer-events: none;
+}
+
+.stoa-sb-notepad:focus {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.stoa-sb-notepad b,
+.stoa-sb-notepad strong {
+  font-weight: 700;
+}
+
+.stoa-sb-notepad i,
+.stoa-sb-notepad em {
+  font-style: italic;
+}
+
+.stoa-sb-notepad ul {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.stoa-sb-notepad li {
+  margin-bottom: 0.25em;
+}
+
+.stoa-sb-notepad a {
+  color: #C2410C;
+  text-decoration-color: rgba(194, 65, 12, 0.3);
+}
+
+/* Voice dictation (kept for compatibility) */
 .stoa-sb-voice-btn {
   width: 32px;
   height: 32px;
@@ -705,24 +786,6 @@
 @keyframes stoa-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(194, 65, 12, 0.3); }
   50% { box-shadow: 0 0 0 6px rgba(194, 65, 12, 0); }
-}
-
-.stoa-sb-save-btn {
-  padding: 6px 16px;
-  border-radius: 6px;
-  border: none;
-  background: #1C1917;
-  color: #FAFAF7;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  letter-spacing: 0.01em;
-}
-
-.stoa-sb-save-btn:hover {
-  background: #44403C;
 }
 
 /* Content List */

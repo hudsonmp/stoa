@@ -24,6 +24,9 @@ let sidebarOpen = false;
 let sidebarElement = null;
 let highlightMap = new Map(); // Maps highlight text+selector → {id, span, data}
 let currentItemId = null; // Stoa item ID for this page
+let currentNoteId = null; // Stoa note ID for this page's source note
+let noteAutoSaveTimer = null; // Auto-save interval for the notepad
+let lastSavedNoteContent = ""; // Track last saved content to avoid redundant PATCHes
 
 // --- Init ---
 async function init() {
@@ -211,14 +214,19 @@ function removeToolbar() {
 // --- Keyboard Shortcuts ---
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
-    // Ignore when typing in inputs/textareas/contenteditable
     const tag = e.target.tagName;
-    if (
-      tag === "INPUT" ||
-      tag === "TEXTAREA" ||
-      e.target.isContentEditable ||
-      e.target.closest(".stoa-note-input")
-    ) {
+    const inEditable = tag === "INPUT" || tag === "TEXTAREA" ||
+      e.target.isContentEditable || e.target.closest(".stoa-note-input");
+
+    // Always allow Cmd/Ctrl+Shift+N to toggle sidebar, even in editable fields
+    if (e.key.toLowerCase() === "n" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault();
+      toggleSidebar();
+      return;
+    }
+
+    // Ignore other shortcuts when typing in inputs/textareas/contenteditable
+    if (inEditable) {
       return;
     }
 
@@ -246,12 +254,7 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Cmd/Ctrl+Shift+N → toggle notes sidebar
-    if (e.key.toLowerCase() === "n" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
-      e.preventDefault();
-      toggleSidebar();
-      return;
-    }
+    // (Cmd/Ctrl+Shift+N handled above, before editable check)
 
     // 1-5 → instant highlight with color (toolbar or bare selection)
     if (e.key >= "1" && e.key <= "5") {
@@ -1107,14 +1110,18 @@ function toggleSidebar() {
   }
 }
 
-function openSidebar() {
+async function openSidebar() {
   if (sidebarElement) sidebarElement.remove();
   sidebarOpen = true;
+
+  // Shift page content left to make room
+  document.body.style.marginRight = "35%";
+  document.body.style.transition = "margin-right 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
 
   sidebarElement = document.createElement("div");
   sidebarElement.className = "stoa-sidebar";
 
-  // Header
+  // --- Header ---
   const header = document.createElement("div");
   header.className = "stoa-sb-header";
 
@@ -1122,73 +1129,230 @@ function openSidebar() {
   title.className = "stoa-sb-title";
   title.textContent = "Marginalia";
 
+  const headerRight = document.createElement("div");
+  headerRight.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+  const saveStatus = document.createElement("span");
+  saveStatus.className = "stoa-sb-save-status";
+  saveStatus.id = "stoa-sb-save-status";
+  saveStatus.textContent = "";
+
   const closeBtn = document.createElement("button");
   closeBtn.className = "stoa-sb-close";
   closeBtn.innerHTML = "&times;";
   closeBtn.addEventListener("click", closeSidebar);
 
+  headerRight.appendChild(saveStatus);
+  headerRight.appendChild(closeBtn);
   header.appendChild(title);
-  header.appendChild(closeBtn);
+  header.appendChild(headerRight);
   sidebarElement.appendChild(header);
 
-  // Note input area
-  const inputArea = document.createElement("div");
-  inputArea.className = "stoa-sb-input-area";
+  // --- Source link ---
+  const sourceBar = document.createElement("div");
+  sourceBar.className = "stoa-sb-source-bar";
+  const sourceDomain = window.location.hostname.replace("www.", "");
+  const sourceTitle = document.title.substring(0, 60) || sourceDomain;
+  sourceBar.innerHTML = `<span class="stoa-sb-source-label">Source</span><span class="stoa-sb-source-title" title="${document.title}">${sourceTitle}</span>`;
+  sidebarElement.appendChild(sourceBar);
 
-  const noteInput = document.createElement("textarea");
-  noteInput.className = "stoa-sb-note-input";
-  noteInput.placeholder = "Write a note...";
-  noteInput.rows = 3;
+  // --- Formatting toolbar ---
+  const fmtBar = document.createElement("div");
+  fmtBar.className = "stoa-sb-fmt-bar";
 
-  const inputActions = document.createElement("div");
-  inputActions.className = "stoa-sb-input-actions";
+  const boldBtn = document.createElement("button");
+  boldBtn.className = "stoa-sb-fmt-btn";
+  boldBtn.innerHTML = "<strong>B</strong>";
+  boldBtn.title = "Bold (Cmd+B)";
+  boldBtn.addEventListener("click", () => document.execCommand("bold"));
 
-  // Voice dictation button
-  const voiceBtn = document.createElement("button");
-  voiceBtn.className = "stoa-sb-voice-btn";
-  voiceBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v0a2 2 0 012 2v3a2 2 0 01-4 0V3a2 2 0 012-2z" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6.5a3.5 3.5 0 007 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M7 10v2.5M5.5 12.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
-  voiceBtn.title = "Voice dictation";
-  voiceBtn.addEventListener("click", () => toggleVoiceDictation(noteInput, voiceBtn));
+  const italicBtn = document.createElement("button");
+  italicBtn.className = "stoa-sb-fmt-btn";
+  italicBtn.innerHTML = "<em>I</em>";
+  italicBtn.title = "Italic (Cmd+I)";
+  italicBtn.addEventListener("click", () => document.execCommand("italic"));
 
-  const saveNoteBtn = document.createElement("button");
-  saveNoteBtn.className = "stoa-sb-save-btn";
-  saveNoteBtn.textContent = "Save";
-  saveNoteBtn.addEventListener("click", () => {
-    const content = noteInput.value.trim();
-    if (content) {
-      saveSidebarNote(content);
-      noteInput.value = "";
-    }
-  });
+  const listBtn = document.createElement("button");
+  listBtn.className = "stoa-sb-fmt-btn";
+  listBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="3" r="1" fill="currentColor"/><circle cx="2.5" cy="7" r="1" fill="currentColor"/><circle cx="2.5" cy="11" r="1" fill="currentColor"/><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+  listBtn.title = "Bullet list";
+  listBtn.addEventListener("click", () => document.execCommand("insertUnorderedList"));
 
-  noteInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      const content = noteInput.value.trim();
-      if (content) {
-        saveSidebarNote(content);
-        noteInput.value = "";
-      }
-    }
-  });
+  fmtBar.appendChild(boldBtn);
+  fmtBar.appendChild(italicBtn);
+  fmtBar.appendChild(listBtn);
+  sidebarElement.appendChild(fmtBar);
 
-  inputActions.appendChild(voiceBtn);
-  inputActions.appendChild(saveNoteBtn);
-  inputArea.appendChild(noteInput);
-  inputArea.appendChild(inputActions);
-  sidebarElement.appendChild(inputArea);
+  // --- Notepad (contenteditable) ---
+  const notepad = document.createElement("div");
+  notepad.className = "stoa-sb-notepad";
+  notepad.id = "stoa-sb-notepad";
+  notepad.contentEditable = "true";
+  notepad.spellcheck = true;
+  notepad.dataset.placeholder = "Write your notes...";
+  sidebarElement.appendChild(notepad);
 
-  // Content list (highlights + notes)
+  // --- Highlights section ---
   const list = document.createElement("div");
   list.className = "stoa-sb-list";
   list.id = "stoa-sb-list";
   sidebarElement.appendChild(list);
 
   document.documentElement.appendChild(sidebarElement);
-  populateSidebar(list);
+
+  // --- Auto-save the page to Stoa if not already saved ---
+  await ensurePageSaved();
+
+  // --- Load or create the source note ---
+  await loadOrCreateSourceNote(notepad);
+
+  // --- Populate highlights ---
+  populateSidebarHighlights(list);
+
+  // --- Auto-save notepad every 5 seconds ---
+  noteAutoSaveTimer = setInterval(() => {
+    autoSaveNotepad();
+  }, 5000);
+
+  // Also save on blur
+  notepad.addEventListener("blur", () => {
+    autoSaveNotepad();
+  });
+}
+
+async function ensurePageSaved() {
+  if (currentItemId) return;
+  try {
+    // Check if URL already has a Stoa item
+    const checkResp = await fetch(
+      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+      { headers: getAuthHeaders() }
+    );
+    if (checkResp.ok) {
+      const checkData = await checkResp.json();
+      if (checkData.item?.id) {
+        currentItemId = checkData.item.id;
+        return;
+      }
+    }
+  } catch (e) { /* not found, will ingest */ }
+
+  // Auto-save via /ingest
+  try {
+    const resp = await fetch(`${stoaApiUrl}/ingest`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        url: window.location.href,
+        type: guessContentType(window.location.hostname),
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      currentItemId = data.item?.id || null;
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to auto-save page:", e);
+  }
+}
+
+async function loadOrCreateSourceNote(notepad) {
+  if (!currentItemId) return;
+
+  const statusEl = document.getElementById("stoa-sb-save-status");
+
+  try {
+    // Look for existing note linked to this item
+    const resp = await fetch(
+      `${stoaApiUrl}/notes?item_id=${currentItemId}`,
+      { headers: getAuthHeaders() }
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      const notes = data.notes || [];
+      // Find the source-note (tagged "source-note") or the first marginalia note
+      const sourceNote = notes.find(n => (n.tags || []).includes("source-note")) || notes[0];
+      if (sourceNote) {
+        currentNoteId = sourceNote.id;
+        notepad.innerHTML = sourceNote.content || "";
+        lastSavedNoteContent = notepad.innerHTML;
+        return;
+      }
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to load notes:", e);
+  }
+
+  // No existing note — create one
+  try {
+    const resp = await fetch(`${stoaApiUrl}/notes`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        item_id: currentItemId,
+        content: "",
+        title: document.title || window.location.href,
+        note_type: "marginalia",
+        tags: ["source-note", `ref:${currentItemId}`],
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      currentNoteId = data.note?.id || null;
+      lastSavedNoteContent = "";
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to create source note:", e);
+  }
+}
+
+async function autoSaveNotepad() {
+  const notepad = document.getElementById("stoa-sb-notepad");
+  const statusEl = document.getElementById("stoa-sb-save-status");
+  if (!notepad || !currentNoteId) return;
+
+  const content = notepad.innerHTML;
+  if (content === lastSavedNoteContent) return; // No changes
+
+  try {
+    if (statusEl) statusEl.textContent = "Saving...";
+    const resp = await fetch(`${stoaApiUrl}/notes/${currentNoteId}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    if (resp.ok) {
+      lastSavedNoteContent = content;
+      if (statusEl) {
+        statusEl.textContent = "Saved";
+        setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000);
+      }
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to auto-save note:", e);
+    if (statusEl) statusEl.textContent = "Save failed";
+  }
 }
 
 function closeSidebar() {
+  // Final save before closing
+  autoSaveNotepad();
+
   sidebarOpen = false;
+
+  // Clear auto-save timer
+  if (noteAutoSaveTimer) {
+    clearInterval(noteAutoSaveTimer);
+    noteAutoSaveTimer = null;
+  }
+
+  // Reset note state for this session
+  currentNoteId = null;
+  lastSavedNoteContent = "";
+
+  // Restore page margin
+  document.body.style.marginRight = "";
+
   if (sidebarElement) {
     sidebarElement.classList.add("stoa-sb-exit");
     setTimeout(() => {
@@ -1202,10 +1366,10 @@ function closeSidebar() {
 function refreshSidebar() {
   if (!sidebarOpen) return;
   const list = document.getElementById("stoa-sb-list");
-  if (list) populateSidebar(list);
+  if (list) populateSidebarHighlights(list);
 }
 
-async function populateSidebar(list) {
+function populateSidebarHighlights(list) {
   list.innerHTML = "";
 
   // Section: Highlights
@@ -1254,7 +1418,6 @@ async function populateSidebar(list) {
         if (span && span.isConnected) {
           removeHighlight(span);
         } else {
-          // Span not in DOM (page changed), delete from backend only
           deleteHighlightById(id);
         }
       });
@@ -1274,111 +1437,9 @@ async function populateSidebar(list) {
     });
   }
   list.appendChild(hlSection);
-
-  // Section: Notes
-  const noteSection = document.createElement("div");
-  noteSection.className = "stoa-sb-section";
-  const noteHeading = document.createElement("h4");
-  noteHeading.className = "stoa-sb-section-title";
-  noteHeading.textContent = "Notes";
-  noteSection.appendChild(noteHeading);
-
-  // Fetch notes from backend
-  if (currentItemId) {
-    try {
-      const resp = await fetch(
-        `${stoaApiUrl}/notes?item_id=${currentItemId}`,
-        { headers: getAuthHeaders() }
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const notes = data.notes || [];
-        if (notes.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "stoa-sb-empty";
-          empty.textContent = "No notes yet.";
-          noteSection.appendChild(empty);
-        } else {
-          notes.forEach((note) => {
-            const card = document.createElement("div");
-            card.className = "stoa-sb-card stoa-sb-card-note-item";
-
-            if (note.title) {
-              const t = document.createElement("p");
-              t.className = "stoa-sb-card-note-title";
-              t.textContent = note.title;
-              card.appendChild(t);
-            }
-
-            const content = document.createElement("p");
-            content.className = "stoa-sb-card-text";
-            content.textContent = note.content;
-            card.appendChild(content);
-
-            const time = document.createElement("span");
-            time.className = "stoa-sb-card-time";
-            time.textContent = new Date(note.created_at).toLocaleDateString();
-            card.appendChild(time);
-
-            noteSection.appendChild(card);
-          });
-        }
-      }
-    } catch (e) {
-      const empty = document.createElement("p");
-      empty.className = "stoa-sb-empty";
-      empty.textContent = "Could not load notes.";
-      noteSection.appendChild(empty);
-    }
-  } else {
-    const empty = document.createElement("p");
-    empty.className = "stoa-sb-empty";
-    empty.textContent = "Save this page first to add notes.";
-    noteSection.appendChild(empty);
-  }
-
-  list.appendChild(noteSection);
 }
 
-async function saveSidebarNote(content) {
-  if (!currentItemId) {
-    // Need to ingest the page first
-    try {
-      const headers = getAuthHeaders();
-      const resp = await fetch(`${stoaApiUrl}/ingest`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          url: window.location.href,
-          type: guessContentType(window.location.hostname),
-        }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        currentItemId = data.item?.id;
-      }
-    } catch (e) {
-      console.error("[Stoa] Failed to ingest for note:", e);
-      return;
-    }
-  }
-
-  if (!currentItemId) return;
-
-  try {
-    await fetch(`${stoaApiUrl}/notes`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        item_id: currentItemId,
-        content,
-      }),
-    });
-    refreshSidebar();
-  } catch (e) {
-    console.error("[Stoa] Failed to save note:", e);
-  }
-}
+// saveSidebarNote is now handled by autoSaveNotepad() via contenteditable
 
 async function deleteHighlightById(id) {
   highlightMap.delete(id);
