@@ -115,26 +115,12 @@ function setupSelectionListener() {
       showToolbar(selection, e);
     });
   } else {
-    // External sites:
-    // - Sidebar OPEN → auto-highlight on any selection (no toolbar)
-    // - Sidebar CLOSED → show toolbar on double-click
-    document.addEventListener("mouseup", (e) => {
-      if (!sidebarOpen) return; // Only auto-highlight when sidebar is open
-      if (e.target.closest(".stoa-sidebar, .stoa-toolbar, [contenteditable]")) return;
-
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
-
-      // Auto-highlight in yellow, no toolbar
-      highlightSelection(selection, "yellow");
-    });
-
+    // External sites: double-click to show toolbar (highlight or note)
     document.addEventListener("dblclick", (e) => {
-      if (sidebarOpen) return; // Sidebar handles it via mouseup
+      if (e.target.closest(".stoa-sidebar, .stoa-toolbar, [contenteditable]")) return;
       setTimeout(() => {
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
-        if (e.target.closest(".stoa-toolbar")) return;
         showToolbar(selection, e);
       }, 50);
     });
@@ -1226,12 +1212,28 @@ async function openSidebar() {
   saveStatus.id = "stoa-sb-save-status";
   saveStatus.textContent = "";
 
+  // Private mode toggle
+  const privateToggle = document.createElement("label");
+  privateToggle.className = "stoa-sb-private-toggle";
+  privateToggle.title = "Private: notes stay on device only";
+  const privateCheck = document.createElement("input");
+  privateCheck.type = "checkbox";
+  privateCheck.id = "stoa-sb-private";
+  privateCheck.addEventListener("change", () => {
+    privateToggle.querySelector("span").textContent = privateCheck.checked ? "🔒" : "☁️";
+  });
+  const privateIcon = document.createElement("span");
+  privateIcon.textContent = "☁️";
+  privateToggle.appendChild(privateCheck);
+  privateToggle.appendChild(privateIcon);
+
   const closeBtn = document.createElement("button");
   closeBtn.className = "stoa-sb-close";
   closeBtn.innerHTML = "&times;";
   closeBtn.addEventListener("click", closeSidebar);
 
   headerRight.appendChild(saveStatus);
+  headerRight.appendChild(privateToggle);
   headerRight.appendChild(closeBtn);
   header.appendChild(title);
   header.appendChild(headerRight);
@@ -1252,7 +1254,7 @@ async function openSidebar() {
   // Type selector
   const typeSelect = document.createElement("select");
   typeSelect.className = "stoa-sb-type-select";
-  ["blog", "paper", "book", "page"].forEach((t) => {
+  ["blog", "paper", "book", "page", "person"].forEach((t) => {
     const opt = document.createElement("option");
     opt.value = t;
     opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
@@ -1262,7 +1264,7 @@ async function openSidebar() {
   const detectedType = guessContentType(window.location.hostname);
   typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
   typeSelect.addEventListener("change", async () => {
-    if (currentItemId) {
+    if (currentItemId && typeSelect.value !== "person") {
       await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
         method: "PATCH",
         headers: getAuthHeaders(),
@@ -1509,24 +1511,35 @@ async function loadOrCreateSourceNote(notepad) {
 async function autoSaveNotepad() {
   const notepad = document.getElementById("stoa-sb-notepad");
   const statusEl = document.getElementById("stoa-sb-save-status");
+  const isPrivate = document.getElementById("stoa-sb-private")?.checked;
 
   if (!notepad) return;
 
-  // If no note ID yet, try to create one
+  const content = notepad.innerHTML;
+  if (content === lastSavedNoteContent) return;
+
+  // Private mode: save to chrome.storage only
+  if (isPrivate) {
+    const key = `private-note:${window.location.href}`;
+    await chrome.storage.local.set({ [key]: content });
+    lastSavedNoteContent = content;
+    if (statusEl) { statusEl.textContent = "Saved locally"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
+    return;
+  }
+
+  // Cloud mode: save to Stoa API
   if (!currentNoteId) {
-    console.log("[Stoa] No note ID, attempting to create. currentItemId:", currentItemId, "currentUser:", currentUser);
     if (!currentItemId) await ensurePageSaved();
-    console.log("[Stoa] After ensurePageSaved. currentItemId:", currentItemId);
-    if (currentItemId) await loadOrCreateSourceNote(notepad);
-    console.log("[Stoa] After loadOrCreate. currentNoteId:", currentNoteId);
+    await loadOrCreateSourceNote(notepad);
     if (!currentNoteId) {
-      if (statusEl) statusEl.textContent = "Not connected";
+      // Last resort: save locally
+      const key = `private-note:${window.location.href}`;
+      await chrome.storage.local.set({ [key]: content });
+      lastSavedNoteContent = content;
+      if (statusEl) statusEl.textContent = "Saved locally";
       return;
     }
   }
-
-  const content = notepad.innerHTML;
-  if (content === lastSavedNoteContent) return; // No changes
 
   try {
     if (statusEl) statusEl.textContent = "Saving...";

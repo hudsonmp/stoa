@@ -1162,3 +1162,15 @@
 .stoa-btn-highlight:hover {
   background: #A7F3D0;
 }
+
+/* Private mode toggle */
+.stoa-sb-private-toggle {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.stoa-sb-private-toggle input {
+  display: none;
+}
