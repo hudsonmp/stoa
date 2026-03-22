@@ -187,14 +187,18 @@ async def ingest_url(req: IngestURLRequest, request: Request):
             "sort_order": 0,
         }).execute()
 
-    # Chunk and embed
-    chunks = await chunk_and_embed(
-        extracted["extracted_text"],
-        item_id,
-        metadata={"type": req.type, "domain": extracted["domain"]},
-    )
-    if chunks:
-        supabase.table("chunks").insert(chunks).execute()
+    # Chunk and embed (non-fatal — page saved even without embeddings)
+    chunks = []
+    try:
+        chunks = await chunk_and_embed(
+            extracted["extracted_text"],
+            item_id,
+            metadata={"type": req.type, "domain": extracted["domain"]},
+        )
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
+    except Exception:
+        logger.warning("Embedding failed for %s, item saved without chunks", req.url)
 
     # Auto-link extracted author to existing people (D2)
     if extracted.get("author"):

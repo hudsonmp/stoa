@@ -1257,7 +1257,7 @@ async function openSidebar() {
   // Type selector
   const typeSelect = document.createElement("select");
   typeSelect.className = "stoa-sb-type-select";
-  ["essay", "paper", "book", "person", "blog", "page"].forEach((t) => {
+  ["blog", "paper", "book", "page"].forEach((t) => {
     const opt = document.createElement("option");
     opt.value = t;
     opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
