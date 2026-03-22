@@ -35,9 +35,14 @@ async function init() {
     "stoa_api_url",
     "stoa_token",
   ]);
-  currentUser = stored.stoa_user_id;
+  currentUser = stored.stoa_user_id || "5f067d11-b2b8-4efe-84c7-5ac9c5602c9a"; // dev fallback
   authToken = stored.stoa_token || null;
   if (stored.stoa_api_url) stoaApiUrl = stored.stoa_api_url;
+
+  // Auto-persist the user ID if using fallback
+  if (!stored.stoa_user_id && currentUser) {
+    chrome.storage.local.set({ stoa_user_id: currentUser });
+  }
 
   if (currentUser) {
     await restoreHighlights();
@@ -1485,11 +1490,13 @@ async function autoSaveNotepad() {
 
   // If no note ID yet, try to create one
   if (!currentNoteId) {
+    console.log("[Stoa] No note ID, attempting to create. currentItemId:", currentItemId, "currentUser:", currentUser);
     if (!currentItemId) await ensurePageSaved();
+    console.log("[Stoa] After ensurePageSaved. currentItemId:", currentItemId);
     if (currentItemId) await loadOrCreateSourceNote(notepad);
+    console.log("[Stoa] After loadOrCreate. currentNoteId:", currentNoteId);
     if (!currentNoteId) {
-      console.warn("[Stoa] Cannot save — no note ID. currentItemId:", currentItemId);
-      if (statusEl) statusEl.textContent = "Not saved";
+      if (statusEl) statusEl.textContent = "Not connected";
       return;
     }
   }
