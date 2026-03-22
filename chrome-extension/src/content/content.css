@@ -1048,3 +1048,43 @@
 .stoa-sb-person-input:focus {
   border-color: #C2410C;
 }
+
+/* Movable Bookmark */
+.stoa-bookmark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #C2410C;
+  z-index: 9998;
+  cursor: grab;
+}
+
+.stoa-bookmark:active {
+  cursor: grabbing;
+}
+
+.stoa-bookmark-flag {
+  position: absolute;
+  right: 20px;
+  top: -12px;
+  background: #C2410C;
+  color: white;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 2px;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+
+.stoa-bookmark-flash {
+  animation: bookmarkPulse 0.8s ease;
+}
+
+@keyframes bookmarkPulse {
+  0%, 100% { background: #C2410C; }
+  50% { background: #F59E0B; }
+}

@@ -347,8 +347,89 @@ function _saveHighlightData(text, context, cssSelector, color, note, span) {
       span.dataset.stoaId = highlightData.id;
       highlightMap.set(highlightData.id, { span, data: highlightData });
       refreshSidebar();
+
+      // Auto-append highlight to master reading notes
+      appendToMasterNote(
+        `> "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"\n\n`,
+        document.title,
+        window.location.href
+      );
     }
   });
+}
+
+// --- Master Reading Notes ---
+// One continuous note file. Each page gets a ## heading with the page title.
+// Highlights and notes auto-append under the current page's heading.
+let masterNoteId = null;
+
+async function getMasterNoteId() {
+  if (masterNoteId) return masterNoteId;
+
+  const stored = await chrome.storage.local.get("stoa_master_note_id");
+  if (stored.stoa_master_note_id) {
+    masterNoteId = stored.stoa_master_note_id;
+    return masterNoteId;
+  }
+
+  // Check if master note exists on the server
+  try {
+    const resp = await fetch(`${stoaApiUrl}/notes/search?q=Reading%20Notes`, {
+      headers: getAuthHeaders(),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const existing = data.notes?.find((n) => n.title === "Reading Notes");
+      if (existing) {
+        masterNoteId = existing.id;
+        await chrome.storage.local.set({ stoa_master_note_id: masterNoteId });
+        return masterNoteId;
+      }
+    }
+  } catch (e) { /* will create */ }
+
+  // Create master note
+  try {
+    const resp = await fetch(`${stoaApiUrl}/notes`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        title: "Reading Notes",
+        content: "<h1>Reading Notes</h1><p>Auto-generated from highlights and annotations.</p>",
+        tags: ["journal"],
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      masterNoteId = data.note?.id;
+      if (masterNoteId) {
+        await chrome.storage.local.set({ stoa_master_note_id: masterNoteId });
+      }
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to create master note:", e);
+  }
+
+  return masterNoteId;
+}
+
+async function appendToMasterNote(content, pageTitle, pageUrl) {
+  const noteId = await getMasterNoteId();
+  if (!noteId) return;
+
+  // Build the append content: heading with page link + the content
+  const heading = `<h2><a href="${pageUrl}">${pageTitle}</a></h2>`;
+  const appendContent = `${heading}${content}`;
+
+  try {
+    await fetch(`${stoaApiUrl}/notes/${noteId}/append`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ content: appendContent }),
+    });
+  } catch (e) {
+    console.error("[Stoa] Failed to append to master note:", e);
+  }
 }
 
 // --- Highlight Actions (remove/edit on click) ---
@@ -1236,9 +1317,23 @@ async function openSidebar() {
   listBtn.title = "Bullet list";
   listBtn.addEventListener("click", () => document.execCommand("insertUnorderedList"));
 
+  // Bookmark button
+  const bookmarkBtn = document.createElement("button");
+  bookmarkBtn.className = "stoa-sb-fmt-btn";
+  bookmarkBtn.innerHTML = "📌";
+  bookmarkBtn.title = "Place/jump to bookmark";
+  bookmarkBtn.addEventListener("click", () => {
+    if (bookmarkElement && bookmarkElement.isConnected) {
+      jumpToBookmark();
+    } else {
+      placeBookmark();
+    }
+  });
+
   fmtBar.appendChild(boldBtn);
   fmtBar.appendChild(italicBtn);
   fmtBar.appendChild(listBtn);
+  fmtBar.appendChild(bookmarkBtn);
   sidebarElement.appendChild(fmtBar);
 
   // --- Notepad (contenteditable) ---
@@ -1644,3 +1739,88 @@ window.addEventListener("scroll", () => {
   clearTimeout(backendScrollTimer);
   backendScrollTimer = setTimeout(syncScrollToBackend, 5000);
 });
+
+// --- Movable Bookmark ---
+// A draggable marker that persists via chrome.storage.
+// Click the bookmark button in the sidebar to place/move it.
+let bookmarkElement = null;
+
+async function initBookmark() {
+  const key = `bookmark:${window.location.href}`;
+  const stored = await chrome.storage.local.get(key);
+  const pos = stored[key];
+  if (pos && pos.y) {
+    createBookmarkMarker(pos.y);
+  }
+}
+
+function createBookmarkMarker(yPos) {
+  if (bookmarkElement) bookmarkElement.remove();
+
+  bookmarkElement = document.createElement("div");
+  bookmarkElement.className = "stoa-bookmark";
+  bookmarkElement.innerHTML = `<span class="stoa-bookmark-flag">📌 You left off here</span>`;
+  bookmarkElement.style.top = `${yPos}px`;
+
+  // Make it draggable
+  let isDragging = false;
+  let startY = 0;
+  let startTop = 0;
+
+  bookmarkElement.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startY = e.clientY;
+    startTop = parseInt(bookmarkElement.style.top) || 0;
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const dy = e.clientY - startY;
+    bookmarkElement.style.top = `${startTop + dy}px`;
+  });
+
+  document.addEventListener("mouseup", async () => {
+    if (!isDragging) return;
+    isDragging = false;
+    const newY = parseInt(bookmarkElement.style.top) || 0;
+    const key = `bookmark:${window.location.href}`;
+    await chrome.storage.local.set({ [key]: { y: newY } });
+  });
+
+  // Double-click to remove
+  bookmarkElement.addEventListener("dblclick", async () => {
+    bookmarkElement.remove();
+    bookmarkElement = null;
+    const key = `bookmark:${window.location.href}`;
+    await chrome.storage.local.remove(key);
+  });
+
+  document.body.appendChild(bookmarkElement);
+}
+
+function placeBookmark() {
+  const y = window.scrollY + window.innerHeight / 2;
+  createBookmarkMarker(y);
+  const key = `bookmark:${window.location.href}`;
+  chrome.storage.local.set({ [key]: { y } });
+
+  // Scroll into view
+  bookmarkElement.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// Jump to bookmark
+function jumpToBookmark() {
+  if (bookmarkElement && bookmarkElement.isConnected) {
+    bookmarkElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    bookmarkElement.classList.add("stoa-bookmark-flash");
+    setTimeout(() => bookmarkElement.classList.remove("stoa-bookmark-flash"), 800);
+  }
+}
+
+// Initialize bookmark on page load
+if (document.readyState === "complete") {
+  initBookmark();
+} else {
+  window.addEventListener("load", initBookmark);
+}
