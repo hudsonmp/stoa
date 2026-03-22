@@ -305,9 +305,29 @@ async function handleSyncEngagement(data) {
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-sidebar") {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) return;
-    // Send message to content script to toggle sidebar
-    chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+    if (!tab?.id) return;
+    try {
+      // Try sending to existing content script
+      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+    } catch (e) {
+      // Content script not injected (PDF pages, etc.) — inject it first
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["src/content/content.js"],
+        });
+        await chrome.scripting.insertCSS({
+          target: { tabId: tab.id },
+          files: ["src/content/content.css"],
+        });
+        // Wait for init, then toggle
+        setTimeout(() => {
+          chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+        }, 500);
+      } catch (e2) {
+        console.error("[Stoa] Cannot inject into this page:", e2);
+      }
+    }
     return;
   }
   if (command === "save-page") {

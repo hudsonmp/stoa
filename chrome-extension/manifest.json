@@ -8,7 +8,8 @@
     "storage",
     "tabGroups",
     "tabs",
-    "contextMenus"
+    "contextMenus",
+    "scripting"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {

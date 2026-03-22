@@ -33,7 +33,45 @@ export default function PdfAnnotationView({
   const [numPages, setNumPages] = useState(0);
   const [noteContent, setNoteContent] = useState("");
   const [pageWidth, setPageWidth] = useState(700);
+  const [bookmarkPage, setBookmarkPage] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load saved bookmark
+  useEffect(() => {
+    const saved = localStorage.getItem(`stoa-bookmark:${itemId}`);
+    if (saved) setBookmarkPage(parseInt(saved));
+  }, [itemId]);
+
+  // Track current page from scroll position
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    const handleScroll = () => {
+      const pageEls = scrollEl.querySelectorAll(".pdf-page-wrapper");
+      const scrollTop = scrollEl.scrollTop + scrollEl.clientHeight / 3;
+      for (let i = pageEls.length - 1; i >= 0; i--) {
+        if ((pageEls[i] as HTMLElement).offsetTop <= scrollTop) {
+          setCurrentPage(i + 1);
+          break;
+        }
+      }
+    };
+    scrollEl.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollEl.removeEventListener("scroll", handleScroll);
+  }, [numPages]);
+
+  const saveBookmark = () => {
+    setBookmarkPage(currentPage);
+    localStorage.setItem(`stoa-bookmark:${itemId}`, String(currentPage));
+  };
+
+  const jumpToBookmark = () => {
+    if (!bookmarkPage || !scrollRef.current) return;
+    const pageEl = scrollRef.current.querySelectorAll(".pdf-page-wrapper")[bookmarkPage - 1];
+    if (pageEl) pageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   // Responsive page width
   useEffect(() => {
@@ -62,7 +100,7 @@ export default function PdfAnnotationView({
   return (
     <div ref={containerRef} className="pdf-split-view">
       {/* PDF pages rendered as canvas */}
-      <div className="pdf-pages-scroll">
+      <div ref={scrollRef} className="pdf-pages-scroll">
         <Document
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
@@ -85,6 +123,20 @@ export default function PdfAnnotationView({
 
       {/* Annotation sidebar */}
       <aside className="pdf-split-sidebar">
+        {/* Bookmark bar */}
+        <div className="pdf-bookmark-bar">
+          <span className="pdf-bookmark-page">Page {currentPage} / {numPages}</span>
+          <button onClick={saveBookmark} className="pdf-bookmark-btn" title="Bookmark this page">
+            📌 Bookmark
+          </button>
+          {bookmarkPage && (
+            <button onClick={jumpToBookmark} className="pdf-bookmark-jump" title={`Jump to page ${bookmarkPage}`}>
+              → p.{bookmarkPage}
+            </button>
+          )}
+        </div>
+
+        <div className="pdf-sidebar-divider" />
         <div className="pdf-sidebar-heading">Notes</div>
 
         <div className="pdf-sidebar-input">
