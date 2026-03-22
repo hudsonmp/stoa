@@ -1433,52 +1433,76 @@ async function ensurePageSaved() {
 }
 
 async function loadOrCreateSourceNote(notepad) {
-  if (!currentItemId) return;
+  // Create note even without item_id — will link later if ingest succeeds
 
   const statusEl = document.getElementById("stoa-sb-save-status");
 
-  try {
-    // Look for existing note linked to this item
-    const resp = await fetch(
-      `${stoaApiUrl}/notes?item_id=${currentItemId}`,
-      { headers: getAuthHeaders() }
-    );
-    if (resp.ok) {
-      const data = await resp.json();
-      const notes = data.notes || [];
-      // Find the source-note (tagged "source-note") or the first marginalia note
-      const sourceNote = notes.find(n => (n.tags || []).includes("source-note")) || notes[0];
-      if (sourceNote) {
-        currentNoteId = sourceNote.id;
-        notepad.innerHTML = sourceNote.content || "";
+  // Try to load existing note for this item
+  if (currentItemId) {
+    try {
+      const resp = await fetch(
+        `${stoaApiUrl}/notes?item_id=${currentItemId}`,
+        { headers: getAuthHeaders() }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const notes = data.notes || [];
+        const sourceNote = notes.find(n => (n.tags || []).includes("source-note")) || notes[0];
+        if (sourceNote) {
+          currentNoteId = sourceNote.id;
+          notepad.innerHTML = sourceNote.content || "";
+          lastSavedNoteContent = notepad.innerHTML;
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("[Stoa] Failed to load notes:", e);
+    }
+  }
+
+  // Also check by URL in chrome.storage (for pages that failed to ingest)
+  const storageKey = `note:${window.location.href}`;
+  const stored = await chrome.storage.local.get(storageKey);
+  if (stored[storageKey]?.noteId) {
+    currentNoteId = stored[storageKey].noteId;
+    try {
+      const resp = await fetch(`${stoaApiUrl}/notes/${currentNoteId}`, { headers: getAuthHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        const note = data.note || data;
+        notepad.innerHTML = note.content || "";
         lastSavedNoteContent = notepad.innerHTML;
         return;
       }
-    }
-  } catch (e) {
-    console.error("[Stoa] Failed to load notes:", e);
+    } catch (e) { /* note deleted, create new */ }
   }
 
-  // No existing note — create one
+  // Create new note (works even without item_id)
   try {
+    const tags = ["source-note"];
+    if (currentItemId) tags.push(`ref:${currentItemId}`);
+
     const resp = await fetch(`${stoaApiUrl}/notes`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        item_id: currentItemId,
+        item_id: currentItemId || null,
         content: "",
         title: document.title || window.location.href,
-        note_type: "marginalia",
-        tags: ["source-note", `ref:${currentItemId}`],
+        tags,
       }),
     });
     if (resp.ok) {
       const data = await resp.json();
       currentNoteId = data.note?.id || null;
       lastSavedNoteContent = "";
+      // Cache the note ID by URL for later retrieval
+      if (currentNoteId) {
+        await chrome.storage.local.set({ [storageKey]: { noteId: currentNoteId } });
+      }
     }
   } catch (e) {
-    console.error("[Stoa] Failed to create source note:", e);
+    console.error("[Stoa] Failed to create note:", e);
   }
 }
 
