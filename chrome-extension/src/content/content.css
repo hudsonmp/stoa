@@ -707,12 +707,12 @@
 /* Notepad — contenteditable rich text area */
 .stoa-sb-notepad {
   flex: 1;
-  min-height: 200px;
-  padding: 16px 20px;
+  min-height: 40vh;
+  padding: 10px 14px;
   border-bottom: 1px solid #F5F5F4;
   font-family: Georgia, "Newsreader", serif;
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 1.65;
   color: #1C1917;
   outline: none;
   overflow-y: auto;
@@ -1066,18 +1066,35 @@
 
 .stoa-bookmark-flag {
   position: absolute;
-  right: 20px;
+  left: 8px;
   top: -12px;
   background: #C2410C;
   color: white;
   font-family: "DM Sans", sans-serif;
   font-size: 11px;
   font-weight: 500;
-  padding: 2px 8px;
+  padding: 2px 8px 2px 6px;
   border-radius: 2px;
   white-space: nowrap;
   user-select: none;
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stoa-bookmark-hide {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.stoa-bookmark-hide:hover {
+  color: white;
 }
 
 .stoa-bookmark-flash {
@@ -1087,4 +1104,44 @@
 @keyframes bookmarkPulse {
   0%, 100% { background: #C2410C; }
   50% { background: #F59E0B; }
+}
+
+/* Person save row */
+.stoa-sb-person-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.stoa-sb-person-confirm {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.stoa-sb-person-confirm:hover { background: #9A3412; }
+.stoa-sb-person-confirm:disabled { opacity: 0.5; cursor: default; }
+
+/* Page margin annotations — show highlight text next to the highlighted element */
+.stoa-highlight-annotation {
+  position: absolute;
+  right: -220px;
+  width: 200px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #78716C;
+  border-left: 2px solid #C2410C;
+  padding-left: 8px;
+  pointer-events: none;
+  opacity: 0.7;
 }

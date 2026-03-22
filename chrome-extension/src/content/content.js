@@ -110,9 +110,22 @@ function setupSelectionListener() {
       showToolbar(selection, e);
     });
   } else {
-    // External sites: double-click to show toolbar
+    // External sites:
+    // - Sidebar OPEN → auto-highlight on any selection (no toolbar)
+    // - Sidebar CLOSED → show toolbar on double-click
+    document.addEventListener("mouseup", (e) => {
+      if (!sidebarOpen) return; // Only auto-highlight when sidebar is open
+      if (e.target.closest(".stoa-sidebar, .stoa-toolbar, [contenteditable]")) return;
+
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
+
+      // Auto-highlight in yellow, no toolbar
+      highlightSelection(selection, "yellow");
+    });
+
     document.addEventListener("dblclick", (e) => {
-      // Wait a tick for the browser to expand the selection
+      if (sidebarOpen) return; // Sidebar handles it via mouseup
       setTimeout(() => {
         const selection = window.getSelection();
         if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
@@ -218,8 +231,8 @@ function setupKeyboardShortcuts() {
     const inEditable = tag === "INPUT" || tag === "TEXTAREA" ||
       e.target.isContentEditable || e.target.closest(".stoa-note-input");
 
-    // Always allow Cmd/Ctrl+Shift+E to toggle sidebar, even in editable fields
-    if (e.key.toLowerCase() === "e" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    // Always allow Cmd/Ctrl+Shift+H to toggle sidebar, even in editable fields
+    if (e.key.toLowerCase() === "h" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
       toggleSidebar();
       return;
@@ -1263,27 +1276,51 @@ async function openSidebar() {
     }
   });
 
-  // Person name input (shown only when type is "person")
+  // Person name input + confirm button (shown only when type is "person")
+  const personRow = document.createElement("div");
+  personRow.className = "stoa-sb-person-row";
+  personRow.style.display = "none";
+
   const personInput = document.createElement("input");
   personInput.type = "text";
   personInput.className = "stoa-sb-person-input";
   personInput.placeholder = "Person's name...";
-  personInput.style.display = "none";
-  personInput.addEventListener("blur", async () => {
-    if (personInput.value.trim() && currentItemId) {
+
+  const personConfirm = document.createElement("button");
+  personConfirm.className = "stoa-sb-person-confirm";
+  personConfirm.textContent = "Save";
+  personConfirm.addEventListener("click", async () => {
+    const name = personInput.value.trim();
+    if (!name) return;
+    personConfirm.textContent = "Saving...";
+    personConfirm.disabled = true;
+    try {
       await fetch(`${stoaApiUrl}/people`, {
         method: "POST",
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          name: personInput.value.trim(),
+          name,
           website_url: window.location.href,
           role: "intellectual hero",
         }),
       });
+      personConfirm.textContent = "Saved ✓";
+      setTimeout(() => { personConfirm.textContent = "Save"; personConfirm.disabled = false; }, 2000);
+    } catch (e) {
+      personConfirm.textContent = "Failed";
+      personConfirm.disabled = false;
     }
   });
+
+  personInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") personConfirm.click();
+  });
+
+  personRow.appendChild(personInput);
+  personRow.appendChild(personConfirm);
+
   typeSelect.addEventListener("change", () => {
-    personInput.style.display = typeSelect.value === "person" ? "block" : "none";
+    personRow.style.display = typeSelect.value === "person" ? "flex" : "none";
   });
 
   const typeLabel = document.createElement("span");
@@ -1292,7 +1329,7 @@ async function openSidebar() {
 
   saveOpts.appendChild(typeLabel);
   saveOpts.appendChild(typeSelect);
-  saveOpts.appendChild(personInput);
+  saveOpts.appendChild(personRow);
   sidebarElement.appendChild(saveOpts);
 
   // --- Formatting toolbar ---
@@ -1345,12 +1382,6 @@ async function openSidebar() {
   notepad.dataset.placeholder = "Write your notes...";
   sidebarElement.appendChild(notepad);
 
-  // --- Highlights section ---
-  const list = document.createElement("div");
-  list.className = "stoa-sb-list";
-  list.id = "stoa-sb-list";
-  sidebarElement.appendChild(list);
-
   document.documentElement.appendChild(sidebarElement);
 
   // --- Auto-save the page to Stoa if not already saved ---
@@ -1358,9 +1389,6 @@ async function openSidebar() {
 
   // --- Load or create the source note ---
   await loadOrCreateSourceNote(notepad);
-
-  // --- Populate highlights ---
-  populateSidebarHighlights(list);
 
   // --- Auto-save notepad every 5 seconds ---
   noteAutoSaveTimer = setInterval(() => {
@@ -1759,7 +1787,13 @@ function createBookmarkMarker(yPos) {
 
   bookmarkElement = document.createElement("div");
   bookmarkElement.className = "stoa-bookmark";
-  bookmarkElement.innerHTML = `<span class="stoa-bookmark-flag">📌 You left off here</span>`;
+  bookmarkElement.innerHTML = `<span class="stoa-bookmark-flag">📌 You left off here <button class="stoa-bookmark-hide" title="Hide bookmark">×</button></span>`;
+
+  // Hide button
+  bookmarkElement.querySelector(".stoa-bookmark-hide").addEventListener("click", (e) => {
+    e.stopPropagation();
+    bookmarkElement.style.display = "none";
+  });
   bookmarkElement.style.top = `${yPos}px`;
 
   // Make it draggable
