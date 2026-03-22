@@ -1145,3 +1145,20 @@
   pointer-events: none;
   opacity: 0.7;
 }
+
+/* Simplified highlight button */
+.stoa-btn-highlight {
+  padding: 4px 12px;
+  background: #D1FAE5;
+  color: #065F46;
+  border: 1px solid #10B981;
+  border-radius: 2px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stoa-btn-highlight:hover {
+  background: #A7F3D0;
+}

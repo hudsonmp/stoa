@@ -11,7 +11,7 @@
  * - Social overlay (badge showing friends who saved this page)
  */
 
-const STOA_COLORS = ["yellow", "green", "blue", "pink", "purple"];
+const STOA_COLORS = ["green"];
 
 // --- State ---
 let stoaApiUrl = "http://localhost:8000";
@@ -145,44 +145,35 @@ function setupSelectionListener() {
 function showToolbar(selection) {
   removeToolbar();
 
-  // Stash range for keyboard shortcuts
   pendingSelection = selection.getRangeAt(0).cloneRange();
 
   toolbar = document.createElement("div");
   toolbar.className = "stoa-toolbar";
 
-  STOA_COLORS.forEach((color, i) => {
-    const btn = document.createElement("button");
-    btn.className = `stoa-btn-${color}`;
-    btn.title = `Highlight ${color} (${i + 1})`;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      highlightSelection(selection, color);
-    });
-    toolbar.appendChild(btn);
+  // Highlight button (green only)
+  const hlBtn = document.createElement("button");
+  hlBtn.className = "stoa-btn-highlight";
+  hlBtn.textContent = "Highlight";
+  hlBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    highlightSelection(selection, "green");
   });
+  toolbar.appendChild(hlBtn);
 
   // Note button
   const noteBtn = document.createElement("button");
   noteBtn.className = "stoa-btn-note";
   noteBtn.textContent = "Note";
-  noteBtn.title = "Add note (n)";
   noteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     showNoteInput(selection.getRangeAt(0).cloneRange());
   });
   toolbar.appendChild(noteBtn);
 
-  // Keyboard hint
-  const hint = document.createElement("span");
-  hint.className = "stoa-kbd-hint";
-  hint.textContent = "1-5 / n";
-  toolbar.appendChild(hint);
-
   const range = selection.getRangeAt(0);
   const rect = range.getBoundingClientRect();
   toolbar.style.top = `${window.scrollY + rect.top - 44}px`;
-  toolbar.style.left = `${window.scrollX + rect.left + rect.width / 2 - 100}px`;
+  toolbar.style.left = `${window.scrollX + rect.left + rect.width / 2 - 80}px`;
 
   document.body.appendChild(toolbar);
 }
@@ -269,13 +260,12 @@ function setupKeyboardShortcuts() {
 
     // (Cmd/Ctrl+Shift+N handled above, before editable check)
 
-    // 1-5 → instant highlight with color (toolbar or bare selection)
-    if (e.key >= "1" && e.key <= "5") {
+    // h → instant highlight with green (toolbar or bare selection)
+    if (e.key === "h") {
       const sel = window.getSelection();
       const range = pendingSelection || (sel && !sel.isCollapsed ? sel.getRangeAt(0).cloneRange() : null);
       if (range && range.toString().trim().length >= 3) {
-        const colorIdx = parseInt(e.key) - 1;
-        highlightFromRange(range, STOA_COLORS[colorIdx]);
+        highlightFromRange(range, "green");
         removeToolbar();
         sel?.removeAllRanges();
         return;
@@ -1490,7 +1480,19 @@ async function loadOrCreateSourceNote(notepad) {
 async function autoSaveNotepad() {
   const notepad = document.getElementById("stoa-sb-notepad");
   const statusEl = document.getElementById("stoa-sb-save-status");
-  if (!notepad || !currentNoteId) return;
+
+  if (!notepad) return;
+
+  // If no note ID yet, try to create one
+  if (!currentNoteId) {
+    if (!currentItemId) await ensurePageSaved();
+    if (currentItemId) await loadOrCreateSourceNote(notepad);
+    if (!currentNoteId) {
+      console.warn("[Stoa] Cannot save — no note ID. currentItemId:", currentItemId);
+      if (statusEl) statusEl.textContent = "Not saved";
+      return;
+    }
+  }
 
   const content = notepad.innerHTML;
   if (content === lastSavedNoteContent) return; // No changes
