@@ -11,13 +11,7 @@ from routers import ingest, search, rag, citations, review, highlights, items, p
 app = FastAPI(title="Stoa API", version="0.1.0")
 
 # Build CORS origins list: always include local dev + chrome extension
-_cors_origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "chrome-extension://*",
-]
+_cors_origins = ["*"]  # Allow all origins — content scripts run in page context
 # Add production frontend URL from env (e.g. https://stoa.vercel.app)
 _frontend_url = os.getenv("FRONTEND_URL")
 if _frontend_url:
