@@ -998,3 +998,53 @@
 .stoa-undo-toast.stoa-toast-exit {
   animation: stoa-toast-out 0.3s ease forwards;
 }
+
+/* Save options: type + collection */
+.stoa-sb-save-opts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid #E7E5E4;
+}
+
+.stoa-sb-opt-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #A8A29E;
+}
+
+.stoa-sb-type-select {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #E7E5E4;
+  border-radius: 2px;
+  background: white;
+  color: #1C1917;
+  outline: none;
+  cursor: pointer;
+}
+
+.stoa-sb-type-select:focus {
+  border-color: #C2410C;
+}
+
+.stoa-sb-person-input {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #E7E5E4;
+  border-radius: 2px;
+  background: white;
+  color: #1C1917;
+  outline: none;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.stoa-sb-person-input:focus {
+  border-color: #C2410C;
+}

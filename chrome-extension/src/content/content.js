@@ -1156,6 +1156,64 @@ async function openSidebar() {
   sourceBar.innerHTML = `<span class="stoa-sb-source-label">Source</span><span class="stoa-sb-source-title" title="${document.title}">${sourceTitle}</span>`;
   sidebarElement.appendChild(sourceBar);
 
+  // --- Save options: type + collection ---
+  const saveOpts = document.createElement("div");
+  saveOpts.className = "stoa-sb-save-opts";
+
+  // Type selector
+  const typeSelect = document.createElement("select");
+  typeSelect.className = "stoa-sb-type-select";
+  ["essay", "paper", "book", "person", "blog", "page"].forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+    typeSelect.appendChild(opt);
+  });
+  // Auto-detect type
+  const detectedType = guessContentType(window.location.hostname);
+  typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
+  typeSelect.addEventListener("change", async () => {
+    if (currentItemId) {
+      await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ type: typeSelect.value }),
+      });
+    }
+  });
+
+  // Person name input (shown only when type is "person")
+  const personInput = document.createElement("input");
+  personInput.type = "text";
+  personInput.className = "stoa-sb-person-input";
+  personInput.placeholder = "Person's name...";
+  personInput.style.display = "none";
+  personInput.addEventListener("blur", async () => {
+    if (personInput.value.trim() && currentItemId) {
+      await fetch(`${stoaApiUrl}/people`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          name: personInput.value.trim(),
+          website_url: window.location.href,
+          role: "intellectual hero",
+        }),
+      });
+    }
+  });
+  typeSelect.addEventListener("change", () => {
+    personInput.style.display = typeSelect.value === "person" ? "block" : "none";
+  });
+
+  const typeLabel = document.createElement("span");
+  typeLabel.className = "stoa-sb-opt-label";
+  typeLabel.textContent = "Type";
+
+  saveOpts.appendChild(typeLabel);
+  saveOpts.appendChild(typeSelect);
+  saveOpts.appendChild(personInput);
+  sidebarElement.appendChild(saveOpts);
+
   // --- Formatting toolbar ---
   const fmtBar = document.createElement("div");
   fmtBar.className = "stoa-sb-fmt-bar";
@@ -1369,8 +1427,26 @@ function refreshSidebar() {
   if (list) populateSidebarHighlights(list);
 }
 
-function populateSidebarHighlights(list) {
+async function populateSidebarHighlights(list) {
   list.innerHTML = "";
+
+  // Also fetch highlights from API (in case local map is stale)
+  try {
+    const resp = await fetch(
+      `${stoaApiUrl}/highlights?url=${encodeURIComponent(window.location.href)}`,
+      { headers: getAuthHeaders() }
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data?.highlights) {
+        data.highlights.forEach((h) => {
+          if (!highlightMap.has(h.id)) {
+            highlightMap.set(h.id, { span: null, data: h });
+          }
+        });
+      }
+    }
+  } catch (e) { /* backend unreachable */ }
 
   // Section: Highlights
   const hlSection = document.createElement("div");
