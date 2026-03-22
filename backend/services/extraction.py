@@ -49,7 +49,21 @@ async def extract_from_url(url: str) -> dict:
         if match:
             title = match.group(1).strip()
 
+    # Detect bot-challenge / loading page titles
+    _BAD_TITLES = {"just a moment...", "attention required!", "please wait...",
+                   "loading...", "redirecting...", "access denied", "403 forbidden",
+                   "error", "not found", "404"}
+    if title and title.strip().lower() in _BAD_TITLES:
+        title = None
+
+    # Fallback: derive title from URL slug
     parsed = urlparse(url)
+    if not title:
+        path = parsed.path.rstrip("/").split("/")[-1]
+        if path and path != "":
+            # Convert slug to title: "my-cool-article" → "My Cool Article"
+            title = path.replace("-", " ").replace("_", " ").replace(".html", "").replace(".htm", "").title()
+
     domain = parsed.netloc.replace("www.", "")
 
     # Extract favicon
