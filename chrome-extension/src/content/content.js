@@ -1189,9 +1189,22 @@ async function openSidebar() {
   if (sidebarElement) sidebarElement.remove();
   sidebarOpen = true;
 
+  // Detect PDF pages (Chrome's built-in PDF viewer)
+  const isPdf = document.contentType === "application/pdf" ||
+    window.location.href.endsWith(".pdf") ||
+    !!document.querySelector("embed[type='application/pdf']");
+
   // Shift page content left to make room
-  document.body.style.marginRight = "35%";
-  document.body.style.transition = "margin-right 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
+  if (isPdf) {
+    // PDF viewer: resize the embed element
+    const embed = document.querySelector("embed") || document.body;
+    embed.style.width = "65%";
+    embed.style.transition = "width 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.marginRight = "35%";
+    document.body.style.transition = "margin-right 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
+  }
 
   sidebarElement = document.createElement("div");
   sidebarElement.className = "stoa-sidebar";
@@ -1577,8 +1590,17 @@ function closeSidebar() {
   currentNoteId = null;
   lastSavedNoteContent = "";
 
-  // Restore page margin
-  document.body.style.marginRight = "";
+  // Restore page layout
+  const isPdf = document.contentType === "application/pdf" ||
+    window.location.href.endsWith(".pdf") ||
+    !!document.querySelector("embed[type='application/pdf']");
+  if (isPdf) {
+    const embed = document.querySelector("embed") || document.body;
+    embed.style.width = "";
+    document.body.style.overflow = "";
+  } else {
+    document.body.style.marginRight = "";
+  }
 
   if (sidebarElement) {
     sidebarElement.classList.add("stoa-sb-exit");
