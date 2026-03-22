@@ -62,38 +62,48 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings using OpenAI-compatible API.
+    """Generate embeddings using Google Gemini API (free tier).
 
-    Uses text-embedding-3-small via OpenAI API (cheaper, fast, 1536 dims).
-    Falls back to returning zero vectors if no API key is configured.
+    Uses text-embedding-004 (768 dims). Falls back to OpenAI if
+    GOOGLE_API_KEY not set but OPENAI_API_KEY is.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError(
-            "OPENAI_API_KEY not set. Embeddings require an API key. "
-            "Set OPENAI_API_KEY in your environment to generate embeddings."
-        )
+    google_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
 
-    # Batch to avoid hitting OpenAI's per-request limits
-    BATCH_SIZE = 100
+    if not google_key and not openai_key:
+        raise ValueError("No embedding API key set. Set GOOGLE_API_KEY or OPENAI_API_KEY.")
+
     all_embeddings = []
-    async with httpx.AsyncClient(timeout=60) as client:
-      for batch_start in range(0, len(texts), BATCH_SIZE):
-        batch = texts[batch_start:batch_start + BATCH_SIZE]
-        resp = await client.post(
-            "https://api.openai.com/v1/embeddings",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-                "input": batch,
-            },
-        )
-        if resp.status_code != 200:
-            error_body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-            error_msg = error_body.get("error", {}).get("message", f"HTTP {resp.status_code}")
-            raise RuntimeError(f"OpenAI embedding API error: {error_msg}")
-        data = resp.json()
-        all_embeddings.extend([item["embedding"] for item in data["data"]])
+    async with httpx.AsyncClient(verify=False, timeout=60) as client:
+        if google_key:
+            # Google Gemini embedding API (free, 768 dims)
+            for text in texts:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={google_key}",
+                    json={
+                        "model": "models/text-embedding-004",
+                        "content": {"parts": [{"text": text[:2048]}]},
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    all_embeddings.append(data["embedding"]["values"])
+                else:
+                    raise RuntimeError(f"Gemini embedding error: {resp.status_code} {resp.text[:200]}")
+        else:
+            # Fallback: OpenAI
+            BATCH_SIZE = 100
+            for batch_start in range(0, len(texts), BATCH_SIZE):
+                batch = texts[batch_start:batch_start + BATCH_SIZE]
+                resp = await client.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    json={"model": "text-embedding-3-small", "input": batch},
+                )
+                if resp.status_code != 200:
+                    raise RuntimeError(f"OpenAI embedding error: {resp.status_code}")
+                data = resp.json()
+                all_embeddings.extend([item["embedding"] for item in data["data"]])
     return all_embeddings
 
 

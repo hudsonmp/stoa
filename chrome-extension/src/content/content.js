@@ -54,6 +54,13 @@ async function init() {
   setupKeyboardShortcuts();
   setupScrollTracking();
   createProgressBar();
+
+  // Listen for commands from service worker (works on PDF pages where keydown doesn't)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "TOGGLE_SIDEBAR") {
+      toggleSidebar();
+    }
+  });
   createSidebarToggle();
 }
 
@@ -1259,6 +1266,54 @@ async function openSidebar() {
   const sourceTitle = document.title.substring(0, 60) || sourceDomain;
   sourceBar.innerHTML = `<span class="stoa-sb-source-label">Source</span><span class="stoa-sb-source-title" title="${document.title}">${sourceTitle}</span>`;
   sidebarElement.appendChild(sourceBar);
+
+  // --- "Open in Stoa" button for PDF pages ---
+  if (isPdf) {
+    const openInStoa = document.createElement("button");
+    openInStoa.className = "stoa-sb-open-stoa";
+    openInStoa.textContent = "📄 Save & Open in Stoa";
+    openInStoa.addEventListener("click", async () => {
+      openInStoa.textContent = "Downloading...";
+      openInStoa.disabled = true;
+      try {
+        // Download the PDF
+        const pdfResp = await fetch(window.location.href);
+        const pdfBlob = await pdfResp.blob();
+        const file = new File([pdfBlob], window.location.pathname.split("/").pop() || "paper.pdf", { type: "application/pdf" });
+
+        // Upload to Stoa
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const headers = {};
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        else if (currentUser) headers["X-User-Id"] = currentUser;
+
+        const uploadResp = await fetch(`${stoaApiUrl}/ingest/pdf`, {
+          method: "POST",
+          headers,
+          body: formData,
+        });
+
+        if (uploadResp.ok) {
+          const data = await uploadResp.json();
+          const itemId = data.item?.id;
+          openInStoa.textContent = "Saved ✓ Opening...";
+          // Open in Stoa's PDF viewer
+          setTimeout(() => {
+            window.open(`http://localhost:3000/item/${itemId}`, "_blank");
+          }, 500);
+        } else {
+          openInStoa.textContent = "Upload failed";
+        }
+      } catch (e) {
+        console.error("[Stoa] Failed to save PDF:", e);
+        openInStoa.textContent = "Failed";
+      }
+      setTimeout(() => { openInStoa.textContent = "📄 Save & Open in Stoa"; openInStoa.disabled = false; }, 3000);
+    });
+    sidebarElement.appendChild(openInStoa);
+  }
 
   // --- Save options: type + collection ---
   const saveOpts = document.createElement("div");

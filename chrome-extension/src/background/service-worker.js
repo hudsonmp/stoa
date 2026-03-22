@@ -303,6 +303,13 @@ async function handleSyncEngagement(data) {
 
 // --- Keyboard Shortcuts ---
 chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "toggle-sidebar") {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+    // Send message to content script to toggle sidebar
+    chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+    return;
+  }
   if (command === "save-page") {
     const [tab] = await chrome.tabs.query({
       active: true,

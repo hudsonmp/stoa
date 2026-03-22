@@ -1174,3 +1174,23 @@
 .stoa-sb-private-toggle input {
   display: none;
 }
+
+/* Open in Stoa button (PDF pages) */
+.stoa-sb-open-stoa {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px;
+  padding: 8px 12px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+
+.stoa-sb-open-stoa:hover { background: #9A3412; }
+.stoa-sb-open-stoa:disabled { opacity: 0.6; cursor: wait; }
