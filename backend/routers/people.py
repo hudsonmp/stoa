@@ -204,6 +204,42 @@ async def get_person(person_id: str, request: Request):
     }
 
 
+@router.post("/{person_id}/items")
+async def link_item_to_person(person_id: str, request: Request):
+    """Link an item to a person (e.g., authored, referenced)."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+
+    item_id = body.get("item_id")
+    relation = body.get("relation", "authored")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id required")
+
+    # Check for existing link
+    existing = (
+        supabase.table("person_items")
+        .select("id")
+        .eq("person_id", person_id)
+        .eq("item_id", item_id)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return {"linked": True, "existing": True}
+
+    try:
+        supabase.table("person_items").insert({
+            "person_id": person_id,
+            "item_id": item_id,
+            "relation": relation,
+        }).execute()
+    except Exception:
+        pass  # duplicate constraint
+
+    return {"linked": True}
+
+
 @router.delete("/{person_id}")
 async def delete_person(person_id: str, request: Request):
     """Delete a person and their connections (cascades via FK constraints)."""

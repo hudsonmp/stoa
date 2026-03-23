@@ -164,6 +164,25 @@ async def list_collections(request: Request):
     return {"collections": collections}
 
 
+@router.post("/collections")
+async def create_collection(request: Request):
+    """Create a new collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    result = supabase.table("collections").insert({
+        "user_id": user_id,
+        "name": name,
+        "description": body.get("description", ""),
+    }).execute()
+
+    return {"collection": result.data[0]}
+
+
 @router.patch("/collections/{collection_id}")
 async def rename_collection(collection_id: str, request: Request):
     """Rename a collection."""
@@ -274,7 +293,8 @@ async def get_collection_item_count(collection_id: str, request: Request):
 
 @router.get("/by-url")
 async def get_item_by_url(request: Request, url: str):
-    """Look up an item by URL. Used by Chrome extension for scroll sync."""
+    """Look up an item by URL. Used by Chrome extension for scroll sync.
+    Also returns collection_ids and person_ids for sidebar pre-selection."""
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
@@ -288,7 +308,29 @@ async def get_item_by_url(request: Request, url: str):
     )
     if not result.data:
         raise HTTPException(status_code=404, detail="Item not found for this URL")
-    return {"item": result.data[0]}
+
+    item = result.data[0]
+    item_id = item["id"]
+
+    # Fetch collection links
+    col_links = (
+        supabase.table("collection_items")
+        .select("collection_id")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    item["collection_ids"] = [r["collection_id"] for r in (col_links.data or [])]
+
+    # Fetch person links
+    person_links = (
+        supabase.table("person_items")
+        .select("person_id")
+        .eq("item_id", item_id)
+        .execute()
+    )
+    item["person_ids"] = [r["person_id"] for r in (person_links.data or [])]
+
+    return {"item": item}
 
 
 @router.get("/{item_id}")
