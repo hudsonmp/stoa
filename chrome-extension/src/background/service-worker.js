@@ -306,11 +306,15 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-sidebar") {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
+
+    // Skip chrome:// and chrome-extension:// pages
+    if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
+
     try {
       // Try sending to existing content script
       await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
     } catch (e) {
-      // Content script not injected (PDF pages, etc.) — inject it first
+      // Content script not injected — inject it first, then toggle
       try {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
@@ -320,10 +324,14 @@ chrome.commands.onCommand.addListener(async (command) => {
           target: { tabId: tab.id },
           files: ["src/content/content.css"],
         });
-        // Wait for init, then toggle
-        setTimeout(() => {
-          chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
-        }, 500);
+        // Wait for init (longer for PDF pages), then toggle
+        setTimeout(async () => {
+          try {
+            await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+          } catch (e3) {
+            console.error("[Stoa] Content script not responding after injection:", e3);
+          }
+        }, 1000);
       } catch (e2) {
         console.error("[Stoa] Cannot inject into this page:", e2);
       }

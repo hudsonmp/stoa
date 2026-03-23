@@ -27,6 +27,9 @@ let currentItemId = null; // Stoa item ID for this page
 let currentNoteId = null; // Stoa note ID for this page's source note
 let noteAutoSaveTimer = null; // Auto-save interval for the notepad
 let lastSavedNoteContent = ""; // Track last saved content to avoid redundant PATCHes
+let lastSidebarToggle = 0; // Debounce for Cmd+Shift+H (prevents double-toggle from keydown + commands API)
+let currentItemCollectionIds = []; // Collection IDs this item belongs to
+let currentItemPersonIds = []; // Person IDs linked to this item
 
 // --- Init ---
 async function init() {
@@ -58,6 +61,9 @@ async function init() {
   // Listen for commands from service worker (works on PDF pages where keydown doesn't)
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "TOGGLE_SIDEBAR") {
+      const now = Date.now();
+      if (now - lastSidebarToggle < 500) return; // debounce against keydown handler
+      lastSidebarToggle = now;
       toggleSidebar();
     }
   });
@@ -74,6 +80,8 @@ async function resolveCurrentItemId() {
     if (resp.ok) {
       const data = await resp.json();
       currentItemId = data.item?.id || null;
+      currentItemCollectionIds = data.item?.collection_ids || [];
+      currentItemPersonIds = data.item?.person_ids || [];
     }
   } catch (e) {
     // Item doesn't exist yet — will be created on first highlight/save
@@ -122,14 +130,17 @@ function setupSelectionListener() {
       showToolbar(selection, e);
     });
   } else {
-    // External sites: double-click to show toolbar (highlight or note)
-    document.addEventListener("dblclick", (e) => {
+    // External sites: show toolbar on any text selection (mouseup)
+    document.addEventListener("mouseup", (e) => {
       if (e.target.closest(".stoa-sidebar, .stoa-toolbar, [contenteditable]")) return;
       setTimeout(() => {
         const selection = window.getSelection();
-        if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) return;
+        if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) {
+          removeToolbar();
+          return;
+        }
         showToolbar(selection, e);
-      }, 50);
+      }, 10);
     });
   }
 
@@ -220,9 +231,13 @@ function setupKeyboardShortcuts() {
     const inEditable = tag === "INPUT" || tag === "TEXTAREA" ||
       e.target.isContentEditable || e.target.closest(".stoa-note-input");
 
-    // Always allow Cmd/Ctrl+Shift+H to toggle sidebar, even in editable fields
+    // Cmd/Ctrl+Shift+H — toggle sidebar with debounce to prevent double-toggle
+    // (Chrome commands API may also fire this via service worker message)
     if (e.key.toLowerCase() === "h" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       e.preventDefault();
+      const now = Date.now();
+      if (now - lastSidebarToggle < 500) return; // debounce
+      lastSidebarToggle = now;
       toggleSidebar();
       return;
     }
@@ -330,6 +345,11 @@ function _applyHighlight(range, text, color, note = null) {
   // Flash animation on new highlight
   span.classList.add("stoa-highlight-flash");
   setTimeout(() => span.classList.remove("stoa-highlight-flash"), 600);
+
+  // Show note as inline margin annotation
+  if (note) {
+    renderMarginNote(span, note);
+  }
 
   _saveHighlightData(text, context, cssSelector, color, note, span);
   updateHighlightBadge(1);
@@ -576,6 +596,29 @@ function getCSSSelector(el) {
   return parts.join(" > ");
 }
 
+// --- Inline Margin Notes ---
+function renderMarginNote(highlightSpan, noteText) {
+  if (!noteText || !highlightSpan) return;
+
+  // Need the highlight's parent to be position:relative for absolute positioning
+  const container = highlightSpan.closest("p, div, li, blockquote, td, section, article");
+  if (container) {
+    const existing = container.style.position;
+    if (!existing || existing === "static") {
+      container.style.position = "relative";
+    }
+  }
+
+  const annotation = document.createElement("span");
+  annotation.className = "stoa-highlight-annotation";
+  annotation.textContent = noteText;
+  annotation.dataset.stoaHighlightId = highlightSpan.dataset.stoaId || "";
+
+  // Position relative to the highlight span within its container
+  highlightSpan.style.position = "relative";
+  highlightSpan.appendChild(annotation);
+}
+
 // --- Auth Headers ---
 function getAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
@@ -653,22 +696,26 @@ function updateHighlightBadge(delta) {
 
 // --- Restore Highlights ---
 async function restoreHighlights() {
+  // Skip restore on pages that block cross-origin requests (e.g., x.com intent pages)
+  const skipHosts = ["x.com", "twitter.com", "accounts.google.com"];
+  if (skipHosts.some((h) => window.location.hostname.includes(h))) return;
+
   try {
     const resp = await fetch(
       `${stoaApiUrl}/highlights?url=${encodeURIComponent(window.location.href)}`,
       { headers: getAuthHeaders() }
     );
+    if (!resp.ok) return;
     const data = await resp.json();
     if (data?.highlights) {
       data.highlights.forEach((h) => injectHighlight(h));
-      // Set initial badge count
       chrome.runtime.sendMessage({
         type: "SET_BADGE",
         payload: { count: data.highlights.length },
       });
     }
-  } catch (err) {
-    console.error("[Stoa] Failed to restore highlights:", err);
+  } catch {
+    // Fetch blocked by CSP or backend unreachable — non-fatal
   }
 }
 
@@ -719,6 +766,11 @@ function injectHighlight(highlight) {
           range.surroundContents(span);
         } catch (e) {
           // Multi-element span — skip gracefully
+        }
+
+        // Show note as inline margin annotation
+        if (highlight.note) {
+          renderMarginNote(span, highlight.note);
         }
 
         // Track in highlightMap
@@ -1179,7 +1231,7 @@ function createSidebarToggle() {
   const toggle = document.createElement("button");
   toggle.className = "stoa-sidebar-toggle";
   toggle.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 6h8M2 9h10M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-  toggle.title = "Notes & Highlights (Cmd+Shift+E)";
+  toggle.title = "Notes & Highlights (Cmd+Shift+H)";
   toggle.addEventListener("click", toggleSidebar);
   document.documentElement.appendChild(toggle);
 }
@@ -1328,10 +1380,18 @@ async function openSidebar() {
     opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
     typeSelect.appendChild(opt);
   });
-  // Auto-detect type
-  const detectedType = guessContentType(window.location.hostname);
-  typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
+  // Restore saved type or auto-detect
+  const savedTypeKey = `type:${window.location.href}`;
+  const savedTypeData = await chrome.storage.local.get(savedTypeKey);
+  if (savedTypeData[savedTypeKey]) {
+    typeSelect.value = savedTypeData[savedTypeKey];
+  } else {
+    const detectedType = guessContentType(window.location.hostname);
+    typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
+  }
   typeSelect.addEventListener("change", async () => {
+    // Persist selection
+    await chrome.storage.local.set({ [savedTypeKey]: typeSelect.value });
     if (currentItemId && typeSelect.value !== "person") {
       await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
         method: "PATCH",
@@ -1341,61 +1401,230 @@ async function openSidebar() {
     }
   });
 
-  // Person name input + confirm button (shown only when type is "person")
-  const personRow = document.createElement("div");
-  personRow.className = "stoa-sb-person-row";
-  personRow.style.display = "none";
+  // Collection selector
+  const collectionSelect = document.createElement("select");
+  collectionSelect.className = "stoa-sb-type-select";
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = "No collection";
+  collectionSelect.appendChild(defaultOpt);
 
-  const personInput = document.createElement("input");
-  personInput.type = "text";
-  personInput.className = "stoa-sb-person-input";
-  personInput.placeholder = "Person's name...";
-
-  const personConfirm = document.createElement("button");
-  personConfirm.className = "stoa-sb-person-confirm";
-  personConfirm.textContent = "Save";
-  personConfirm.addEventListener("click", async () => {
-    const name = personInput.value.trim();
-    if (!name) return;
-    personConfirm.textContent = "Saving...";
-    personConfirm.disabled = true;
-    try {
-      await fetch(`${stoaApiUrl}/people`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          name,
-          website_url: window.location.href,
-          role: "intellectual hero",
-        }),
+  // Load collections and pre-select if item already belongs to one
+  try {
+    const collResp = await fetch(`${stoaApiUrl}/items/collections`, { headers: getAuthHeaders() });
+    if (collResp.ok) {
+      const collData = await collResp.json();
+      (collData.collections || []).forEach((col) => {
+        const opt = document.createElement("option");
+        opt.value = col.id;
+        opt.textContent = col.name;
+        collectionSelect.appendChild(opt);
       });
-      personConfirm.textContent = "Saved ✓";
-      setTimeout(() => { personConfirm.textContent = "Save"; personConfirm.disabled = false; }, 2000);
-    } catch (e) {
-      personConfirm.textContent = "Failed";
-      personConfirm.disabled = false;
+      // Pre-select first matching collection
+      if (currentItemCollectionIds.length > 0) {
+        collectionSelect.value = currentItemCollectionIds[0];
+      }
+    }
+  } catch (e) { /* collections optional */ }
+
+  collectionSelect.addEventListener("change", async () => {
+    if (currentItemId && collectionSelect.value) {
+      try {
+        await fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ item_id: currentItemId }),
+        });
+        currentItemCollectionIds = [collectionSelect.value];
+      } catch (e) { console.error("[Stoa] Failed to add to collection:", e); }
     }
   });
 
-  personInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") personConfirm.click();
+  // New collection row
+  const newCollRow = document.createElement("div");
+  newCollRow.className = "stoa-sb-person-row";
+  newCollRow.style.display = "flex";
+
+  const newCollInput = document.createElement("input");
+  newCollInput.type = "text";
+  newCollInput.className = "stoa-sb-person-input";
+  newCollInput.placeholder = "New collection...";
+
+  const newCollBtn = document.createElement("button");
+  newCollBtn.className = "stoa-sb-person-confirm";
+  newCollBtn.textContent = "+";
+  newCollBtn.title = "Create collection";
+  newCollBtn.addEventListener("click", async () => {
+    const name = newCollInput.value.trim();
+    if (!name) return;
+    newCollBtn.disabled = true;
+    newCollBtn.textContent = "...";
+    try {
+      const resp = await fetch(`${stoaApiUrl}/items/collections`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const col = data.collection;
+        const opt = document.createElement("option");
+        opt.value = col.id;
+        opt.textContent = col.name;
+        collectionSelect.appendChild(opt);
+        collectionSelect.value = col.id;
+        newCollInput.value = "";
+        // Auto-assign item if exists
+        if (currentItemId) {
+          await fetch(`${stoaApiUrl}/items/collections/${col.id}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId }),
+          });
+        }
+        newCollBtn.textContent = "✓";
+        setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 1500);
+      }
+    } catch (e) {
+      newCollBtn.textContent = "!";
+      newCollBtn.disabled = false;
+    }
   });
 
-  personRow.appendChild(personInput);
-  personRow.appendChild(personConfirm);
-
-  typeSelect.addEventListener("change", () => {
-    personRow.style.display = typeSelect.value === "person" ? "flex" : "none";
+  newCollInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") newCollBtn.click();
   });
+
+  newCollRow.appendChild(newCollInput);
+  newCollRow.appendChild(newCollBtn);
 
   const typeLabel = document.createElement("span");
   typeLabel.className = "stoa-sb-opt-label";
   typeLabel.textContent = "Type";
 
+  const collLabel = document.createElement("span");
+  collLabel.className = "stoa-sb-opt-label";
+  collLabel.textContent = "Collection";
+
   saveOpts.appendChild(typeLabel);
   saveOpts.appendChild(typeSelect);
-  saveOpts.appendChild(personRow);
+  saveOpts.appendChild(collLabel);
+  saveOpts.appendChild(collectionSelect);
+  saveOpts.appendChild(newCollRow);
   sidebarElement.appendChild(saveOpts);
+
+  // --- Person assignment section ---
+  const personSection = document.createElement("div");
+  personSection.className = "stoa-sb-person-section";
+
+  const personLabel = document.createElement("span");
+  personLabel.className = "stoa-sb-opt-label";
+  personLabel.textContent = "Person";
+  personSection.appendChild(personLabel);
+
+  // Existing people dropdown
+  const personSelect = document.createElement("select");
+  personSelect.className = "stoa-sb-type-select";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "Assign to person...";
+  personSelect.appendChild(noneOpt);
+
+  let loadedPeople = [];
+  try {
+    const pResp = await fetch(`${stoaApiUrl}/people`, { headers: getAuthHeaders() });
+    if (pResp.ok) {
+      const pData = await pResp.json();
+      loadedPeople = pData.people || [];
+      loadedPeople.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name;
+        personSelect.appendChild(opt);
+      });
+      // Pre-select first matching person
+      if (currentItemPersonIds.length > 0) {
+        personSelect.value = currentItemPersonIds[0];
+      }
+    }
+  } catch (e) { /* people optional */ }
+
+  personSelect.addEventListener("change", async () => {
+    if (!currentItemId || !personSelect.value) return;
+    try {
+      await fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+      });
+      currentItemPersonIds = [personSelect.value];
+      const statusEl = document.getElementById("stoa-sb-save-status");
+      if (statusEl) { statusEl.textContent = "Linked ✓"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
+    } catch (e) { console.error("[Stoa] Failed to link person:", e); }
+  });
+
+  personSection.appendChild(personSelect);
+
+  // Create new person row
+  const newPersonRow = document.createElement("div");
+  newPersonRow.className = "stoa-sb-person-row";
+  newPersonRow.style.display = "flex";
+
+  const newPersonInput = document.createElement("input");
+  newPersonInput.type = "text";
+  newPersonInput.className = "stoa-sb-person-input";
+  newPersonInput.placeholder = "New person name...";
+
+  const newPersonBtn = document.createElement("button");
+  newPersonBtn.className = "stoa-sb-person-confirm";
+  newPersonBtn.textContent = "+";
+  newPersonBtn.title = "Create person and assign to this page";
+  newPersonBtn.addEventListener("click", async () => {
+    const name = newPersonInput.value.trim();
+    if (!name) return;
+    newPersonBtn.disabled = true;
+    newPersonBtn.textContent = "...";
+    try {
+      const resp = await fetch(`${stoaApiUrl}/people`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name, website_url: window.location.href, role: "intellectual hero" }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const person = data.person;
+        // Add to dropdown and select
+        const opt = document.createElement("option");
+        opt.value = person.id;
+        opt.textContent = person.name;
+        personSelect.appendChild(opt);
+        personSelect.value = person.id;
+        newPersonInput.value = "";
+        // Auto-link if item exists
+        if (currentItemId) {
+          await fetch(`${stoaApiUrl}/people/${person.id}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+          });
+        }
+        newPersonBtn.textContent = "✓";
+        setTimeout(() => { newPersonBtn.textContent = "+"; newPersonBtn.disabled = false; }, 1500);
+      }
+    } catch (e) {
+      newPersonBtn.textContent = "!";
+      newPersonBtn.disabled = false;
+    }
+  });
+
+  newPersonInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") newPersonBtn.click();
+  });
+
+  newPersonRow.appendChild(newPersonInput);
+  newPersonRow.appendChild(newPersonBtn);
+  personSection.appendChild(newPersonRow);
+  sidebarElement.appendChild(personSection);
 
   // --- Formatting toolbar ---
   const fmtBar = document.createElement("div");
@@ -1452,6 +1681,18 @@ async function openSidebar() {
   // --- Auto-save the page to Stoa if not already saved ---
   await ensurePageSaved();
 
+  // Re-resolve item data (collections, persons) if we just created the item
+  if (currentItemId && currentItemCollectionIds.length === 0 && currentItemPersonIds.length === 0) {
+    await resolveCurrentItemId();
+    // Update dropdowns if data was found
+    if (currentItemCollectionIds.length > 0 && collectionSelect) {
+      collectionSelect.value = currentItemCollectionIds[0];
+    }
+    if (currentItemPersonIds.length > 0 && personSelect) {
+      personSelect.value = currentItemPersonIds[0];
+    }
+  }
+
   // --- Load or create the source note ---
   await loadOrCreateSourceNote(notepad);
 
@@ -1506,6 +1747,7 @@ async function loadOrCreateSourceNote(notepad) {
   // Create note even without item_id — will link later if ingest succeeds
 
   const statusEl = document.getElementById("stoa-sb-save-status");
+  const backupKey = `note-backup:${window.location.href}`;
 
   // Try to load existing note for this item
   if (currentItemId) {
@@ -1520,13 +1762,37 @@ async function loadOrCreateSourceNote(notepad) {
         const sourceNote = notes.find(n => (n.tags || []).includes("source-note")) || notes[0];
         if (sourceNote) {
           currentNoteId = sourceNote.id;
-          notepad.innerHTML = sourceNote.content || "";
+          let content = sourceNote.content || "";
+
+          // Restore from local backup if API content is empty but backup has content
+          if (!content.replace(/<[^>]*>/g, "").trim()) {
+            const backup = await chrome.storage.local.get(backupKey);
+            if (backup[backupKey] && backup[backupKey].replace(/<[^>]*>/g, "").trim()) {
+              content = backup[backupKey];
+              // Push backup to API
+              fetch(`${stoaApiUrl}/notes/${currentNoteId}`, {
+                method: "PATCH",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ content }),
+              }).catch(() => {});
+            }
+          }
+
+          notepad.innerHTML = content;
           lastSavedNoteContent = notepad.innerHTML;
           return;
         }
       }
     } catch (e) {
       console.error("[Stoa] Failed to load notes:", e);
+      // API unreachable — try loading from local backup
+      const backup = await chrome.storage.local.get(backupKey);
+      if (backup[backupKey]) {
+        notepad.innerHTML = backup[backupKey];
+        lastSavedNoteContent = notepad.innerHTML;
+        if (statusEl) statusEl.textContent = "Loaded from backup";
+        return;
+      }
     }
   }
 
@@ -1548,6 +1814,15 @@ async function loadOrCreateSourceNote(notepad) {
   }
 
   // Create new note (works even without item_id)
+  // Check for local backup to use as initial content
+  let initialContent = "";
+  try {
+    const backup = await chrome.storage.local.get(backupKey);
+    if (backup[backupKey] && backup[backupKey].replace(/<[^>]*>/g, "").trim()) {
+      initialContent = backup[backupKey];
+    }
+  } catch (e) { /* no backup */ }
+
   try {
     const tags = ["source-note"];
     if (currentItemId) tags.push(`ref:${currentItemId}`);
@@ -1557,7 +1832,7 @@ async function loadOrCreateSourceNote(notepad) {
       headers: getAuthHeaders(),
       body: JSON.stringify({
         item_id: currentItemId || null,
-        content: "",
+        content: initialContent,
         title: document.title || window.location.href,
         tags,
       }),
@@ -1565,7 +1840,10 @@ async function loadOrCreateSourceNote(notepad) {
     if (resp.ok) {
       const data = await resp.json();
       currentNoteId = data.note?.id || null;
-      lastSavedNoteContent = "";
+      if (initialContent) {
+        notepad.innerHTML = initialContent;
+      }
+      lastSavedNoteContent = notepad.innerHTML;
       // Cache the note ID by URL for later retrieval
       if (currentNoteId) {
         await chrome.storage.local.set({ [storageKey]: { noteId: currentNoteId } });
@@ -1573,6 +1851,11 @@ async function loadOrCreateSourceNote(notepad) {
     }
   } catch (e) {
     console.error("[Stoa] Failed to create note:", e);
+    // Load from backup if API failed
+    if (initialContent) {
+      notepad.innerHTML = initialContent;
+      lastSavedNoteContent = notepad.innerHTML;
+    }
   }
 }
 
@@ -1584,7 +1867,14 @@ async function autoSaveNotepad() {
   if (!notepad) return;
 
   const content = notepad.innerHTML;
-  if (content === lastSavedNoteContent) return;
+  // Normalize empty state — treat empty contenteditable divs as empty
+  const normalizedContent = content.replace(/<br\s*\/?>/gi, "").replace(/<div><\/div>/gi, "").trim();
+  const normalizedLast = lastSavedNoteContent.replace(/<br\s*\/?>/gi, "").replace(/<div><\/div>/gi, "").trim();
+  if (normalizedContent === normalizedLast) return;
+
+  // Always save locally as backup
+  const localKey = `note-backup:${window.location.href}`;
+  await chrome.storage.local.set({ [localKey]: content });
 
   // Private mode: save to chrome.storage only
   if (isPrivate) {
@@ -1622,16 +1912,19 @@ async function autoSaveNotepad() {
         statusEl.textContent = "Saved";
         setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000);
       }
+    } else {
+      // API error — still saved locally via backup above
+      if (statusEl) statusEl.textContent = "Saved locally";
     }
   } catch (e) {
     console.error("[Stoa] Failed to auto-save note:", e);
-    if (statusEl) statusEl.textContent = "Save failed";
+    if (statusEl) statusEl.textContent = "Saved locally";
   }
 }
 
-function closeSidebar() {
-  // Final save before closing
-  autoSaveNotepad();
+async function closeSidebar() {
+  // Final save before closing — MUST await to prevent currentNoteId from being nulled before save completes
+  await autoSaveNotepad();
 
   sidebarOpen = false;
 
