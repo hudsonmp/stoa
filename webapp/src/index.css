@@ -1944,21 +1944,98 @@ mark.stoa-hl-active {
   padding-left: 1.5em;
 }
 
-/* Mention chip */
+/* Mention chip — internal Stoa link, styled as subtle inline reference */
 .stoa-mention {
-  background: rgba(194, 65, 12, 0.1);
-  color: #C2410C;
-  border-radius: 3px;
-  padding: 0 4px;
+  background: none;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+  border-radius: 2px;
+  padding: 0 1px;
   font-family: "DM Sans", sans-serif;
   font-size: 0.9em;
   cursor: pointer;
+  transition: text-decoration-color 0.15s ease;
+}
+.stoa-mention:hover {
+  text-decoration-color: var(--text-secondary);
 }
 
-/* Notes page: editor spans full width, no constrained column */
+/* Links inside rendered note content — black, not orange */
+.reader-margin-note-content a,
+.research-editor .ProseMirror a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 0.15s ease;
+}
+.reader-margin-note-content a:hover,
+.research-editor .ProseMirror a:hover {
+  text-decoration-color: var(--text-secondary);
+}
+
+/* Notes page: Google Doc-like layout */
+.notes-doc-header {
+  padding: 2rem 3rem 0.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+
 .notes-editor-fullwidth .research-editor .ProseMirror {
-  max-width: 100%;
-  padding: 2rem 3rem 20rem;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 3rem 20rem;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+
+.notes-editor-fullwidth .research-editor .ProseMirror p {
+  margin-bottom: 0.75rem;
+}
+
+.notes-editor-fullwidth .research-editor .ProseMirror h1 {
+  font-size: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.notes-editor-fullwidth .research-editor .ProseMirror h2 {
+  font-size: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.notes-editor-fullwidth .research-editor .ProseMirror h3 {
+  font-size: 1.0625rem;
+  margin-top: 1rem;
+}
+
+/* Item detail — full-width notes editor */
+.item-notes-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 300px;
+}
+
+.item-notes-editor .research-editor {
+  height: 100%;
+}
+
+.item-notes-editor .research-editor .ProseMirror {
+  min-height: 280px;
+  padding: 1.5rem 2rem 6rem;
+  font-family: "Newsreader", Georgia, serif;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.item-notes-editor .research-editor .ProseMirror p {
+  margin-bottom: 0.5rem;
 }
 
 /* ================================================================

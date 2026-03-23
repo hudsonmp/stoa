@@ -24,10 +24,11 @@ import {
   FolderPlus,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
+import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
+import ResearchEditor from "@/components/ResearchEditor";
 import PdfAnnotationView from "@/components/PdfAnnotationView";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
@@ -71,6 +72,9 @@ export default function ItemDetail() {
   const [citeCopied, setCiteCopied] = useState<string | null>(null);
   const [collectionDropdownOpen, setCollectionDropdownOpen] = useState(false);
   const [availableCollections, setAvailableCollections] = useState<{ id: string; name: string }[]>([]);
+  const [mainNoteId, setMainNoteId] = useState<string | null>(null);
+  const [mainNoteContent, setMainNoteContent] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const marginRef = useRef<HTMLElement>(null);
@@ -106,9 +110,19 @@ export default function ItemDetail() {
       const data = await getItem(id!);
       setItem(data.item as Item);
       setHighlights((data.highlights as Highlight[]) || []);
-      setNotes((data.notes as Note[]) || []);
+      const itemNotes = (data.notes as Note[]) || [];
+      setNotes(itemNotes);
       setCitation((data.citation as Citation) || null);
       setRelatedItems((data.related as Item[]) || []);
+      // Find or prepare main note (source-note or first note)
+      const sourceNote = itemNotes.find((n) => n.tags?.includes("source-note")) || itemNotes[0];
+      if (sourceNote) {
+        setMainNoteId(sourceNote.id);
+        setMainNoteContent(sourceNote.content || "");
+      } else {
+        setMainNoteId(null);
+        setMainNoteContent("");
+      }
       // Load tags
       try {
         const tagData = await getItemTags(id!);
@@ -215,6 +229,32 @@ export default function ItemDetail() {
     setNotes((prev) => [newNote, ...prev]);
     setNoteContent("");
   };
+
+  const handleMainNoteSave = useCallback(async (content: string) => {
+    if (!item) return;
+    setNoteSaving(true);
+    try {
+      if (mainNoteId) {
+        await updateNote(mainNoteId, { content });
+      } else {
+        // Create new source note
+        const result = await createNote({
+          item_id: item.id,
+          content,
+          title: item.title,
+          tags: ["source-note"],
+        });
+        const newNote = (result as { note: Note }).note;
+        setMainNoteId(newNote.id);
+        setNotes((prev) => [newNote, ...prev]);
+      }
+      setMainNoteContent(content);
+    } catch {
+      // silent
+    } finally {
+      setNoteSaving(false);
+    }
+  }, [item, mainNoteId]);
 
   const updateStatus = async (status: Item["reading_status"]) => {
     if (!item) return;
@@ -713,6 +753,23 @@ export default function ItemDetail() {
                   <p className="text-sm text-text-secondary leading-relaxed">{item.summary}</p>
                 </section>
               )}
+
+              {/* Full-width notes editor — Google Doc style */}
+              <section className="reader-section">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="reader-section-heading" style={{ marginBottom: 0 }}>Notes</h2>
+                  <span className="text-[10px] font-mono text-text-tertiary">
+                    {noteSaving ? "Saving..." : mainNoteId ? "Saved" : ""}
+                  </span>
+                </div>
+                <div className="item-notes-editor">
+                  <ResearchEditor
+                    content={mainNoteContent}
+                    onSave={handleMainNoteSave}
+                    placeholder="Write your notes about this item..."
+                  />
+                </div>
+              </section>
             </>
           ) : null}
 
@@ -741,10 +798,10 @@ export default function ItemDetail() {
           )}
         </motion.div>
 
-        {/* Right margin — annotations column (Curius-style) */}
+        {/* Right margin — only shown in Read/ar5iv modes */}
+        {(readerMode || ar5ivMode) && (
         <aside ref={marginRef} className="reader-margin">
-          {/* Note input — rich text via TipTap */}
-          <div className="reader-margin-heading">Annotations</div>
+          <div className="reader-margin-heading">Notes</div>
           <div className="reader-margin-input-rich">
             <NoteEditor
               content={noteContent}
@@ -761,7 +818,6 @@ export default function ItemDetail() {
             </button>
           </div>
 
-          {/* Highlights */}
           {highlights.length > 0 && (() => {
             const hasPositions = Object.keys(hlPositions).length > 0;
             return (
@@ -862,7 +918,6 @@ export default function ItemDetail() {
             );
           })()}
 
-          {/* Notes */}
           {notes.length > 0 && (
             <>
               <div className="reader-margin-divider" />
@@ -899,6 +954,7 @@ export default function ItemDetail() {
             </p>
           )}
         </aside>
+        )}
       </div>
 
       {/* Highlight panel (slide-over, kept for detailed editing) */}

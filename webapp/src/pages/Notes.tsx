@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, Check, X } from "lucide-react";
+import { Plus, Search, FileText, Trash2, Check, X, ExternalLink } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
@@ -46,6 +46,7 @@ export default function Notes() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showAll, setShowAll] = useState(true); // show all notes by default
 
   // Inline title editing state
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
@@ -56,16 +57,13 @@ export default function Notes() {
     setLoading(true);
     try {
       const data = await getNotes();
-      // Filter to standalone notes (no item_id, no person_id) — research notes
-      const standalone = (data.notes as Note[]).filter(
-        (n) => !n.item_id && !n.person_id
-      );
+      const allNotes = (data.notes as Note[]);
       // Sort by most recently updated
-      standalone.sort(
+      allNotes.sort(
         (a, b) =>
           new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
       );
-      setNotes(standalone);
+      setNotes(allNotes);
     } catch {
       // silent
     } finally {
@@ -174,14 +172,18 @@ export default function Notes() {
     setTitleDraft("");
   }, []);
 
+  const filteredByType = showAll
+    ? notes
+    : notes.filter((n) => !n.item_id && !n.person_id);
+
   const filtered = searchQuery
-    ? notes.filter((n) => {
+    ? filteredByType.filter((n) => {
         const q = searchQuery.toLowerCase();
         const title = extractTitle(n).toLowerCase();
         const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
         return title.includes(q) || content.includes(q);
       })
-    : notes;
+    : filteredByType;
 
   const activeNote = notes.find((n) => n.id === activeId);
 
@@ -199,6 +201,24 @@ export default function Notes() {
           >
             <Plus size={14} />
             New Note
+          </button>
+        </div>
+
+        {/* Filter toggle */}
+        <div className="flex px-3 pb-1">
+          <button
+            onClick={() => setShowAll(true)}
+            className={`flex-1 text-[10px] font-mono uppercase tracking-wider py-1.5 transition-warm
+              ${showAll ? "text-text-primary border-b border-text-primary" : "text-text-tertiary hover:text-text-secondary"}`}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setShowAll(false)}
+            className={`flex-1 text-[10px] font-mono uppercase tracking-wider py-1.5 transition-warm
+              ${!showAll ? "text-text-primary border-b border-text-primary" : "text-text-tertiary hover:text-text-secondary"}`}
+          >
+            Standalone
           </button>
         </div>
 
@@ -292,12 +312,23 @@ export default function Notes() {
                   <span className="text-[10px] text-text-tertiary">
                     {formatRelativeDate(note.updated_at)}
                   </span>
-                  {badge && (
+                  {badge && badge !== "standalone" && (
                     <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary bg-bg-secondary px-1.5 py-0.5 rounded">
                       {badge}
                     </span>
                   )}
                 </div>
+                {note.item_id && (
+                  <Link
+                    to={`/item/${note.item_id}`}
+                    className="flex items-center gap-1 mt-1 text-[10px] text-text-tertiary hover:text-text-secondary truncate"
+                    onClick={(e) => e.stopPropagation()}
+                    title="View linked item"
+                  >
+                    <ExternalLink size={9} className="flex-shrink-0" />
+                    <span className="truncate">Linked item</span>
+                  </Link>
+                )}
 
                 {/* Delete button — appears on hover */}
                 <button
@@ -325,11 +356,63 @@ export default function Notes() {
             transition={{ duration: 0.15 }}
             className="flex-1 flex flex-col"
           >
-            {/* Title bar */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-border/50">
-              <p className="text-[11px] font-mono text-text-tertiary">
-                {saving ? "Saving..." : "Saved"}
-              </p>
+            {/* Document header — editable title, Google Doc style */}
+            <div className="notes-doc-header">
+              <div className="flex items-center justify-between">
+                <input
+                  value={
+                    editingTitleId === activeNote.id
+                      ? titleDraft
+                      : activeNote.title && activeNote.title !== "Untitled"
+                      ? activeNote.title
+                      : ""
+                  }
+                  onChange={(e) => {
+                    if (editingTitleId !== activeNote.id) {
+                      setEditingTitleId(activeNote.id);
+                      setTitleDraft(e.target.value);
+                    } else {
+                      setTitleDraft(e.target.value);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (editingTitleId !== activeNote.id) {
+                      setEditingTitleId(activeNote.id);
+                      setTitleDraft(
+                        activeNote.title && activeNote.title !== "Untitled"
+                          ? activeNote.title
+                          : ""
+                      );
+                    }
+                  }}
+                  onBlur={() => {
+                    if (editingTitleId === activeNote.id) saveTitle(activeNote.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      saveTitle(activeNote.id);
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="Untitled"
+                  className="flex-1 font-serif text-2xl font-semibold text-text-primary
+                             bg-transparent border-none outline-none
+                             placeholder:text-text-tertiary/40"
+                />
+                <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0 ml-4">
+                  {saving ? "Saving..." : "Saved"}
+                </span>
+              </div>
+              {activeNote.item_id && (
+                <Link
+                  to={`/item/${activeNote.item_id}`}
+                  className="inline-flex items-center gap-1 text-[11px] text-text-tertiary
+                             hover:text-text-secondary mt-1"
+                >
+                  <ExternalLink size={10} />
+                  View linked item
+                </Link>
+              )}
             </div>
             <div className="flex-1 notes-editor-fullwidth">
               <ResearchEditor

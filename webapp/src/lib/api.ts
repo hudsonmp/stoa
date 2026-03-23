@@ -193,8 +193,12 @@ export async function createNote(data: {
   });
 }
 
-export async function getNotes() {
-  return apiFetch<{ notes: unknown[] }>("/notes");
+export async function getNotes(params?: { person_id?: string; item_id?: string }) {
+  const query = new URLSearchParams();
+  if (params?.person_id) query.set("person_id", params.person_id);
+  if (params?.item_id) query.set("item_id", params.item_id);
+  const qs = query.toString();
+  return apiFetch<{ notes: unknown[] }>(`/notes${qs ? `?${qs}` : ""}`);
 }
 
 export async function updateNote(noteId: string, updates: Record<string, unknown>) {
