@@ -187,6 +187,14 @@ export default function Notes() {
 
   const activeNote = notes.find((n) => n.id === activeId);
 
+  // Sync titleDraft when switching notes
+  useEffect(() => {
+    if (activeNote) {
+      setEditingTitleId(activeNote.id);
+      setTitleDraft(activeNote.title && activeNote.title !== "Untitled" ? activeNote.title : "");
+    }
+  }, [activeNote?.id]);
+
   return (
     <div className="flex h-full">
       {/* Left sidebar */}
@@ -347,7 +355,7 @@ export default function Notes() {
       </div>
 
       {/* Main editor area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-white">
         {activeNote ? (
           <motion.div
             key={activeNote.id}
@@ -360,34 +368,9 @@ export default function Notes() {
             <div className="notes-doc-header">
               <div className="flex items-center justify-between">
                 <input
-                  value={
-                    editingTitleId === activeNote.id
-                      ? titleDraft
-                      : activeNote.title && activeNote.title !== "Untitled"
-                      ? activeNote.title
-                      : ""
-                  }
-                  onChange={(e) => {
-                    if (editingTitleId !== activeNote.id) {
-                      setEditingTitleId(activeNote.id);
-                      setTitleDraft(e.target.value);
-                    } else {
-                      setTitleDraft(e.target.value);
-                    }
-                  }}
-                  onFocus={() => {
-                    if (editingTitleId !== activeNote.id) {
-                      setEditingTitleId(activeNote.id);
-                      setTitleDraft(
-                        activeNote.title && activeNote.title !== "Untitled"
-                          ? activeNote.title
-                          : ""
-                      );
-                    }
-                  }}
-                  onBlur={() => {
-                    if (editingTitleId === activeNote.id) saveTitle(activeNote.id);
-                  }}
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onBlur={() => saveTitle(activeNote.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       saveTitle(activeNote.id);

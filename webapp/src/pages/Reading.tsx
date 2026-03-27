@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import Bookshelf from "@/components/Bookshelf";
 import {
   BookOpen,
   FileText,
@@ -63,6 +64,7 @@ export default function Reading() {
   const sorted = [...items].sort((a, b) => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
+  const books = useMemo(() => items.filter((i) => i.type === "book"), [items]);
 
   return (
     <div className="max-w-3xl mx-auto px-8 py-8">
@@ -98,6 +100,27 @@ export default function Reading() {
             Start reading an item and it will appear here
           </p>
         </div>
+      )}
+
+      {/* Bookshelf */}
+      {books.length > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+          className="mb-10"
+        >
+          <div className="flex items-center gap-3 mb-3 px-1">
+            <h2 className="text-[11px] font-mono text-text-tertiary uppercase tracking-[0.15em]">
+              Bookshelf
+            </h2>
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
+              {books.length} {books.length === 1 ? "book" : "books"}
+            </span>
+          </div>
+          <Bookshelf books={books} />
+        </motion.section>
       )}
 
       <div className="space-y-1">

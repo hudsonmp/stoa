@@ -1939,9 +1939,22 @@ mark.stoa-hl-active {
   margin-bottom: 0.3em;
 }
 
-.research-editor .ProseMirror ul,
+.research-editor .ProseMirror ul {
+  padding-left: 1.5em;
+  list-style-type: disc;
+}
+
 .research-editor .ProseMirror ol {
   padding-left: 1.5em;
+  list-style-type: decimal;
+}
+
+.research-editor .ProseMirror li {
+  margin-bottom: 0.1em;
+}
+
+.research-editor .ProseMirror li p {
+  margin-bottom: 0;
 }
 
 /* Mention chip — internal Stoa link, styled as subtle inline reference */
@@ -1978,24 +1991,21 @@ mark.stoa-hl-active {
 
 /* Notes page: Google Doc-like layout */
 .notes-doc-header {
-  padding: 2rem 3rem 0.5rem;
-  max-width: 720px;
-  margin: 0 auto;
+  padding: 1.5rem 2.5rem 0.5rem;
   width: 100%;
 }
 
 .notes-editor-fullwidth .research-editor .ProseMirror {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 1rem 3rem 20rem;
+  max-width: 100%;
+  padding: 1rem 2.5rem 20rem;
   font-family: "Newsreader", Georgia, serif;
   font-size: 1.0625rem;
-  line-height: 1.75;
+  line-height: 1.6;
   color: var(--text-primary);
 }
 
 .notes-editor-fullwidth .research-editor .ProseMirror p {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.25rem;
 }
 
 .notes-editor-fullwidth .research-editor .ProseMirror h1 {

@@ -65,8 +65,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "SYNC_ENGAGEMENT":
       handleSyncEngagement(message.payload);
       return false;
+
+    case "API_PROXY":
+      handleApiProxy(message.payload).then(sendResponse);
+      return true;
   }
 });
+
+// --- API Proxy (bypasses page CSP by running fetch in service worker context) ---
+async function handleApiProxy(data) {
+  try {
+    const config = await getConfig();
+    const headers = buildAuthHeaders(config);
+    const opts = { method: data.method || "GET", headers };
+    if (data.body) opts.body = JSON.stringify(data.body);
+    const resp = await fetch(`${config.apiUrl}${data.path}`, opts);
+    if (!resp.ok) return { error: `API ${resp.status}` };
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+}
 
 // --- Badge Management ---
 const tabBadgeCounts = {};
@@ -310,6 +329,33 @@ chrome.commands.onCommand.addListener(async (command) => {
     // Skip chrome:// and chrome-extension:// pages
     if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
 
+    // PDF pages: Chrome's viewer blocks content script injection.
+    // Save the PDF and open in Stoa instead.
+    const isPdf = tab.url?.endsWith(".pdf") || tab.url?.includes("/pdf/");
+    if (isPdf) {
+      try {
+        const config = await getConfig();
+        const headers = buildAuthHeaders(config);
+        // Ingest the PDF URL
+        const resp = await fetch(`${config.apiUrl}/ingest`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ url: tab.url, type: "paper" }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const itemId = data.item?.id;
+          if (itemId) {
+            const webappUrl = (await chrome.storage.local.get("stoa_webapp_url")).stoa_webapp_url || "http://localhost:3000";
+            chrome.tabs.create({ url: `${webappUrl}/item/${itemId}` });
+          }
+        }
+      } catch (e) {
+        console.error("[Stoa] Failed to save PDF:", e);
+      }
+      return;
+    }
+
     try {
       // Try sending to existing content script
       await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
@@ -324,7 +370,6 @@ chrome.commands.onCommand.addListener(async (command) => {
           target: { tabId: tab.id },
           files: ["src/content/content.css"],
         });
-        // Wait for init (longer for PDF pages), then toggle
         setTimeout(async () => {
           try {
             await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });

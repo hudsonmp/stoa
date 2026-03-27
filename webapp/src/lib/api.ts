@@ -83,21 +83,27 @@ export function getPdfEmbedUrl(item: { id?: string; url?: string; metadata?: Rec
   const url = item.url;
   if (!url) return null;
 
-  // Direct PDF link
-  if (url.endsWith(".pdf")) return url;
+  // Derive the raw PDF URL
+  let pdfUrl: string | null = null;
+
+  if (url.endsWith(".pdf")) pdfUrl = url;
 
   // arXiv: abs → pdf
   const arxivAbs = url.match(/arxiv\.org\/abs\/([^\s?#]+)/);
-  if (arxivAbs) return `https://arxiv.org/pdf/${arxivAbs[1]}.pdf`;
+  if (arxivAbs) pdfUrl = `https://arxiv.org/pdf/${arxivAbs[1]}.pdf`;
 
   // arXiv: already a pdf link
-  if (url.includes("arxiv.org/pdf/")) return url;
+  if (url.includes("arxiv.org/pdf/")) pdfUrl = url;
 
   // OpenReview: forum → pdf
   const orMatch = url.match(/openreview\.net\/forum\?id=([^\s&#]+)/);
-  if (orMatch) return `https://openreview.net/pdf?id=${orMatch[1]}`;
+  if (orMatch) pdfUrl = `https://openreview.net/pdf?id=${orMatch[1]}`;
 
-  return null;
+  if (!pdfUrl) return null;
+
+  // Proxy all external PDFs through the backend to avoid CORS issues
+  const uid = DEV_USER_ID || localStorage.getItem("stoa_user_id") || "";
+  return `${API_URL}/proxy/pdf?url=${encodeURIComponent(pdfUrl)}&user_id=${uid}`;
 }
 
 /**
@@ -365,6 +371,13 @@ export async function extractMetadata(url: string) {
   });
 }
 
+export async function createCollection(data: { name: string; description?: string }) {
+  return apiFetch<{ collection: unknown }>("/items/collections", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function renameCollection(collectionId: string, name: string) {
   return apiFetch(`/items/collections/${collectionId}`, {
     method: "PATCH",
@@ -381,6 +394,10 @@ export async function addItemToCollection(collectionId: string, itemId: string) 
     method: "POST",
     body: JSON.stringify({ item_id: itemId }),
   });
+}
+
+export async function getCollectionItems(collectionId: string) {
+  return apiFetch<{ items: unknown[] }>(`/items/collections/${collectionId}/items`);
 }
 
 export async function getCollectionItemCount(collectionId: string) {

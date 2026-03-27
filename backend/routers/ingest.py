@@ -138,6 +138,18 @@ async def ingest_url(req: IngestURLRequest, request: Request):
         .execute()
     )
     if existing.data:
+        # Still add to collection even if item already exists
+        if req.collection_id:
+            try:
+                dup_check = supabase.table("collection_items").select("collection_id").eq("collection_id", req.collection_id).eq("item_id", existing.data[0]["id"]).limit(1).execute()
+                if not dup_check.data:
+                    supabase.table("collection_items").insert({
+                        "collection_id": req.collection_id,
+                        "item_id": existing.data[0]["id"],
+                        "sort_order": 0,
+                    }).execute()
+            except Exception:
+                pass
         return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Extract content

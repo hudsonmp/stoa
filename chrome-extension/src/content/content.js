@@ -70,13 +70,32 @@ async function init() {
   createSidebarToggle();
 }
 
+// Normalize URL for lookup — arxiv pdf/ → abs/, etc.
+function normalizeUrlForLookup(url) {
+  // arxiv.org/pdf/XXXX → arxiv.org/abs/XXXX
+  const arxivPdf = url.match(/arxiv\.org\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivPdf) return `https://arxiv.org/abs/${arxivPdf[1]}`;
+  // arxiv html → abs
+  const arxivHtml = url.match(/arxiv\.org\/html\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivHtml) return `https://arxiv.org/abs/${arxivHtml[1]}`;
+  return url;
+}
+
 // Resolve the Stoa item ID for this URL (needed for notes + highlight deletion)
 async function resolveCurrentItemId() {
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
-    const resp = await fetch(
-      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+    let resp = await fetch(
+      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
+    // If normalized URL didn't match, try the raw URL
+    if (!resp.ok && lookupUrl !== window.location.href) {
+      resp = await fetch(
+        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+        { headers: getAuthHeaders() }
+      );
+    }
     if (resp.ok) {
       const data = await resp.json();
       currentItemId = data.item?.id || null;
@@ -700,9 +719,10 @@ async function restoreHighlights() {
   const skipHosts = ["x.com", "twitter.com", "accounts.google.com"];
   if (skipHosts.some((h) => window.location.hostname.includes(h))) return;
 
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
     const resp = await fetch(
-      `${stoaApiUrl}/highlights?url=${encodeURIComponent(window.location.href)}`,
+      `${stoaApiUrl}/highlights?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
     if (!resp.ok) return;
@@ -1460,34 +1480,47 @@ async function openSidebar() {
     newCollBtn.disabled = true;
     newCollBtn.textContent = "...";
     try {
-      const resp = await fetch(`${stoaApiUrl}/items/collections`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ name }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const col = data.collection;
-        const opt = document.createElement("option");
-        opt.value = col.id;
-        opt.textContent = col.name;
-        collectionSelect.appendChild(opt);
-        collectionSelect.value = col.id;
-        newCollInput.value = "";
-        // Auto-assign item if exists
-        if (currentItemId) {
+      // Try direct fetch first, fall back to service worker proxy if CSP blocks it
+      let data;
+      try {
+        const resp = await fetch(`${stoaApiUrl}/items/collections`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ name }),
+        });
+        if (!resp.ok) throw new Error(`API ${resp.status}`);
+        data = await resp.json();
+      } catch (fetchErr) {
+        // CSP blocked — proxy through service worker
+        data = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            type: "API_PROXY",
+            payload: { method: "POST", path: "/items/collections", body: { name } },
+          }, (resp) => resp?.error ? reject(new Error(resp.error)) : resolve(resp));
+        });
+      }
+      const col = data.collection;
+      const opt = document.createElement("option");
+      opt.value = col.id;
+      opt.textContent = col.name;
+      collectionSelect.appendChild(opt);
+      collectionSelect.value = col.id;
+      newCollInput.value = "";
+      if (currentItemId) {
+        try {
           await fetch(`${stoaApiUrl}/items/collections/${col.id}/items`, {
             method: "POST",
             headers: getAuthHeaders(),
             body: JSON.stringify({ item_id: currentItemId }),
           });
-        }
-        newCollBtn.textContent = "✓";
-        setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 1500);
+        } catch { /* will try on next sidebar open */ }
       }
+      newCollBtn.textContent = "✓";
+      setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 1500);
     } catch (e) {
+      console.error("[Stoa] Collection create error:", e);
       newCollBtn.textContent = "!";
-      newCollBtn.disabled = false;
+      setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 2000);
     }
   });
 
@@ -1709,12 +1742,19 @@ async function openSidebar() {
 
 async function ensurePageSaved() {
   if (currentItemId) return;
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
-    // Check if URL already has a Stoa item
-    const checkResp = await fetch(
-      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+    // Check if URL already has a Stoa item (try normalized URL first)
+    let checkResp = await fetch(
+      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
+    if (!checkResp.ok && lookupUrl !== window.location.href) {
+      checkResp = await fetch(
+        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+        { headers: getAuthHeaders() }
+      );
+    }
     if (checkResp.ok) {
       const checkData = await checkResp.json();
       if (checkData.item?.id) {
@@ -1724,13 +1764,13 @@ async function ensurePageSaved() {
     }
   } catch (e) { /* not found, will ingest */ }
 
-  // Auto-save via /ingest
+  // Auto-save via /ingest (use normalized URL so it matches existing items)
   try {
     const resp = await fetch(`${stoaApiUrl}/ingest`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
-        url: window.location.href,
+        url: lookupUrl,
         type: guessContentType(window.location.hostname),
       }),
     });
@@ -1923,6 +1963,14 @@ async function autoSaveNotepad() {
 }
 
 async function closeSidebar() {
+  // Immediately snapshot notepad content before any async operations
+  const notepad = document.getElementById("stoa-sb-notepad");
+  if (notepad) {
+    const content = notepad.innerHTML;
+    const backupKey = `note-backup:${window.location.href}`;
+    chrome.storage.local.set({ [backupKey]: content });
+  }
+
   // Final save before closing — MUST await to prevent currentNoteId from being nulled before save completes
   await autoSaveNotepad();
 

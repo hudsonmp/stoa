@@ -40,3 +40,27 @@ app.include_router(classify.router, prefix="/classify", tags=["classify"])
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/proxy/pdf")
+async def proxy_pdf(url: str):
+    """Proxy external PDFs to avoid CORS issues in the browser PDF viewer."""
+    import httpx
+    from fastapi.responses import Response
+
+    # Only allow PDF URLs from known domains
+    allowed = ["arxiv.org", "openreview.net", "aclanthology.org", "dl.acm.org",
+               "proceedings.mlr.press", "papers.nips.cc"]
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if not any(host.endswith(d) for d in allowed) and not url.endswith(".pdf"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="URL not allowed for proxying")
+
+    async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
+        resp = await client.get(url)
+        return Response(
+            content=resp.content,
+            media_type="application/pdf",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )

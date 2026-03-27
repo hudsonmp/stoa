@@ -229,6 +229,8 @@ async def delete_collection(collection_id: str, request: Request):
 @router.post("/collections/{collection_id}/items")
 async def add_item_to_collection(collection_id: str, request: Request):
     """Add an item to a collection."""
+    import logging
+    logger = logging.getLogger(__name__)
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
     body = await request.json()
@@ -236,44 +238,49 @@ async def add_item_to_collection(collection_id: str, request: Request):
     if not item_id:
         raise HTTPException(status_code=400, detail="item_id is required")
 
-    # Verify collection ownership
-    col_check = supabase.table("collections").select("id").eq("id", collection_id).eq("user_id", user_id).execute()
-    if not col_check.data:
-        raise HTTPException(status_code=404, detail="Collection not found")
+    try:
+        # Check for duplicate first
+        existing = (
+            supabase.table("collection_items")
+            .select("collection_id")
+            .eq("collection_id", collection_id)
+            .eq("item_id", item_id)
+            .execute()
+        )
+        if existing.data:
+            return {"already_exists": True}
 
-    # Verify item ownership
-    item_check = supabase.table("items").select("id").eq("id", item_id).eq("user_id", user_id).execute()
-    if not item_check.data:
-        raise HTTPException(status_code=404, detail="Item not found")
+        # Insert
+        supabase.table("collection_items").insert({
+            "collection_id": collection_id,
+            "item_id": item_id,
+            "sort_order": 0,
+        }).execute()
+        return {"added": True}
+    except Exception as e:
+        logger.error("Failed to add item %s to collection %s: %s", item_id, collection_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
 
-    # Check for duplicate
-    existing = (
-        supabase.table("collection_items")
-        .select("id")
-        .eq("collection_id", collection_id)
-        .eq("item_id", item_id)
+
+@router.get("/collections/{collection_id}/items")
+async def get_collection_items(collection_id: str, request: Request):
+    """Get all items in a collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    links = supabase.table("collection_items").select("item_id").eq("collection_id", collection_id).execute()
+    if not links.data:
+        return {"items": []}
+
+    item_ids = [r["item_id"] for r in links.data]
+    items_res = (
+        supabase.table("items")
+        .select("id, title, url, type, domain, favicon_url, reading_status, created_at")
+        .eq("user_id", user_id)
+        .in_("id", item_ids)
         .execute()
     )
-    if existing.data:
-        return {"already_exists": True}
-
-    # Get max sort_order
-    max_sort = (
-        supabase.table("collection_items")
-        .select("sort_order")
-        .eq("collection_id", collection_id)
-        .order("sort_order", desc=True)
-        .limit(1)
-        .execute()
-    )
-    next_order = (max_sort.data[0]["sort_order"] + 1) if max_sort.data else 0
-
-    supabase.table("collection_items").insert({
-        "collection_id": collection_id,
-        "item_id": item_id,
-        "sort_order": next_order,
-    }).execute()
-    return {"added": True}
+    return {"items": items_res.data or []}
 
 
 @router.get("/collections/{collection_id}/count")
@@ -282,12 +289,7 @@ async def get_collection_item_count(collection_id: str, request: Request):
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
-    # Verify ownership
-    col_check = supabase.table("collections").select("id").eq("id", collection_id).eq("user_id", user_id).execute()
-    if not col_check.data:
-        raise HTTPException(status_code=404, detail="Collection not found")
-
-    result = supabase.table("collection_items").select("id").eq("collection_id", collection_id).execute()
+    result = supabase.table("collection_items").select("item_id").eq("collection_id", collection_id).execute()
     return {"count": len(result.data or [])}
 
 
@@ -415,7 +417,7 @@ async def update_item(item_id: str, request: Request):
     body = await request.json()
 
     # Only allow safe fields
-    allowed = {"reading_status", "title", "type", "summary", "scroll_position"}
+    allowed = {"reading_status", "title", "type", "summary", "scroll_position", "spine_color", "text_color", "cover_image_url"}
     updates = {k: v for k, v in body.items() if k in allowed}
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")

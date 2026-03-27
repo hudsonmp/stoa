@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { FolderOpen, Plus, X, Pencil, Trash2, Check } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import type { Collection, Item } from "@/lib/supabase";
 import { Link } from "react-router-dom";
 import ItemRow from "@/components/ItemRow";
-import { renameCollection, deleteCollection } from "@/lib/api";
+import { renameCollection, deleteCollection, listCollections, createCollection as apiCreateCollection, getCollectionItems } from "@/lib/api";
 
 interface CollectionWithCount extends Collection {
   item_count?: number;
@@ -39,66 +38,34 @@ export default function Collections() {
 
   const loadCollections = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("collections")
-      .select("*")
-      .order("name");
-
-    const cols = (data as CollectionWithCount[]) || [];
-
-    // Fetch item counts
-    if (cols.length > 0) {
-      const colIds = cols.map((c) => c.id);
-      const { data: links } = await supabase
-        .from("collection_items")
-        .select("collection_id")
-        .in("collection_id", colIds);
-
-      const countMap: Record<string, number> = {};
-      for (const row of links || []) {
-        countMap[row.collection_id] = (countMap[row.collection_id] || 0) + 1;
-      }
-      for (const c of cols) {
-        c.item_count = countMap[c.id] || 0;
-      }
+    try {
+      const data = await listCollections();
+      setCollections((data.collections as CollectionWithCount[]) || []);
+    } catch {
+      setCollections([]);
     }
-
-    setCollections(cols);
     setLoading(false);
   };
 
   const loadCollectionItems = async (collectionId: string) => {
-    const { data: links } = await supabase
-      .from("collection_items")
-      .select("item_id")
-      .eq("collection_id", collectionId)
-      .order("sort_order");
-
-    if (links && links.length > 0) {
-      const ids = links.map((l: { item_id: string }) => l.item_id);
-      const { data: items } = await supabase
-        .from("items")
-        .select("*")
-        .in("id", ids);
-      setCollectionItems((items as Item[]) || []);
-    } else {
+    try {
+      const data = await getCollectionItems(collectionId);
+      setCollectionItems((data.items as Item[]) || []);
+    } catch {
       setCollectionItems([]);
     }
   };
 
   const createCollection = async () => {
     if (!form.name.trim()) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    await supabase.from("collections").insert({
-      ...form,
-      user_id: user?.id,
-      is_public: false,
-    });
-    setForm({ name: "", description: "" });
-    setShowCreate(false);
-    loadCollections();
+    try {
+      await apiCreateCollection(form);
+      setForm({ name: "", description: "" });
+      setShowCreate(false);
+      loadCollections();
+    } catch {
+      // silent
+    }
   };
 
   const handleRename = async (colId: string) => {
