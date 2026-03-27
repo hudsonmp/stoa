@@ -1140,29 +1140,24 @@
 .stoa-sb-person-confirm:hover { background: #9A3412; }
 .stoa-sb-person-confirm:disabled { opacity: 0.5; cursor: default; }
 
-/* Page margin annotations — show highlight notes inline next to highlighted text */
+/* Page margin annotations — positioned in right margin of viewport */
 .stoa-highlight-annotation {
   position: absolute;
-  left: 100%;
-  top: 0;
-  margin-left: 16px;
+  right: 20px;
   width: 180px;
   font-family: "DM Sans", -apple-system, sans-serif;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.45;
-  color: #44403C;
+  color: #57534E;
   border-left: 2px solid #C2410C;
   padding: 4px 0 4px 8px;
   pointer-events: none;
   white-space: normal;
-  z-index: 10;
+  z-index: 9998;
 }
 
-/* On narrow viewports, hide margin notes */
-@media (max-width: 1100px) {
-  .stoa-highlight-annotation {
-    display: none;
-  }
+@media (max-width: 1200px) {
+  .stoa-highlight-annotation { display: none; }
 }
 
 /* Simplified highlight button */

@@ -30,6 +30,7 @@ let lastSavedNoteContent = ""; // Track last saved content to avoid redundant PA
 let lastSidebarToggle = 0; // Debounce for Cmd+Shift+H (prevents double-toggle from keydown + commands API)
 let currentItemCollectionIds = []; // Collection IDs this item belongs to
 let currentItemPersonIds = []; // Person IDs linked to this item
+let resolvePromise = null; // Promise from resolveCurrentItemId — sidebar awaits this
 
 // --- Init ---
 async function init() {
@@ -47,16 +48,19 @@ async function init() {
     chrome.storage.local.set({ stoa_user_id: currentUser });
   }
 
-  if (currentUser) {
-    await restoreHighlights();
-    restoreScrollPosition();
-    resolveCurrentItemId();
-  }
-
+  // Setup UI immediately — never block on network calls
   setupSelectionListener();
   setupKeyboardShortcuts();
   setupScrollTracking();
   createProgressBar();
+
+  // Network-dependent tasks run in background (non-blocking)
+  if (currentUser) {
+    restoreHighlights();  // no await — don't block sidebar/shortcuts on API
+    restoreScrollPosition();
+    // Store the resolve promise so openSidebar can await it
+    resolvePromise = resolveCurrentItemId();
+  }
 
   // Listen for commands from service worker (works on PDF pages where keydown doesn't)
   chrome.runtime.onMessage.addListener((msg) => {
@@ -619,23 +623,31 @@ function getCSSSelector(el) {
 function renderMarginNote(highlightSpan, noteText) {
   if (!noteText || !highlightSpan) return;
 
-  // Need the highlight's parent to be position:relative for absolute positioning
-  const container = highlightSpan.closest("p, div, li, blockquote, td, section, article");
-  if (container) {
-    const existing = container.style.position;
-    if (!existing || existing === "static") {
-      container.style.position = "relative";
-    }
-  }
-
-  const annotation = document.createElement("span");
+  const annotation = document.createElement("div");
   annotation.className = "stoa-highlight-annotation";
   annotation.textContent = noteText;
   annotation.dataset.stoaHighlightId = highlightSpan.dataset.stoaId || "";
 
-  // Position relative to the highlight span within its container
-  highlightSpan.style.position = "relative";
-  highlightSpan.appendChild(annotation);
+  // Position as fixed element in the right margin using the highlight's position
+  document.body.appendChild(annotation);
+
+  const updatePosition = () => {
+    const rect = highlightSpan.getBoundingClientRect();
+    annotation.style.top = `${window.scrollY + rect.top}px`;
+  };
+  updatePosition();
+
+  // Reposition on scroll (debounced)
+  let scrollTimer;
+  const scrollHandler = () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(updatePosition, 50);
+  };
+  window.addEventListener("scroll", scrollHandler);
+
+  // Store cleanup reference on the span
+  highlightSpan._stoaAnnotation = annotation;
+  highlightSpan._stoaScrollHandler = scrollHandler;
 }
 
 // --- Auth Headers ---
@@ -1711,10 +1723,16 @@ async function openSidebar() {
 
   document.documentElement.appendChild(sidebarElement);
 
+  // Wait for initial resolve to finish (runs on page load, non-blocking)
+  if (resolvePromise) {
+    await resolvePromise;
+    resolvePromise = null;
+  }
+
   // --- Auto-save the page to Stoa if not already saved ---
   await ensurePageSaved();
 
-  // Re-resolve item data (collections, persons) if we just created the item
+  // Re-resolve item data (collections, persons) if needed
   if (currentItemId && currentItemCollectionIds.length === 0 && currentItemPersonIds.length === 0) {
     await resolveCurrentItemId();
     // Update dropdowns if data was found
