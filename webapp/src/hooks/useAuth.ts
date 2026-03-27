@@ -8,10 +8,22 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Sync Supabase session to localStorage for API headers
+    const syncSession = (s: Session | null) => {
+      if (s) {
+        localStorage.setItem("stoa_token", s.access_token);
+        localStorage.setItem("stoa_user_id", s.user.id);
+      } else {
+        localStorage.removeItem("stoa_token");
+        localStorage.removeItem("stoa_user_id");
+      }
+    };
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
+      syncSession(s);
       setLoading(false);
     });
 
@@ -21,6 +33,7 @@ export function useAuth() {
     } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      syncSession(s);
       setLoading(false);
     });
 
