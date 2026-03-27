@@ -2,13 +2,13 @@ import { NavLink } from "react-router-dom";
 import {
   BookOpen,
   BookCheck,
-  PenLine,
-  Users,
+  BookMarked,
   FolderOpen,
   FileText,
   Search,
-  RotateCcw,
   LogOut,
+  UserCheck,
+  PenLine,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -24,13 +24,14 @@ interface SidebarProps {
 
 const navItems = [
   { to: "/", label: "To Read", icon: BookOpen, countKey: "to_read" as const },
+  { to: "/reading", label: "Reading", icon: BookMarked, countKey: undefined },
   { to: "/read", label: "Read", icon: BookCheck, countKey: "read" as const },
-  { to: "/writings", label: "Writings", icon: PenLine, countKey: "writing" as const },
 ];
 
 const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
-  { to: "/people", label: "People", icon: Users },
+  { to: "/notes", label: "Notes", icon: PenLine },
+  { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
 ];
 
@@ -133,31 +134,6 @@ export default function Sidebar({ counts, reviewDue = 0 }: SidebarProps) {
           Search
         </NavLink>
 
-        <NavLink
-          to="/review"
-          className={({ isActive }) =>
-            `flex items-center justify-between px-3 py-2 rounded-card text-sm
-             transition-warm group
-             ${
-               isActive
-                 ? "bg-bg-secondary text-text-primary border-l-2 border-accent ml-0 pl-[10px]"
-                 : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
-             }`
-          }
-        >
-          <span className="flex items-center gap-2.5">
-            <RotateCcw
-              size={16}
-              className="text-text-tertiary group-hover:text-text-secondary transition-warm"
-            />
-            Review Queue
-          </span>
-          {reviewDue > 0 && (
-            <span className="text-[10px] font-mono bg-accent/10 text-accent px-1.5 py-0.5 rounded-tag">
-              {reviewDue}
-            </span>
-          )}
-        </NavLink>
       </nav>
 
       {/* Footer */}

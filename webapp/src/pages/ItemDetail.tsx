@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -19,11 +19,17 @@ import {
   Plus,
   Send,
   Trash2,
+  Copy,
+  ChevronDown,
+  FolderPlus,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl } from "@/lib/api";
+import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
+import NoteEditor from "@/components/NoteEditor";
+import ResearchEditor from "@/components/ResearchEditor";
+import PdfAnnotationView from "@/components/PdfAnnotationView";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -41,6 +47,7 @@ const ITEM_TYPES = ["blog", "writing", "book", "paper", "podcast", "video", "pag
 
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [item, setItem] = useState<Item | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -51,6 +58,7 @@ export default function ItemDetail() {
   const [highlightPanelOpen, setHighlightPanelOpen] = useState(false);
   const [readerMode, setReaderMode] = useState(false);
   const [pdfMode, setPdfMode] = useState(false);
+  const [ar5ivMode, setAr5ivMode] = useState(false);
 
   // Inline editing state
   const [editingHighlightNote, setEditingHighlightNote] = useState<string | null>(null);
@@ -60,10 +68,19 @@ export default function ItemDetail() {
   const [titleDraft, setTitleDraft] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [citeDropdownOpen, setCiteDropdownOpen] = useState(false);
+  const [citeCopied, setCiteCopied] = useState<string | null>(null);
+  const [collectionDropdownOpen, setCollectionDropdownOpen] = useState(false);
+  const [availableCollections, setAvailableCollections] = useState<{ id: string; name: string }[]>([]);
+  const [mainNoteId, setMainNoteId] = useState<string | null>(null);
+  const [mainNoteContent, setMainNoteContent] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const marginRef = useRef<HTMLElement>(null);
   const hlContainerRef = useRef<HTMLDivElement>(null);
+  const citeRef = useRef<HTMLDivElement>(null);
+  const collectionRef = useRef<HTMLDivElement>(null);
 
   // Positional anchoring version — bumped when highlights change
   const hlVersion = highlights.length;
@@ -76,20 +93,16 @@ export default function ItemDetail() {
   }, [id]);
 
   const pdfUrl = item ? getPdfEmbedUrl(item) : null;
+  const ar5ivUrl = item ? getAr5ivUrl(item) : null;
 
-  // Auto-enter reader mode if there's extracted text
+  // arXiv papers default to ar5iv HTML view (best quality rendering)
   useEffect(() => {
-    if (item?.extracted_text && item.extracted_text.length > 200) {
-      setReaderMode(true);
+    if (item && ar5ivUrl) {
+      setAr5ivMode(true);
+      setReaderMode(false);
+      setPdfMode(false);
     }
-  }, [item]);
-
-  // Auto-enter PDF mode for papers with embeddable PDFs
-  useEffect(() => {
-    if (item?.type === "paper" && getPdfEmbedUrl(item)) {
-      setPdfMode(true);
-    }
-  }, [item]);
+  }, [item, ar5ivUrl]);
 
   const loadItem = async () => {
     setLoading(true);
@@ -97,9 +110,19 @@ export default function ItemDetail() {
       const data = await getItem(id!);
       setItem(data.item as Item);
       setHighlights((data.highlights as Highlight[]) || []);
-      setNotes((data.notes as Note[]) || []);
+      const itemNotes = (data.notes as Note[]) || [];
+      setNotes(itemNotes);
       setCitation((data.citation as Citation) || null);
       setRelatedItems((data.related as Item[]) || []);
+      // Find or prepare main note (source-note or first note)
+      const sourceNote = itemNotes.find((n) => n.tags?.includes("source-note")) || itemNotes[0];
+      if (sourceNote) {
+        setMainNoteId(sourceNote.id);
+        setMainNoteContent(sourceNote.content || "");
+      } else {
+        setMainNoteId(null);
+        setMainNoteContent("");
+      }
       // Load tags
       try {
         const tagData = await getItemTags(id!);
@@ -111,6 +134,57 @@ export default function ItemDetail() {
       setItem(null);
     }
     setLoading(false);
+  };
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (citeRef.current && !citeRef.current.contains(e.target as Node)) {
+        setCiteDropdownOpen(false);
+      }
+      if (collectionRef.current && !collectionRef.current.contains(e.target as Node)) {
+        setCollectionDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Load collections when collection dropdown opens
+  useEffect(() => {
+    if (collectionDropdownOpen) {
+      listCollections()
+        .then((data) => setAvailableCollections(data.collections || []))
+        .catch(() => {});
+    }
+  }, [collectionDropdownOpen]);
+
+  const copyCitation = async (format: "bibtex" | "apa" | "mla") => {
+    if (!item) return;
+    try {
+      let text = "";
+      if (format === "bibtex") {
+        const data = await exportBibtex(item.id);
+        text = data.bibtex;
+      } else if (format === "apa") {
+        const data = await exportApa(item.id);
+        text = data.apa;
+      } else {
+        const data = await exportMla(item.id);
+        text = data.mla;
+      }
+      await navigator.clipboard.writeText(text);
+      setCiteCopied(format);
+      setTimeout(() => setCiteCopied(null), 1500);
+    } catch { /* clipboard or API error */ }
+  };
+
+  const handleAddToCollection = async (collectionId: string) => {
+    if (!item) return;
+    try {
+      await addItemToCollection(collectionId, item.id);
+      setCollectionDropdownOpen(false);
+    } catch { /* ignore */ }
   };
 
   const saveTitle = async () => {
@@ -155,6 +229,32 @@ export default function ItemDetail() {
     setNotes((prev) => [newNote, ...prev]);
     setNoteContent("");
   };
+
+  const handleMainNoteSave = useCallback(async (content: string) => {
+    if (!item) return;
+    setNoteSaving(true);
+    try {
+      if (mainNoteId) {
+        await updateNote(mainNoteId, { content });
+      } else {
+        // Create new source note
+        const result = await createNote({
+          item_id: item.id,
+          content,
+          title: item.title,
+          tags: ["source-note"],
+        });
+        const newNote = (result as { note: Note }).note;
+        setMainNoteId(newNote.id);
+        setNotes((prev) => [newNote, ...prev]);
+      }
+      setMainNoteContent(content);
+    } catch {
+      // silent
+    } finally {
+      setNoteSaving(false);
+    }
+  }, [item, mainNoteId]);
 
   const updateStatus = async (status: Item["reading_status"]) => {
     if (!item) return;
@@ -284,6 +384,69 @@ export default function ItemDetail() {
 
   const Icon = typeIcons[item.type] || Bookmark;
 
+  // PDF fullscreen mode — takes over the entire page
+  if (pdfMode && pdfUrl) {
+    return (
+      <div className="pdf-fullscreen">
+        <div className="pdf-fullscreen-bar">
+          <button onClick={() => setPdfMode(false)} className="pdf-fullscreen-back">
+            <ArrowLeft size={14} />
+            {item.title.slice(0, 50)}{item.title.length > 50 ? "..." : ""}
+          </button>
+          <div className="flex items-center gap-2">
+            {citation && (
+              <div ref={citeRef} className="relative">
+                <button
+                  onClick={() => setCiteDropdownOpen(!citeDropdownOpen)}
+                  className="pdf-fullscreen-btn"
+                >
+                  <Copy size={12} /> Cite <ChevronDown size={10} />
+                </button>
+                {citeDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px]
+                                  bg-bg-primary border border-border rounded-card shadow-warm-lg
+                                  py-1 text-sm">
+                    {(["apa", "mla", "bibtex"] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => copyCitation(fmt)}
+                        className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                   flex items-center justify-between gap-2"
+                      >
+                        <span className="font-sans text-text-primary">
+                          {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
+                        </span>
+                        {citeCopied === fmt && (
+                          <span className="text-[10px] text-green-600">Copied</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {item.url && (
+              <a href={item.url} target="_blank" rel="noopener noreferrer" className="pdf-fullscreen-btn">
+                <ExternalLink size={12} /> Original
+              </a>
+            )}
+          </div>
+        </div>
+        <PdfAnnotationView
+          pdfUrl={pdfUrl}
+          highlights={highlights}
+          notes={notes}
+          itemId={item.id}
+          onCreateNote={async (content, tags) => {
+            const result = await createNote({ item_id: item.id, content, tags });
+            const newNote = (result as { note: Note }).note;
+            setNotes((prev) => [newNote, ...prev]);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div ref={scrollContainerRef} className="reader-page" data-reader-scroll>
       {/* Top bar */}
@@ -295,25 +458,34 @@ export default function ItemDetail() {
 
         <div className="reader-topbar-actions">
           {/* View mode switcher */}
-          <div className="flex gap-1 bg-bg-secondary rounded-card p-0.5">
+          <div className="flex gap-1.5 bg-bg-secondary rounded-card p-1">
             <button
-              onClick={() => { setPdfMode(false); setReaderMode(false); }}
-              className={`reader-mode-toggle ${!pdfMode && !readerMode ? "active" : ""}`}
+              onClick={() => { setPdfMode(false); setReaderMode(false); setAr5ivMode(false); }}
+              className={`reader-mode-toggle ${!pdfMode && !readerMode && !ar5ivMode ? "active" : ""}`}
             >
               Detail
             </button>
-            {item.extracted_text && (
+            {ar5ivUrl && (
               <button
-                onClick={() => { setPdfMode(false); setReaderMode(true); }}
-                className={`reader-mode-toggle ${!pdfMode && readerMode ? "active" : ""}`}
+                onClick={() => { setAr5ivMode(true); setPdfMode(false); setReaderMode(false); }}
+                className={`reader-mode-toggle ${ar5ivMode ? "active" : ""}`}
               >
-                <Highlighter size={13} />
-                Annotate
+                <BookOpen size={13} />
+                Read
+              </button>
+            )}
+            {!ar5ivUrl && !pdfUrl && item.url && (
+              <button
+                onClick={() => navigate(`/reader/${item.id}`)}
+                className="reader-mode-toggle"
+              >
+                <BookOpen size={13} />
+                Read
               </button>
             )}
             {pdfUrl && (
               <button
-                onClick={() => { setPdfMode(true); setReaderMode(false); }}
+                onClick={() => { setPdfMode(true); setReaderMode(false); setAr5ivMode(false); }}
                 className={`reader-mode-toggle ${pdfMode ? "active" : ""}`}
               >
                 <FileText size={13} />
@@ -331,6 +503,72 @@ export default function ItemDetail() {
               {highlights.length}
             </button>
           )}
+
+          {citation && (
+            <div ref={citeRef} className="relative">
+              <button
+                onClick={() => setCiteDropdownOpen(!citeDropdownOpen)}
+                className="reader-external-link"
+                title="Copy citation"
+              >
+                <Copy size={12} />
+                Cite
+                <ChevronDown size={10} />
+              </button>
+              {citeDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px]
+                                bg-bg-primary border border-border rounded-card shadow-warm-lg
+                                py-1 text-sm">
+                  {(["apa", "mla", "bibtex"] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => copyCitation(fmt)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                 flex items-center justify-between gap-2"
+                    >
+                      <span className="font-sans text-text-primary">
+                        {fmt === "bibtex" ? "BibTeX" : fmt.toUpperCase()}
+                      </span>
+                      {citeCopied === fmt && (
+                        <span className="text-[10px] text-green-600">Copied</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Add to collection */}
+          <div ref={collectionRef} className="relative">
+            <button
+              onClick={() => setCollectionDropdownOpen(!collectionDropdownOpen)}
+              className="reader-external-link"
+              title="Add to collection"
+            >
+              <FolderPlus size={12} />
+            </button>
+            {collectionDropdownOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px]
+                              bg-bg-primary border border-border rounded-card shadow-warm-lg
+                              py-1 text-sm max-h-[240px] overflow-y-auto">
+                {availableCollections.length === 0 ? (
+                  <p className="px-3 py-2 text-text-tertiary text-[12px]">No collections</p>
+                ) : (
+                  availableCollections.map((col) => (
+                    <button
+                      key={col.id}
+                      onClick={() => handleAddToCollection(col.id)}
+                      className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                                 text-text-primary truncate"
+                    >
+                      {col.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {item.url && (
             <a
@@ -461,20 +699,22 @@ export default function ItemDetail() {
             </div>
           </header>
 
-          {/* PDF embed mode */}
-          {pdfMode && pdfUrl && (
-            <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "80vh" }}>
+          {/* ar5iv HTML mode — best quality for arXiv papers */}
+          {ar5ivMode && ar5ivUrl && (
+            <div className="mt-4 rounded-card overflow-hidden border border-border" style={{ height: "85vh" }}>
               <iframe
-                src={pdfUrl}
-                title={`${item.title} PDF`}
+                src={ar5ivUrl}
+                title={`${item.title} (ar5iv HTML)`}
                 className="w-full h-full"
                 style={{ border: "none" }}
               />
             </div>
           )}
 
+          {/* PDF mode handled by early return above */}
+
           {/* Reader mode or detail view */}
-          {!pdfMode && readerMode && item.extracted_text ? (
+          {!pdfMode && !ar5ivMode && readerMode && item.extracted_text ? (
             <ReaderView
               item={item}
               highlights={highlights}
@@ -483,7 +723,7 @@ export default function ItemDetail() {
               onCreateHighlight={handleCreateHighlight}
               onNoteForLastHighlight={handleNoteForLastHighlight}
             />
-          ) : !pdfMode ? (
+          ) : !pdfMode && !ar5ivMode ? (
             <>
               {citation && (
                 <div className="reader-detail-citation">
@@ -513,6 +753,23 @@ export default function ItemDetail() {
                   <p className="text-sm text-text-secondary leading-relaxed">{item.summary}</p>
                 </section>
               )}
+
+              {/* Full-width notes editor — Google Doc style */}
+              <section className="reader-section">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="reader-section-heading" style={{ marginBottom: 0 }}>Notes</h2>
+                  <span className="text-[10px] font-mono text-text-tertiary">
+                    {noteSaving ? "Saving..." : mainNoteId ? "Saved" : ""}
+                  </span>
+                </div>
+                <div className="item-notes-editor">
+                  <ResearchEditor
+                    content={mainNoteContent}
+                    onSave={handleMainNoteSave}
+                    placeholder="Write your notes about this item..."
+                  />
+                </div>
+              </section>
             </>
           ) : null}
 
@@ -541,36 +798,28 @@ export default function ItemDetail() {
           )}
         </motion.div>
 
-        {/* Right margin — annotations column (Curius-style) */}
+        {/* Right margin — only shown in Read/ar5iv modes */}
+        {(readerMode || ar5ivMode) && (
         <aside ref={marginRef} className="reader-margin">
-          {/* Note input */}
-          <div className="reader-margin-heading">Annotations</div>
-          <div className="reader-margin-input">
-            <textarea
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
+          <div className="reader-margin-heading">Notes</div>
+          <div className="reader-margin-input-rich">
+            <NoteEditor
+              content={noteContent}
+              onChange={setNoteContent}
               placeholder="Add a note..."
-              rows={2}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  saveNote();
-                }
-              }}
             />
             <button
               onClick={saveNote}
-              disabled={!noteContent.trim()}
-              className="reader-margin-send"
+              disabled={!noteContent.trim() || noteContent === "<p></p>"}
+              className="reader-margin-send mt-1"
               title="Save note (Cmd+Enter)"
             >
               <Send size={13} />
             </button>
           </div>
 
-          {/* Highlights */}
           {highlights.length > 0 && (() => {
-            const hasPositions = readerMode && Object.keys(hlPositions).length > 0;
+            const hasPositions = Object.keys(hlPositions).length > 0;
             return (
             <>
               <div className="reader-margin-divider" />
@@ -669,14 +918,16 @@ export default function ItemDetail() {
             );
           })()}
 
-          {/* Notes */}
           {notes.length > 0 && (
             <>
               <div className="reader-margin-divider" />
               <div className="reader-margin-heading">Notes ({notes.length})</div>
               {notes.map((n) => (
                 <div key={n.id} className="reader-margin-card reader-margin-note-card group/note">
-                  <p className="reader-margin-note-content">{n.content}</p>
+                  <div
+                    className="reader-margin-note-content"
+                    dangerouslySetInnerHTML={{ __html: n.content }}
+                  />
                   <div className="flex items-center justify-between">
                     <span className="reader-margin-card-time">
                       {new Date(n.created_at).toLocaleDateString("en-US", {
@@ -703,6 +954,7 @@ export default function ItemDetail() {
             </p>
           )}
         </aside>
+        )}
       </div>
 
       {/* Highlight panel (slide-over, kept for detailed editing) */}

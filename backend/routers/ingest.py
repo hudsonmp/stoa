@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from services.auth import get_supabase_service, get_user_id
 from services.url_validator import validate_url
-from services.extraction import extract_from_url, extract_from_pdf, fetch_arxiv_metadata
+from services.extraction import extract_from_url, extract_from_pdf, fetch_arxiv_metadata, extract_authors_and_emails
 from services.embedding import chunk_and_embed
 from services.citation_resolver import resolve_citation
 from services.book_lookup import search_books
@@ -50,6 +50,7 @@ class IngestBookRequest(BaseModel):
 
 
 import re
+from urllib.parse import urlparse
 
 # Domains that should auto-classify as "paper"
 PAPER_DOMAINS = {
@@ -88,6 +89,41 @@ async def ingest_url(req: IngestURLRequest, request: Request):
     if arxiv_id:
         return await ingest_arxiv(arxiv_id, request)
 
+    # Auto-detect direct PDF URLs — download and process as PDF
+    if req.url.lower().endswith(".pdf"):
+        import httpx
+        try:
+            async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
+                pdf_resp = await client.get(req.url)
+                if pdf_resp.headers.get("content-type", "").startswith("application/pdf") or req.url.endswith(".pdf"):
+                    from fastapi import UploadFile
+                    from io import BytesIO
+                    # Route through the PDF pipeline
+                    extracted = extract_from_pdf(pdf_resp.content)
+                    item_data = {
+                        "user_id": user_id,
+                        "url": req.url,
+                        "title": extracted["title"] if extracted["title"] != "Untitled PDF" else req.url.split("/")[-1].replace(".pdf", ""),
+                        "type": "paper",
+                        "domain": extracted.get("domain") or urlparse(req.url).hostname,
+                        "extracted_text": extracted["extracted_text"],
+                        "metadata": {"page_count": extracted["page_count"], "is_two_column": extracted.get("is_two_column", False)},
+                        "reading_status": "to_read",
+                    }
+                    result = supabase.table("items").insert(item_data).execute()
+                    item = result.data[0]
+                    # Non-fatal embedding
+                    chunks = []
+                    try:
+                        chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
+                        if chunks:
+                            supabase.table("chunks").insert(chunks).execute()
+                    except Exception:
+                        pass
+                    return {"item": item, "chunks_created": len(chunks)}
+        except Exception:
+            logger.warning("Direct PDF download failed for %s, falling back to URL extraction", req.url)
+
     # Auto-classify paper URLs
     if req.type in ("blog", "page") and _is_paper_url(req.url):
         req.type = "paper"
@@ -102,6 +138,18 @@ async def ingest_url(req: IngestURLRequest, request: Request):
         .execute()
     )
     if existing.data:
+        # Still add to collection even if item already exists
+        if req.collection_id:
+            try:
+                dup_check = supabase.table("collection_items").select("collection_id").eq("collection_id", req.collection_id).eq("item_id", existing.data[0]["id"]).limit(1).execute()
+                if not dup_check.data:
+                    supabase.table("collection_items").insert({
+                        "collection_id": req.collection_id,
+                        "item_id": existing.data[0]["id"],
+                        "sort_order": 0,
+                    }).execute()
+            except Exception:
+                pass
         return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Extract content
@@ -151,14 +199,18 @@ async def ingest_url(req: IngestURLRequest, request: Request):
             "sort_order": 0,
         }).execute()
 
-    # Chunk and embed
-    chunks = await chunk_and_embed(
-        extracted["extracted_text"],
-        item_id,
-        metadata={"type": req.type, "domain": extracted["domain"]},
-    )
-    if chunks:
-        supabase.table("chunks").insert(chunks).execute()
+    # Chunk and embed (non-fatal — page saved even without embeddings)
+    chunks = []
+    try:
+        chunks = await chunk_and_embed(
+            extracted["extracted_text"],
+            item_id,
+            metadata={"type": req.type, "domain": extracted["domain"]},
+        )
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
+    except Exception:
+        logger.warning("Embedding failed for %s, item saved without chunks", req.url)
 
     # Auto-link extracted author to existing people (D2)
     if extracted.get("author"):
@@ -237,17 +289,21 @@ async def ingest_pdf(
         "title": title or extracted["title"],
         "type": "paper",
         "extracted_text": extracted["extracted_text"],
-        "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path},
+        "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path, "is_two_column": extracted.get("is_two_column", False)},
         "reading_status": "to_read",
     }
 
     result = supabase.table("items").insert(item_data).execute()
     item = result.data[0]
 
-    # Chunk and embed
-    chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
-    if chunks:
-        supabase.table("chunks").insert(chunks).execute()
+    # Chunk and embed (non-fatal)
+    chunks = []
+    try:
+        chunks = await chunk_and_embed(extracted["extracted_text"], item["id"])
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
+    except Exception:
+        logger.warning("Embedding failed for PDF %s, paper saved without chunks", safe_filename)
 
     # Auto-resolve citation for PDFs (C)
     citation_data = None
@@ -273,7 +329,171 @@ async def ingest_pdf(
     except Exception:
         logger.warning("Citation resolution failed for PDF %s", safe_filename, exc_info=True)
 
+    # Fallback: extract authors + emails directly from PDF if citation didn't provide them
+    if not citation_data or not citation_data.get("authors"):
+        try:
+            pdf_authors = extract_authors_and_emails(pdf_bytes)
+            for author_info in pdf_authors:
+                person_data = {"role": "researcher"}
+                if author_info.get("affiliation"):
+                    person_data["affiliation"] = author_info["affiliation"]
+                _link_or_create_person(supabase, user_id, author_info["name"], item["id"], extra=person_data)
+                # Store email in person bio field (until email column migration)
+                if author_info.get("email"):
+                    existing = supabase.table("people").select("id, bio").eq("user_id", user_id).eq("name", author_info["name"]).limit(1).execute()
+                    if existing.data and not existing.data[0].get("bio"):
+                        supabase.table("people").update({"bio": author_info["email"]}).eq("id", existing.data[0]["id"]).execute()
+        except Exception:
+            logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
+
     return {"item": item, "chunks_created": len(chunks), "citation": citation_data}
+
+
+@router.post("/batch-pdf")
+async def ingest_batch_pdf(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    collection_id: Optional[str] = Form(None),
+    tags: list[str] = Form([]),
+):
+    """Upload and process multiple PDFs at once."""
+    import os as _os
+    import uuid as _uuid
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    MAX_PDF_SIZE = 50 * 1024 * 1024
+    created_items = []
+    errors = []
+
+    for file in files:
+        try:
+            pdf_bytes = await file.read()
+            if len(pdf_bytes) > MAX_PDF_SIZE:
+                errors.append({"file": file.filename, "error": "PDF exceeds 50MB limit"})
+                continue
+
+            extracted = extract_from_pdf(pdf_bytes)
+
+            # Sanitize filename
+            safe_filename = _os.path.basename(file.filename or "upload.pdf").replace("..", "")
+            if not safe_filename:
+                safe_filename = f"{_uuid.uuid4().hex}.pdf"
+            storage_path = f"{user_id}/pdfs/{safe_filename}"
+
+            # Upload to storage
+            try:
+                supabase.storage.from_("documents").upload(storage_path, pdf_bytes)
+            except Exception:
+                try:
+                    supabase.storage.from_("documents").update(storage_path, pdf_bytes)
+                except Exception:
+                    logger.warning("PDF storage failed for %s, continuing", storage_path)
+
+            item_data = {
+                "user_id": user_id,
+                "title": extracted["title"],
+                "type": "paper",
+                "extracted_text": extracted["extracted_text"],
+                "metadata": {"page_count": extracted["page_count"], "pdf_storage_path": storage_path, "is_two_column": extracted.get("is_two_column", False)},
+                "reading_status": "to_read",
+            }
+
+            result = supabase.table("items").insert(item_data).execute()
+            item = result.data[0]
+            item_id = item["id"]
+
+            # Add to collection
+            if collection_id:
+                try:
+                    supabase.table("collection_items").insert({
+                        "collection_id": collection_id,
+                        "item_id": item_id,
+                        "sort_order": 0,
+                    }).execute()
+                except Exception:
+                    logger.warning("Failed to add item %s to collection %s", item_id, collection_id)
+
+            # Add tags
+            for tag_name in tags:
+                try:
+                    tag_result = supabase.table("tags").upsert(
+                        {"user_id": user_id, "name": tag_name},
+                        on_conflict="user_id,name",
+                    ).execute()
+                    tag_id = tag_result.data[0]["id"]
+                    supabase.table("item_tags").insert({
+                        "item_id": item_id,
+                        "tag_id": tag_id,
+                    }).execute()
+                except Exception:
+                    logger.warning("Failed to add tag %s to item %s", tag_name, item_id)
+
+            # Chunk and embed (non-fatal)
+            chunks_created = 0
+            try:
+                chunks = await chunk_and_embed(extracted["extracted_text"], item_id)
+                if chunks:
+                    supabase.table("chunks").insert(chunks).execute()
+                    chunks_created = len(chunks)
+            except Exception:
+                logger.warning("Embedding failed for PDF %s, item saved without chunks", safe_filename, exc_info=True)
+
+            # Auto-resolve citation (non-fatal)
+            citation_data = None
+            try:
+                citation_data = await resolve_citation(
+                    title=extracted["title"],
+                    text=(extracted.get("extracted_text") or "")[:3000],
+                )
+                if citation_data:
+                    supabase.table("citations").insert({
+                        "item_id": item_id,
+                        "authors": citation_data.get("authors"),
+                        "year": citation_data.get("year"),
+                        "venue": citation_data.get("venue"),
+                        "doi": citation_data.get("doi"),
+                        "arxiv_id": citation_data.get("arxiv_id"),
+                        "abstract": citation_data.get("abstract"),
+                        "bibtex": citation_data.get("bibtex"),
+                        "pdf_storage_path": storage_path,
+                    }).execute()
+                    for author in citation_data.get("authors", []):
+                        _link_or_create_person(supabase, user_id, author["name"], item_id)
+            except Exception:
+                logger.warning("Citation resolution failed for PDF %s", safe_filename, exc_info=True)
+
+            # Fallback: extract authors directly from PDF
+            if not citation_data or not citation_data.get("authors"):
+                try:
+                    pdf_authors = extract_authors_and_emails(pdf_bytes)
+                    for author_info in pdf_authors:
+                        person_data = {"role": "researcher"}
+                        if author_info.get("affiliation"):
+                            person_data["affiliation"] = author_info["affiliation"]
+                        _link_or_create_person(supabase, user_id, author_info["name"], item_id, extra=person_data)
+                except Exception:
+                    logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
+
+            # Log activity
+            supabase.table("activity").insert({
+                "user_id": user_id,
+                "action": "save",
+                "item_id": item_id,
+            }).execute()
+
+            created_items.append({"item": item, "chunks_created": chunks_created, "citation": citation_data})
+
+        except Exception as e:
+            logger.error("Failed to process PDF %s: %s", file.filename, str(e), exc_info=True)
+            errors.append({"file": file.filename, "error": str(e)})
+
+    return {
+        "items": created_items,
+        "count": len(created_items),
+        "errors": errors,
+    }
 
 
 @router.post("/arxiv/{arxiv_id}")
@@ -299,7 +519,7 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
         return {"item": existing.data[0], "chunks_created": 0, "deduplicated": True}
 
     # Download PDF (follow_redirects required for arXiv)
-    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+    async with httpx.AsyncClient(verify=False, timeout=60, follow_redirects=True) as client:
         pdf_resp = await client.get(meta["pdf_url"])
         pdf_bytes = pdf_resp.content
 
@@ -701,8 +921,8 @@ def _link_author_to_item(supabase, user_id: str, author_name: str, item_id: str)
             pass  # Duplicate link, ignore
 
 
-def _link_or_create_person(supabase, user_id: str, name: str, item_id: str):
-    """Find or create a person, then link to item."""
+def _link_or_create_person(supabase, user_id: str, name: str, item_id: str, extra: dict | None = None):
+    """Find or create a person, then link to item. Optional extra fields on create."""
     existing = (
         supabase.table("people")
         .select("id")
@@ -713,12 +933,23 @@ def _link_or_create_person(supabase, user_id: str, name: str, item_id: str):
     )
     if existing.data:
         person_id = existing.data[0]["id"]
+        # Update affiliation if provided and person doesn't have one
+        if extra and extra.get("affiliation"):
+            try:
+                person_full = supabase.table("people").select("affiliation").eq("id", person_id).single().execute()
+                if person_full.data and not person_full.data.get("affiliation"):
+                    supabase.table("people").update({"affiliation": extra["affiliation"]}).eq("id", person_id).execute()
+            except Exception:
+                pass
     else:
-        person_result = supabase.table("people").insert({
+        person_data = {
             "user_id": user_id,
             "name": name,
             "role": "researcher",
-        }).execute()
+        }
+        if extra:
+            person_data.update({k: v for k, v in extra.items() if v})
+        person_result = supabase.table("people").insert(person_data).execute()
         person_id = person_result.data[0]["id"]
 
     try:

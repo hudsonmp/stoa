@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -7,8 +7,9 @@ import {
   Type,
   Image as ImageIcon,
   Upload,
+  FolderOpen,
 } from "lucide-react";
-import { ingestUrl, ingestPaste, ingestImage, extractMetadata } from "@/lib/api";
+import { ingestUrl, ingestPaste, ingestImage, extractMetadata, listCollections } from "@/lib/api";
 
 interface AddItemModalProps {
   isOpen: boolean;
@@ -47,12 +48,55 @@ export default function AddItemModal({
   } | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [collectionId, setCollectionId] = useState<string>("");
+  const [collections, setCollections] = useState<{ id: string; name: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      listCollections()
+        .then((data) => setCollections(data.collections || []))
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
+  /**
+   * Normalize raw input: bare DOIs (10.xxx) and arXiv IDs (2401.10020)
+   * get expanded to full URLs before metadata extraction.
+   */
+  const normalizeInput = (raw: string): string => {
+    const trimmed = raw.trim();
+    // DOI: starts with "10."
+    if (/^10\.\d{4,}/.test(trimmed)) {
+      return `https://doi.org/${trimmed}`;
+    }
+    // arXiv ID: e.g. 2401.10020 or 2401.10020v2
+    if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(trimmed)) {
+      return `https://arxiv.org/abs/${trimmed}`;
+    }
+    return trimmed;
+  };
+
+  const handleUrlChange = (raw: string) => {
+    setUrl(raw);
+    // Auto-detect type for arXiv / DOI
+    const normalized = normalizeInput(raw);
+    if (normalized !== raw) {
+      if (normalized.includes("arxiv.org") || normalized.includes("doi.org")) {
+        setType("paper");
+      }
+    }
+  };
 
   const handleUrlBlur = async () => {
     if (!url.trim()) return;
+    // Apply normalization on blur so the URL field shows the full URL
+    const normalized = normalizeInput(url);
+    if (normalized !== url.trim()) {
+      setUrl(normalized);
+    }
     try {
-      const meta = await extractMetadata(url);
+      const meta = await extractMetadata(normalized);
       setPreview(meta);
     } catch {
       // Metadata extraction is optional
@@ -108,7 +152,8 @@ export default function AddItemModal({
     try {
       if (mode === "url") {
         if (!url.trim()) return;
-        await ingestUrl({ url, type });
+        const finalUrl = normalizeInput(url);
+        await ingestUrl({ url: finalUrl, type, collection_id: collectionId || undefined });
       } else if (mode === "text") {
         if (!textContent.trim()) return;
         await ingestPaste({
@@ -126,6 +171,7 @@ export default function AddItemModal({
       setTextContent("");
       setTitle("");
       setType("blog");
+      setCollectionId("");
       setPreview(null);
       setImageFile(null);
       setImagePreview(null);
@@ -223,11 +269,11 @@ export default function AddItemModal({
                       className="text-text-tertiary flex-shrink-0"
                     />
                     <input
-                      type="url"
+                      type="text"
                       value={url}
-                      onChange={(e) => setUrl(e.target.value)}
+                      onChange={(e) => handleUrlChange(e.target.value)}
                       onBlur={handleUrlBlur}
-                      placeholder="https://..."
+                      placeholder="URL, DOI (10.xxx), or arXiv ID (2401.10020)"
                       className="flex-1 bg-transparent border-none outline-none
                                  text-sm text-text-primary placeholder:text-text-tertiary"
                     />
@@ -341,6 +387,30 @@ export default function AddItemModal({
                       onChange={handleImageSelect}
                       className="hidden"
                     />
+                  </div>
+                </div>
+              )}
+
+              {/* Collection selector */}
+              {collections.length > 0 && (
+                <div>
+                  <label className="text-[11px] font-mono text-text-tertiary uppercase tracking-wider mb-1.5 block">
+                    Save for...
+                  </label>
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-card border border-border focus-within:border-accent/30 transition-warm">
+                    <FolderOpen size={14} className="text-text-tertiary flex-shrink-0" />
+                    <select
+                      value={collectionId}
+                      onChange={(e) => setCollectionId(e.target.value)}
+                      className="flex-1 bg-transparent border-none outline-none text-sm text-text-primary"
+                    >
+                      <option value="">No collection</option>
+                      {collections.map((col) => (
+                        <option key={col.id} value={col.id}>
+                          {col.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}

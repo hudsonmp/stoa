@@ -1,30 +1,20 @@
 /**
- * SelectionToolbar — Floating annotation toolbar for text selection in the reader.
+ * SelectionToolbar — Floating note input for text selection in the reader.
  *
- * Interaction-first design grounded in ICAP framework (Chi & Wylie 2014):
- * The biggest learning jump is Active → Constructive. After highlighting
- * (Active), the toolbar transitions to a note prompt (Constructive nudge)
- * rather than dismissing immediately. Users can skip or type a thought.
+ * Simplified: selecting text shows a single input. Type a thought and press
+ * Enter (or click submit) to create a yellow highlight with the note attached.
+ * Press Enter with an empty input to create a highlight with no note.
  *
- * Three modes:
- * - "actions": Primary [Highlight] [Note] buttons + secondary color dots
- * - "note": Note-first flow — write thought, pick color, creates highlight+note
- * - "prompted": Post-highlight nudge — highlight already created, note prompt shown
+ * "-> Notes" button: appends the selected text as a blockquote to an existing
+ * standalone note (fetched from GET /notes/standalone?limit=5).
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, StickyNote, ChevronDown } from "lucide-react";
+import { getStandaloneNotes, appendToNote } from "@/lib/api";
+import type { Note } from "@/lib/supabase";
 
-const COLORS = [
-  { name: "yellow", bg: "#FEF3C7", solid: "#F59E0B" },
-  { name: "green", bg: "#D1FAE5", solid: "#10B981" },
-  { name: "blue", bg: "#DBEAFE", solid: "#3B82F6" },
-  { name: "pink", bg: "#FCE7F3", solid: "#EC4899" },
-  { name: "purple", bg: "#EDE9FE", solid: "#8B5CF6" },
-] as const;
-
-export type HighlightColor = (typeof COLORS)[number]["name"];
-
-type ToolbarMode = "actions" | "note" | "prompted";
+export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
 
 interface SelectionToolbarProps {
   /** Called to create a highlight (with optional note + context) */
@@ -35,27 +25,35 @@ interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement | null>;
 }
 
+function extractNoteTitle(note: Note): string {
+  if (note.title && note.title !== "Untitled") return note.title;
+  const text = note.content.replace(/<[^>]*>/g, "").trim();
+  if (!text) return "Untitled";
+  const firstLine = text.split("\n")[0];
+  return firstLine.length > 40 ? firstLine.slice(0, 40) + "..." : firstLine;
+}
+
 export default function SelectionToolbar({
   onHighlight,
-  onNoteForLastHighlight,
   containerRef,
 }: SelectionToolbarProps) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [selectedText, setSelectedText] = useState("");
   const [selectedContext, setSelectedContext] = useState("");
-  const [mode, setMode] = useState<ToolbarMode>("actions");
-  const [activeColor, setActiveColor] = useState<HighlightColor>("yellow");
   const [noteText, setNoteText] = useState("");
+  const [notesDropdownOpen, setNotesDropdownOpen] = useState(false);
+  const [standaloneNotes, setStandaloneNotes] = useState<Note[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const noteInputRef = useRef<HTMLInputElement>(null);
 
   const dismiss = useCallback(() => {
     setVisible(false);
-    setMode("actions");
     setNoteText("");
     setSelectedText("");
     setSelectedContext("");
+    setNotesDropdownOpen(false);
   }, []);
 
   // Listen for text selection within the container
@@ -90,10 +88,23 @@ export default function SelectionToolbar({
       const rect = range.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
 
-      setPosition({
-        top: rect.top - containerRect.top - 48,
-        left: rect.left - containerRect.left + rect.width / 2 - 120,
-      });
+      const TOOLBAR_HEIGHT = 50;
+      const TOOLBAR_WIDTH = 300;
+      const GAP = 10;
+
+      // Position above the selection by default
+      let top = rect.top - containerRect.top - TOOLBAR_HEIGHT - GAP;
+      let left = rect.left - containerRect.left + rect.width / 2 - TOOLBAR_WIDTH / 2;
+
+      // If toolbar would go above the container, place it below the selection instead
+      if (rect.top - TOOLBAR_HEIGHT - GAP < 0) {
+        top = rect.bottom - containerRect.top + GAP;
+      }
+
+      // Clamp horizontal position to stay within the container
+      left = Math.max(0, Math.min(left, containerRect.width - TOOLBAR_WIDTH));
+
+      setPosition({ top, left });
 
       // Capture paragraph context (W3C TextQuoteSelector pattern)
       const ancestor = range.commonAncestorContainer;
@@ -105,101 +116,79 @@ export default function SelectionToolbar({
       setSelectedText(text);
       setSelectedContext(ctx);
       setVisible(true);
-      setMode("actions");
       setNoteText("");
+      setNotesDropdownOpen(false);
     };
 
     container.addEventListener("mouseup", handleMouseUp);
     return () => container.removeEventListener("mouseup", handleMouseUp);
   }, [containerRef, dismiss]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcut: Escape to dismiss
   useEffect(() => {
     if (!visible) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") {
-        if (e.key === "Escape") {
-          if (mode === "note") {
-            setMode("actions");
-            setNoteText("");
-          } else if (mode === "prompted") {
-            dismiss();
-          }
-        }
-        return;
-      }
-
-      if (mode !== "actions") return;
-
       if (e.key === "Escape") {
         dismiss();
         window.getSelection()?.removeAllRanges();
-        return;
-      }
-
-      // h for highlight with active color → transitions to note prompt
-      if (e.key === "h") {
-        e.preventDefault();
-        doHighlight(activeColor);
-        return;
-      }
-
-      // 1-5 for instant color highlight (power user shortcut)
-      if (e.key >= "1" && e.key <= "5") {
-        const color = COLORS[parseInt(e.key) - 1].name;
-        setActiveColor(color);
-        doHighlight(color);
-        return;
-      }
-
-      // n for note-first mode
-      if (e.key === "n") {
-        e.preventDefault();
-        setMode("note");
       }
     };
 
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [visible, mode, selectedText, selectedContext, activeColor, onHighlight, dismiss]);
+  }, [visible, dismiss]);
 
-  // Focus note input when entering note or prompted mode
+  // Focus note input when toolbar appears
   useEffect(() => {
-    if ((mode === "note" || mode === "prompted") && noteInputRef.current) {
+    if (visible && noteInputRef.current) {
       noteInputRef.current.focus();
     }
-  }, [mode]);
+  }, [visible]);
 
-  // Core action: create highlight and transition to note prompt
-  const doHighlight = useCallback(
-    (color: HighlightColor) => {
-      onHighlight(selectedText, color, undefined, selectedContext || undefined);
-      window.getSelection()?.removeAllRanges();
-      setMode("prompted");
-    },
-    [selectedText, selectedContext, onHighlight]
-  );
-
-  // Save note in note-first mode (creates highlight+note together)
-  const handleNoteFirstSave = (color: HighlightColor = activeColor) => {
-    onHighlight(selectedText, color, noteText || undefined, selectedContext || undefined);
+  const handleSubmit = () => {
+    onHighlight(
+      selectedText,
+      "yellow",
+      noteText.trim() || undefined,
+      selectedContext || undefined
+    );
     window.getSelection()?.removeAllRanges();
     dismiss();
   };
 
-  // Save note in post-highlight prompted mode (updates existing highlight)
-  const handlePromptedSave = () => {
-    if (noteText.trim() && onNoteForLastHighlight) {
-      onNoteForLastHighlight(noteText.trim());
+  const handleOpenNotesDropdown = useCallback(async () => {
+    if (notesDropdownOpen) {
+      setNotesDropdownOpen(false);
+      return;
     }
-    dismiss();
-  };
+    setNotesDropdownOpen(true);
+    setLoadingNotes(true);
+    try {
+      const data = await getStandaloneNotes(5);
+      setStandaloneNotes((data.notes || []) as Note[]);
+    } catch {
+      setStandaloneNotes([]);
+    } finally {
+      setLoadingNotes(false);
+    }
+  }, [notesDropdownOpen]);
+
+  const handleAppendToNote = useCallback(
+    async (noteId: string) => {
+      const blockquote = `<blockquote><p>${selectedText}</p></blockquote>`;
+      try {
+        await appendToNote(noteId, blockquote);
+      } catch {
+        // silent
+      }
+      window.getSelection()?.removeAllRanges();
+      dismiss();
+    },
+    [selectedText, dismiss]
+  );
 
   if (!visible) return null;
-
-  const activeColorObj = COLORS.find((c) => c.name === activeColor) || COLORS[0];
 
   return (
     <div
@@ -207,98 +196,108 @@ export default function SelectionToolbar({
       className="stoa-selection-toolbar"
       style={{ top: `${position.top}px`, left: `${position.left}px` }}
     >
-      {mode === "actions" && (
-        <>
+      <div className="stoa-st-note-row">
+        <input
+          ref={noteInputRef}
+          type="text"
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add a thought..."
+          className="stoa-st-note-input"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSubmit();
+            if (e.key === "Escape") dismiss();
+          }}
+        />
+        <button
+          className="stoa-st-submit"
+          onClick={handleSubmit}
+          title="Highlight (Enter)"
+        >
+          <Send size={13} />
+        </button>
+        <div style={{ position: "relative" }}>
           <button
-            className="stoa-st-action"
-            onClick={() => doHighlight(activeColor)}
-            title="Highlight (h)"
+            className="stoa-st-submit"
+            onClick={handleOpenNotesDropdown}
+            title="Append to a note"
+            style={{ display: "flex", alignItems: "center", gap: "2px" }}
           >
-            <span
-              className="stoa-st-action-dot"
-              style={{ backgroundColor: activeColorObj.solid }}
-            />
-            Highlight
+            <StickyNote size={13} />
+            <ChevronDown size={9} />
           </button>
-          <button
-            className="stoa-st-action stoa-st-action-note"
-            onClick={() => setMode("note")}
-            title="Add note (n)"
-          >
-            Note
-          </button>
-          <div className="stoa-st-color-row">
-            {COLORS.map((c, i) => (
-              <button
-                key={c.name}
-                className={`stoa-st-dot${activeColor === c.name ? " active" : ""}`}
-                style={{ backgroundColor: c.solid }}
-                onClick={() => {
-                  setActiveColor(c.name);
-                  doHighlight(c.name);
+          {/* Notes dropdown */}
+          {notesDropdownOpen && (
+            <div
+              className="stoa-st-notes-dropdown"
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: "4px",
+                minWidth: "200px",
+                maxWidth: "260px",
+                background: "var(--bg-primary, #fff)",
+                border: "1px solid var(--border, #e5e7eb)",
+                borderRadius: "8px",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                zIndex: 100,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: "var(--text-tertiary, #9ca3af)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  borderBottom: "1px solid var(--border, #e5e7eb)",
                 }}
-                title={`${c.name} (${i + 1})`}
-              />
-            ))}
-          </div>
-          <span className="stoa-st-hint">h / n</span>
-        </>
-      )}
-
-      {mode === "note" && (
-        <div className="stoa-st-note-row">
-          <input
-            ref={noteInputRef}
-            type="text"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="What does this make you think?"
-            className="stoa-st-note-input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleNoteFirstSave();
-              if (e.key === "Escape") {
-                setMode("actions");
-                setNoteText("");
-              }
-            }}
-          />
-          <div className="stoa-st-note-colors">
-            {COLORS.map((c) => (
-              <button
-                key={c.name}
-                className="stoa-st-dot"
-                style={{ backgroundColor: c.solid }}
-                onClick={() => handleNoteFirstSave(c.name)}
-                title={`Save with ${c.name}`}
-              />
-            ))}
-          </div>
+              >
+                Append to note
+              </div>
+              {loadingNotes ? (
+                <div style={{ padding: "10px", fontSize: "11px", color: "var(--text-tertiary, #9ca3af)", textAlign: "center" }}>
+                  Loading...
+                </div>
+              ) : standaloneNotes.length === 0 ? (
+                <div style={{ padding: "10px", fontSize: "11px", color: "var(--text-tertiary, #9ca3af)", textAlign: "center" }}>
+                  No notes yet
+                </div>
+              ) : (
+                standaloneNotes.map((n) => (
+                  <button
+                    key={n.id}
+                    onClick={() => handleAppendToNote(n.id)}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 10px",
+                      fontSize: "12px",
+                      color: "var(--text-primary, #1f2937)",
+                      background: "none",
+                      border: "none",
+                      borderBottom: "1px solid var(--border, #f3f4f6)",
+                      cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.target as HTMLElement).style.background = "var(--bg-secondary, #f9fafb)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.target as HTMLElement).style.background = "none";
+                    }}
+                  >
+                    {extractNoteTitle(n)}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
         </div>
-      )}
-
-      {mode === "prompted" && (
-        <div className="stoa-st-note-row">
-          <input
-            ref={noteInputRef}
-            type="text"
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            placeholder="What does this make you think?"
-            className="stoa-st-note-input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handlePromptedSave();
-              if (e.key === "Escape") dismiss();
-            }}
-          />
-          <button
-            className="stoa-st-skip"
-            onClick={dismiss}
-            title="Skip (Esc)"
-          >
-            skip
-          </button>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

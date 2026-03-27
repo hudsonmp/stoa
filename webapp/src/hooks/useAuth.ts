@@ -8,10 +8,22 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Sync Supabase session to localStorage for API headers
+    const syncSession = (s: Session | null) => {
+      if (s) {
+        localStorage.setItem("stoa_token", s.access_token);
+        localStorage.setItem("stoa_user_id", s.user.id);
+      } else {
+        localStorage.removeItem("stoa_token");
+        localStorage.removeItem("stoa_user_id");
+      }
+    };
+
     // Get initial session
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
+      syncSession(s);
       setLoading(false);
     });
 
@@ -21,6 +33,7 @@ export function useAuth() {
     } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
       setUser(s?.user ?? null);
+      syncSession(s);
       setLoading(false);
     });
 
@@ -46,9 +59,19 @@ export function useAuth() {
     []
   );
 
+  const signInWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+    if (error) throw error;
+  }, []);
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
 
-  return { user, session, loading, signIn, signUp, signOut };
+  return { user, session, loading, signIn, signUp, signInWithGoogle, signOut };
 }

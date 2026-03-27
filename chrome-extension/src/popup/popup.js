@@ -28,6 +28,7 @@ async function init() {
     document.getElementById("main-view").style.display = "block";
     detectPageInfo();
     checkIfSaved();
+    loadCollections();
   } else {
     document.getElementById("setup-view").style.display = "block";
     document.getElementById("main-view").style.display = "none";
@@ -164,6 +165,8 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   saveBtn.disabled = true;
   saveBtn.textContent = "Saving...";
 
+  const collectionId = getSelectedCollectionId();
+
   chrome.runtime.sendMessage(
     {
       type: "SAVE_PAGE",
@@ -172,6 +175,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
         user_id: stored.stoa_user_id,
         type,
         tags,
+        collection_id: collectionId,
       },
     },
     (response) => {
@@ -229,6 +233,8 @@ document.getElementById("save-paper-btn").addEventListener("click", async () => 
   paperBtn.disabled = true;
   paperBtn.textContent = "Saving...";
 
+  const paperCollectionId = getSelectedCollectionId();
+
   chrome.runtime.sendMessage(
     {
       type: "SAVE_PAGE",
@@ -237,6 +243,7 @@ document.getElementById("save-paper-btn").addEventListener("click", async () => 
         user_id: stored.stoa_user_id,
         type: "paper",
         tags: [...tags],
+        collection_id: paperCollectionId,
       },
     },
     (response) => {
@@ -384,6 +391,36 @@ function renderTags() {
 
     container.insertBefore(el, tagInput);
   });
+}
+
+// --- Load Collections ---
+async function loadCollections() {
+  try {
+    const config = await chrome.storage.local.get(["stoa_api_url", "stoa_user_id", "stoa_token"]);
+    const apiUrl = config.stoa_api_url || "http://localhost:8000";
+    const headers = { "Content-Type": "application/json" };
+    if (config.stoa_token) headers["Authorization"] = `Bearer ${config.stoa_token}`;
+    else if (config.stoa_user_id) headers["X-User-Id"] = config.stoa_user_id;
+
+    const resp = await fetch(`${apiUrl}/items/collections`, { headers });
+    if (!resp.ok) return;
+
+    const data = await resp.json();
+    const select = document.getElementById("collection-select");
+    (data.collections || []).forEach((col) => {
+      const opt = document.createElement("option");
+      opt.value = col.id;
+      opt.textContent = col.name;
+      select.appendChild(opt);
+    });
+  } catch {
+    // Collections loading is optional; fail silently
+  }
+}
+
+function getSelectedCollectionId() {
+  const select = document.getElementById("collection-select");
+  return select ? select.value || null : null;
 }
 
 init();

@@ -2,16 +2,20 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Globe, ExternalLink } from "lucide-react";
-import type { Person, Item } from "@/lib/supabase";
-import { getPerson } from "@/lib/api";
+import type { Person, Item, Note } from "@/lib/supabase";
+import { getPerson, getNotes, createNote, updateNote } from "@/lib/api";
 import ItemRow from "@/components/ItemRow";
 import TagPill from "@/components/TagPill";
+import ResearchEditor from "@/components/ResearchEditor";
 
 export default function PersonDetail() {
   const { id } = useParams<{ id: string }>();
   const [person, setPerson] = useState<Person | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
+  const [personNoteId, setPersonNoteId] = useState<string | null>(null);
+  const [personNoteContent, setPersonNoteContent] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   const loadPerson = useCallback(async () => {
     if (!id) return;
@@ -20,6 +24,14 @@ export default function PersonDetail() {
       const data = await getPerson(id);
       setPerson(data.person as Person);
       setItems((data.items as Item[]) || []);
+
+      // Load person-linked notes
+      const noteData = await getNotes({ person_id: id });
+      const notes = (noteData.notes as Note[]) || [];
+      if (notes.length > 0) {
+        setPersonNoteId(notes[0].id);
+        setPersonNoteContent(notes[0].content || "");
+      }
     } catch {
       setPerson(null);
     }
@@ -147,14 +159,54 @@ export default function PersonDetail() {
           </div>
         )}
 
-        {/* Bio / Notes */}
-        {(person.bio || person.notes) && (
-          <div className="mb-8 p-4 bg-bg-secondary rounded-card">
+        {/* Bio */}
+        {person.bio && (
+          <div className="mb-4 p-4 bg-bg-secondary rounded-card">
             <p className="text-sm text-text-secondary leading-relaxed">
-              {person.bio || person.notes}
+              {person.bio}
             </p>
           </div>
         )}
+
+        {/* Notes — full ResearchEditor */}
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-[11px] font-mono text-text-tertiary uppercase tracking-[0.15em]">
+              Notes
+            </h2>
+            <span className="text-[10px] font-mono text-text-tertiary">
+              {noteSaving ? "Saving..." : personNoteId ? "Saved" : ""}
+            </span>
+          </div>
+          <div className="item-notes-editor">
+            <ResearchEditor
+              content={personNoteContent}
+              onSave={async (content: string) => {
+                setNoteSaving(true);
+                try {
+                  if (personNoteId) {
+                    await updateNote(personNoteId, { content });
+                  } else {
+                    const result = await createNote({
+                      person_id: id,
+                      content,
+                      title: `Notes on ${person.name}`,
+                      tags: ["person-note"],
+                    });
+                    const newNote = (result as { note: Note }).note;
+                    setPersonNoteId(newNote.id);
+                  }
+                  setPersonNoteContent(content);
+                } catch {
+                  // silent
+                } finally {
+                  setNoteSaving(false);
+                }
+              }}
+              placeholder={`Write your notes about ${person.name}...`}
+            />
+          </div>
+        </section>
 
         {/* Connected items */}
         {items.length > 0 && (

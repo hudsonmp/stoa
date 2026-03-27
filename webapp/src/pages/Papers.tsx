@@ -1,74 +1,97 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { FileText, Plus, Upload, Loader2, X, Link as LinkIcon, Search, Zap } from "lucide-react";
 import type { Item } from "@/lib/supabase";
 import ItemRow from "@/components/ItemRow";
-import { ingestUrl, ingestPdf } from "@/lib/api";
+import { ingestUrl, ingestPdf, getPapersByTopic } from "@/lib/api";
 
-/** Known academic sources → display label */
-const SOURCE_LABELS: Record<string, string> = {
-  "arxiv.org": "arXiv",
-  "dl.acm.org": "ACM DL",
-  "link.springer.com": "Springer",
-  "ieeexplore.ieee.org": "IEEE Xplore",
-  "aclanthology.org": "ACL Anthology",
-  "openreview.net": "OpenReview",
-  "semanticscholar.org": "Semantic Scholar",
-  "scholar.google.com": "Google Scholar",
-  "nature.com": "Nature",
-  "science.org": "Science",
-  "proceedings.mlr.press": "PMLR",
-  "papers.nips.cc": "NeurIPS",
-};
-
-function getSourceKey(domain?: string): string {
-  if (!domain) return "other";
-  for (const key of Object.keys(SOURCE_LABELS)) {
-    if (domain.includes(key)) return key;
-  }
-  return domain;
+/**
+ * Normalize bare DOIs and arXiv IDs to full URLs.
+ */
+function normalizeInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (/^10\.\d{4,}/.test(trimmed)) return `https://doi.org/${trimmed}`;
+  if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(trimmed)) return `https://arxiv.org/abs/${trimmed}`;
+  return trimmed;
 }
 
-function getSourceLabel(key: string): string {
-  return SOURCE_LABELS[key] || key;
+interface TopicGroup {
+  papers: Item[];
+  count: number;
 }
 
 export default function Papers() {
-  const [papers, setPapers] = useState<Item[]>([]);
+  const [groups, setGroups] = useState<Record<string, TopicGroup>>({});
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [quickInput, setQuickInput] = useState("");
+  const [quickLoading, setQuickLoading] = useState(false);
+  const [quickSuccess, setQuickSuccess] = useState(false);
 
-  useEffect(() => {
-    loadPapers();
-  }, []);
-
-  const loadPapers = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from("items")
-      .select("*")
-      .eq("type", "paper")
-      .order("created_at", { ascending: false });
-    setPapers((data as Item[]) || []);
-    setLoading(false);
+  const handleQuickAdd = async () => {
+    const raw = quickInput.trim();
+    if (!raw) return;
+    setQuickLoading(true);
+    try {
+      const finalUrl = normalizeInput(raw);
+      await ingestUrl({ url: finalUrl, type: "paper" });
+      setQuickInput("");
+      setQuickSuccess(true);
+      setTimeout(() => setQuickSuccess(false), 2000);
+      load();
+    } catch {
+      // Fall back to modal for errors
+      setShowAdd(true);
+    } finally {
+      setQuickLoading(false);
+    }
   };
 
-  const grouped = useMemo(() => {
-    const groups: Record<string, Item[]> = {};
-    for (const p of papers) {
-      const key = getSourceKey(p.domain);
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(p);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getPapersByTopic();
+      setGroups(data.groups as Record<string, TopicGroup>);
+      setTotal(data.total);
+    } catch {
+      // fall through
+    } finally {
+      setLoading(false);
     }
-    // Sort groups by count descending
-    return Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
-  }, [papers]);
+  }, []);
 
-  const displayed = selectedSource
-    ? papers.filter((p) => getSourceKey(p.domain) === selectedSource)
-    : papers;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const topicEntries = Object.entries(groups).sort((a, b) => {
+    // "Uncategorized" always last
+    if (a[0] === "Uncategorized") return 1;
+    if (b[0] === "Uncategorized") return -1;
+    return b[1].count - a[1].count;
+  });
+
+  const topicCount = topicEntries.length;
+
+  // Collect displayed papers: filter by topic, then by search query
+  let displayed: Item[] = [];
+  if (selectedTopic) {
+    displayed = groups[selectedTopic]?.papers || [];
+  } else {
+    displayed = topicEntries.flatMap(([, g]) => g.papers);
+  }
+
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    displayed = displayed.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.domain?.toLowerCase().includes(q)
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-8 py-8">
@@ -79,8 +102,8 @@ export default function Papers() {
               Papers
             </h1>
             <p className="text-sm text-text-tertiary mt-1">
-              {papers.length} paper{papers.length !== 1 ? "s" : ""} across{" "}
-              {grouped.length} source{grouped.length !== 1 ? "s" : ""}
+              {total} paper{total !== 1 ? "s" : ""} across{" "}
+              {topicCount} topic{topicCount !== 1 ? "s" : ""}
             </p>
           </div>
           <button
@@ -94,13 +117,46 @@ export default function Papers() {
           </button>
         </div>
 
-        {loading && papers.length === 0 && (
+        {/* Quick Add bar */}
+        <div className="mb-6">
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleQuickAdd(); }}
+            className="flex items-center gap-2"
+          >
+            <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-card
+                            border border-border focus-within:border-accent/30 transition-warm
+                            bg-bg-secondary/50">
+              <Zap size={14} className="text-text-tertiary flex-shrink-0" />
+              <input
+                type="text"
+                value={quickInput}
+                onChange={(e) => setQuickInput(e.target.value)}
+                placeholder="Quick add: paste URL, DOI (10.xxx), or arXiv ID (2401.10020)"
+                className="flex-1 bg-transparent border-none outline-none
+                           text-sm text-text-primary placeholder:text-text-tertiary"
+              />
+              {quickLoading && <Loader2 size={14} className="animate-spin text-text-tertiary" />}
+              {quickSuccess && <span className="text-[11px] text-green-600 font-medium">Added</span>}
+            </div>
+            <button
+              type="submit"
+              disabled={!quickInput.trim() || quickLoading}
+              className="px-3 py-2.5 rounded-card bg-accent text-white text-sm
+                         font-medium hover:bg-accent-hover transition-warm
+                         disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Add
+            </button>
+          </form>
+        </div>
+
+        {loading && total === 0 && (
           <p className="text-center py-20 text-sm text-text-tertiary">
             Loading...
           </p>
         )}
 
-        {!loading && papers.length === 0 && (
+        {!loading && total === 0 && (
           <div className="text-center py-20">
             <FileText size={32} className="mx-auto mb-4 text-text-tertiary/40" />
             <p className="font-serif text-sm text-text-secondary">
@@ -112,44 +168,64 @@ export default function Papers() {
           </div>
         )}
 
-        {papers.length > 0 && (
+        {total > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* Source sidebar */}
-            <div className="space-y-0.5">
+            {/* Topic sidebar */}
+            <div className="space-y-0.5 bg-bg-secondary/50 rounded-card p-2 border border-border-light">
+              <p className="text-[10px] font-mono text-text-tertiary uppercase tracking-widest px-2 pt-1 pb-2">
+                Topics
+              </p>
+
+              {/* Search */}
+              <div className="px-2 pb-2">
+                <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px]
+                                bg-bg-primary border border-border">
+                  <Search size={12} className="text-text-tertiary flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter..."
+                    className="flex-1 bg-transparent border-none outline-none
+                               text-[12px] text-text-primary placeholder:text-text-tertiary"
+                  />
+                </div>
+              </div>
+
               <button
-                onClick={() => setSelectedSource(null)}
-                className={`w-full text-left px-3 py-2 rounded-card text-sm transition-warm
+                onClick={() => setSelectedTopic(null)}
+                className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                            ${
-                             selectedSource === null
-                               ? "bg-bg-secondary text-text-primary border-l-2 border-accent pl-[10px]"
-                               : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
+                             selectedTopic === null
+                               ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
+                               : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                            }`}
               >
                 <span className="flex items-center justify-between">
                   All
-                  <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
-                    {papers.length}
+                  <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded">
+                    {total}
                   </span>
                 </span>
               </button>
 
-              <div className="h-px bg-border my-2 mx-2" />
+              <div className="h-px bg-border my-2 mx-1" />
 
-              {grouped.map(([sourceKey, items]) => (
+              {topicEntries.map(([topic, group]) => (
                 <button
-                  key={sourceKey}
-                  onClick={() => setSelectedSource(sourceKey)}
-                  className={`w-full text-left px-3 py-2 rounded-card text-sm transition-warm
+                  key={topic}
+                  onClick={() => setSelectedTopic(topic)}
+                  className={`w-full text-left px-3 py-2 rounded-card text-sm font-medium transition-warm
                              ${
-                               selectedSource === sourceKey
-                                 ? "bg-bg-secondary text-text-primary border-l-2 border-accent pl-[10px]"
-                                 : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
+                               selectedTopic === topic
+                                 ? "bg-bg-primary text-text-primary border-l-2 border-accent pl-[10px] shadow-sm"
+                                 : "text-text-secondary hover:bg-bg-primary/60 hover:text-text-primary"
                              }`}
                 >
                   <span className="flex items-center justify-between">
-                    <span className="truncate">{getSourceLabel(sourceKey)}</span>
-                    <span className="text-[11px] font-mono text-text-tertiary tabular-nums ml-2">
-                      {items.length}
+                    <span className="truncate">{topic}</span>
+                    <span className="text-[11px] font-mono text-text-tertiary tabular-nums bg-bg-primary/80 px-1.5 py-0.5 rounded ml-2">
+                      {group.count}
                     </span>
                   </span>
                 </button>
@@ -158,19 +234,24 @@ export default function Papers() {
 
             {/* Paper list */}
             <div className="md:col-span-3 space-y-0.5">
-              {selectedSource && (
+              {selectedTopic && (
                 <div className="mb-4">
                   <h2 className="font-serif text-lg font-medium text-text-primary">
-                    {getSourceLabel(selectedSource)}
+                    {selectedTopic}
                   </h2>
                 </div>
+              )}
+              {displayed.length === 0 && searchQuery && (
+                <p className="text-sm text-text-tertiary py-8 text-center">
+                  No papers matching &ldquo;{searchQuery}&rdquo;
+                </p>
               )}
               {displayed.map((item, i) => (
                 <ItemRow
                   key={item.id}
                   item={item}
                   index={i}
-                  onDeleted={loadPapers}
+                  onDeleted={load}
                 />
               ))}
             </div>
@@ -184,7 +265,7 @@ export default function Papers() {
           onClose={() => setShowAdd(false)}
           onAdded={() => {
             setShowAdd(false);
-            loadPapers();
+            load();
           }}
         />
       )}
@@ -213,7 +294,8 @@ function AddPaperModal({
     try {
       if (mode === "url") {
         if (!url.trim()) return;
-        await ingestUrl({ url, type: "paper" });
+        const finalUrl = normalizeInput(url);
+        await ingestUrl({ url: finalUrl, type: "paper" });
       } else {
         if (!pdfFile) return;
         await ingestPdf(pdfFile, title || undefined);
@@ -282,17 +364,17 @@ function AddPaperModal({
                               focus-within:border-accent/30 transition-warm">
                 <LinkIcon size={14} className="text-text-tertiary flex-shrink-0" />
                 <input
-                  type="url"
+                  type="text"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://arxiv.org/abs/..."
+                  placeholder="URL, DOI (10.xxx), or arXiv ID (2401.10020)"
                   className="flex-1 bg-transparent border-none outline-none
                              text-sm text-text-primary placeholder:text-text-tertiary"
                   autoFocus
                 />
               </div>
               <p className="text-[11px] text-text-tertiary mt-1.5">
-                arXiv, ACM DL, Springer, OpenReview, or direct PDF links
+                arXiv, ACM DL, Springer, OpenReview, DOI, or direct PDF links
               </p>
             </div>
           )}

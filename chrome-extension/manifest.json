@@ -8,7 +8,8 @@
     "storage",
     "tabGroups",
     "tabs",
-    "contextMenus"
+    "contextMenus",
+    "scripting"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {
@@ -37,6 +38,13 @@
   ],
   "options_page": "src/options/options.html",
   "commands": {
+    "toggle-sidebar": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+H",
+        "mac": "Command+Shift+H"
+      },
+      "description": "Toggle Stoa sidebar"
+    },
     "save-page": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",

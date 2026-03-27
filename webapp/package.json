@@ -11,14 +11,23 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
-    "@tiptap/extension-placeholder": "^2.11.5",
-    "@tiptap/react": "^2.11.5",
-    "@tiptap/starter-kit": "^2.11.5",
+    "@tiptap/extension-image": "^3.20.4",
+    "@tiptap/extension-link": "^3.20.4",
+    "@tiptap/extension-mention": "^3.20.4",
+    "@tiptap/extension-placeholder": "^3.20.4",
+    "@tiptap/extension-underline": "^3.20.4",
+    "@tiptap/pm": "^3.20.4",
+    "@tiptap/react": "^3.20.4",
+    "@tiptap/starter-kit": "^3.20.4",
+    "@tiptap/suggestion": "^3.20.4",
     "framer-motion": "^11.18.0",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.1"
+    "react-markdown": "^10.1.0",
+    "react-pdf": "^10.4.1",
+    "react-router-dom": "^6.28.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

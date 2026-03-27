@@ -1,18 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { FolderOpen, Plus, X } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { FolderOpen, Plus, X, Pencil, Trash2, Check } from "lucide-react";
 import type { Collection, Item } from "@/lib/supabase";
 import { Link } from "react-router-dom";
 import ItemRow from "@/components/ItemRow";
+import { renameCollection, deleteCollection, listCollections, createCollection as apiCreateCollection, getCollectionItems } from "@/lib/api";
+
+interface CollectionWithCount extends Collection {
+  item_count?: number;
+}
 
 export default function Collections() {
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [collections, setCollections] = useState<CollectionWithCount[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [collectionItems, setCollectionItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", description: "" });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadCollections();
@@ -22,48 +29,68 @@ export default function Collections() {
     if (selectedId) loadCollectionItems(selectedId);
   }, [selectedId]);
 
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
   const loadCollections = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("collections")
-      .select("*")
-      .order("name");
-    setCollections((data as Collection[]) || []);
+    try {
+      const data = await listCollections();
+      setCollections((data.collections as CollectionWithCount[]) || []);
+    } catch {
+      setCollections([]);
+    }
     setLoading(false);
   };
 
   const loadCollectionItems = async (collectionId: string) => {
-    const { data: links } = await supabase
-      .from("collection_items")
-      .select("item_id")
-      .eq("collection_id", collectionId)
-      .order("sort_order");
-
-    if (links && links.length > 0) {
-      const ids = links.map((l: { item_id: string }) => l.item_id);
-      const { data: items } = await supabase
-        .from("items")
-        .select("*")
-        .in("id", ids);
-      setCollectionItems((items as Item[]) || []);
-    } else {
+    try {
+      const data = await getCollectionItems(collectionId);
+      setCollectionItems((data.items as Item[]) || []);
+    } catch {
       setCollectionItems([]);
     }
   };
 
   const createCollection = async () => {
     if (!form.name.trim()) return;
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    await supabase.from("collections").insert({
-      ...form,
-      user_id: user?.id,
-      is_public: false,
-    });
-    setForm({ name: "", description: "" });
-    setShowCreate(false);
-    loadCollections();
+    try {
+      await apiCreateCollection(form);
+      setForm({ name: "", description: "" });
+      setShowCreate(false);
+      loadCollections();
+    } catch {
+      // silent
+    }
+  };
+
+  const handleRename = async (colId: string) => {
+    if (!editName.trim()) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await renameCollection(colId, editName.trim());
+      setCollections((prev) =>
+        prev.map((c) => (c.id === colId ? { ...c, name: editName.trim() } : c))
+      );
+    } catch { /* ignore */ }
+    setEditingId(null);
+  };
+
+  const handleDelete = async (colId: string) => {
+    try {
+      await deleteCollection(colId);
+      setCollections((prev) => prev.filter((c) => c.id !== colId));
+      if (selectedId === colId) {
+        setSelectedId(null);
+        setCollectionItems([]);
+      }
+    } catch { /* ignore */ }
   };
 
   const selected = collections.find((c) => c.id === selectedId);
@@ -111,30 +138,84 @@ export default function Collections() {
           {/* Collection list */}
           <div className="space-y-1">
             {collections.map((col) => (
-              <button
+              <div
                 key={col.id}
-                onClick={() => setSelectedId(col.id)}
-                className={`w-full text-left flex items-center gap-2.5 px-3 py-2.5
-                           rounded-card transition-warm text-sm
+                className={`group/col w-full text-left flex items-center gap-2.5 px-3 py-2.5
+                           rounded-card transition-warm text-sm cursor-pointer
                            ${
                              selectedId === col.id
                                ? "bg-bg-secondary text-text-primary border-l-2 border-accent pl-[10px]"
                                : "text-text-secondary hover:bg-bg-secondary/60 hover:text-text-primary"
                            }`}
+                onClick={() => setSelectedId(col.id)}
               >
                 <FolderOpen
                   size={14}
                   className="text-text-tertiary flex-shrink-0"
                 />
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{col.name}</p>
-                  {col.description && (
-                    <p className="text-[11px] text-text-tertiary truncate mt-0.5">
-                      {col.description}
-                    </p>
+                <div className="min-w-0 flex-1">
+                  {editingId === col.id ? (
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleRename(col.id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        onBlur={() => handleRename(col.id)}
+                        className="flex-1 bg-transparent text-sm font-medium outline-none
+                                   border-b border-accent/40 text-text-primary"
+                      />
+                      <button
+                        onClick={() => handleRename(col.id)}
+                        className="p-0.5 text-accent hover:text-accent-hover"
+                      >
+                        <Check size={12} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{col.name}</p>
+                        {col.description && (
+                          <p className="text-[11px] text-text-tertiary truncate mt-0.5">
+                            {col.description}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-mono text-text-tertiary tabular-nums
+                                       bg-bg-primary/80 px-1.5 py-0.5 rounded ml-2 flex-shrink-0">
+                        {col.item_count ?? 0}
+                      </span>
+                    </div>
                   )}
                 </div>
-              </button>
+                {/* Action buttons — visible on hover */}
+                {editingId !== col.id && (
+                  <div
+                    className="flex items-center gap-0.5 opacity-0 group-hover/col:opacity-100 transition-warm flex-shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => { setEditingId(col.id); setEditName(col.name); }}
+                      className="p-1 text-text-tertiary hover:text-accent transition-warm rounded"
+                      title="Rename"
+                    >
+                      <Pencil size={11} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(col.id)}
+                      className="p-1 text-text-tertiary hover:text-red-500 transition-warm rounded"
+                      title="Delete collection"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
 
@@ -151,6 +232,9 @@ export default function Collections() {
                       {selected.description}
                     </p>
                   )}
+                  <p className="text-[11px] text-text-tertiary mt-1">
+                    {collectionItems.length} item{collectionItems.length !== 1 ? "s" : ""}
+                  </p>
                 </div>
                 {collectionItems.length === 0 ? (
                   <p className="text-sm text-text-tertiary py-8 text-center">

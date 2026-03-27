@@ -72,33 +72,49 @@ export async function ingestPdf(file: File, title?: string) {
  * Derive an embeddable PDF URL from an item's URL.
  * Returns null if no PDF can be derived.
  */
-export function getPdfEmbedUrl(item: { url?: string; metadata?: Record<string, unknown> }): string | null {
-  // Check for stored PDF path in metadata
+export function getPdfEmbedUrl(item: { id?: string; url?: string; metadata?: Record<string, unknown> }): string | null {
+  // For uploaded PDFs: serve through backend (correct Content-Type)
   const storagePath = item.metadata?.pdf_storage_path as string | undefined;
-  if (storagePath) {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (supabaseUrl) {
-      return `${supabaseUrl}/storage/v1/object/public/documents/${storagePath}`;
-    }
+  if (storagePath && item.id) {
+    const uid = DEV_USER_ID || localStorage.getItem("stoa_user_id") || "";
+    return `${API_URL}/items/${item.id}/pdf?user_id=${uid}`;
   }
 
   const url = item.url;
   if (!url) return null;
 
-  // Direct PDF link
-  if (url.endsWith(".pdf")) return url;
+  // Derive the raw PDF URL
+  let pdfUrl: string | null = null;
+
+  if (url.endsWith(".pdf")) pdfUrl = url;
 
   // arXiv: abs → pdf
   const arxivAbs = url.match(/arxiv\.org\/abs\/([^\s?#]+)/);
-  if (arxivAbs) return `https://arxiv.org/pdf/${arxivAbs[1]}.pdf`;
+  if (arxivAbs) pdfUrl = `https://arxiv.org/pdf/${arxivAbs[1]}.pdf`;
 
   // arXiv: already a pdf link
-  if (url.includes("arxiv.org/pdf/")) return url;
+  if (url.includes("arxiv.org/pdf/")) pdfUrl = url;
 
   // OpenReview: forum → pdf
   const orMatch = url.match(/openreview\.net\/forum\?id=([^\s&#]+)/);
-  if (orMatch) return `https://openreview.net/pdf?id=${orMatch[1]}`;
+  if (orMatch) pdfUrl = `https://openreview.net/pdf?id=${orMatch[1]}`;
 
+  if (!pdfUrl) return null;
+
+  // Proxy all external PDFs through the backend to avoid CORS issues
+  const uid = DEV_USER_ID || localStorage.getItem("stoa_user_id") || "";
+  return `${API_URL}/proxy/pdf?url=${encodeURIComponent(pdfUrl)}&user_id=${uid}`;
+}
+
+/**
+ * Get ar5iv HTML URL for arXiv papers (LaTeX→HTML compilation with equations, figures).
+ * Returns null for non-arXiv papers.
+ */
+export function getAr5ivUrl(item: { url?: string }): string | null {
+  const url = item.url;
+  if (!url) return null;
+  const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivMatch) return `https://ar5iv.labs.arxiv.org/html/${arxivMatch[1]}`;
   return null;
 }
 
@@ -123,6 +139,14 @@ export async function ragQuery(question: string) {
 
 export async function exportBibtex(itemId: string) {
   return apiFetch<{ bibtex: string }>(`/citations/${itemId}/bib`);
+}
+
+export async function exportApa(itemId: string) {
+  return apiFetch<{ apa: string }>(`/citations/${itemId}/apa`);
+}
+
+export async function exportMla(itemId: string) {
+  return apiFetch<{ mla: string }>(`/citations/${itemId}/mla`);
 }
 
 export async function importBibtex(bibtex: string) {
@@ -166,10 +190,27 @@ export async function createNote(data: {
   item_id?: string;
   person_id?: string;
   content: string;
+  title?: string;
+  tags?: string[];
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function getNotes(params?: { person_id?: string; item_id?: string }) {
+  const query = new URLSearchParams();
+  if (params?.person_id) query.set("person_id", params.person_id);
+  if (params?.item_id) query.set("item_id", params.item_id);
+  const qs = query.toString();
+  return apiFetch<{ notes: unknown[] }>(`/notes${qs ? `?${qs}` : ""}`);
+}
+
+export async function updateNote(noteId: string, updates: Record<string, unknown>) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
   });
 }
 
@@ -199,6 +240,17 @@ export async function createPerson(data: {
 
 export async function getPerson(personId: string) {
   return apiFetch<{ person: unknown; items: unknown[] }>(`/people/${personId}`);
+}
+
+export async function getAuthors() {
+  return apiFetch<{ authors: (unknown & { paper_count: number })[] }>("/people/authors");
+}
+
+export async function updatePerson(personId: string, updates: Record<string, unknown>) {
+  return apiFetch<{ person: unknown }>(`/people/${personId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
 }
 
 export async function ingestPaste(data: {
@@ -262,6 +314,17 @@ export async function deleteNote(noteId: string) {
   return apiFetch(`/notes/${noteId}`, { method: "DELETE" });
 }
 
+export async function getStandaloneNotes(limit = 5) {
+  return apiFetch<{ notes: unknown[] }>(`/notes/standalone?limit=${limit}`);
+}
+
+export async function appendToNote(noteId: string, content: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/append`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
 export async function deleteHighlight(highlightId: string) {
   return apiFetch(`/highlights/${highlightId}`, { method: "DELETE" });
 }
@@ -283,6 +346,19 @@ export async function syncApplePodcasts() {
   }>("/ingest/podcasts/sync", { method: "POST" });
 }
 
+export async function listCollections() {
+  return apiFetch<{
+    collections: { id: string; name: string; description?: string }[];
+  }>("/items/collections");
+}
+
+export async function getPapersByTopic() {
+  return apiFetch<{
+    groups: Record<string, { papers: unknown[]; count: number }>;
+    total: number;
+  }>("/items/papers/by-topic");
+}
+
 export async function extractMetadata(url: string) {
   return apiFetch<{
     title: string;
@@ -293,4 +369,37 @@ export async function extractMetadata(url: string) {
     method: "POST",
     body: JSON.stringify({ url }),
   });
+}
+
+export async function createCollection(data: { name: string; description?: string }) {
+  return apiFetch<{ collection: unknown }>("/items/collections", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function renameCollection(collectionId: string, name: string) {
+  return apiFetch(`/items/collections/${collectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteCollection(collectionId: string) {
+  return apiFetch(`/items/collections/${collectionId}`, { method: "DELETE" });
+}
+
+export async function addItemToCollection(collectionId: string, itemId: string) {
+  return apiFetch(`/items/collections/${collectionId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ item_id: itemId }),
+  });
+}
+
+export async function getCollectionItems(collectionId: string) {
+  return apiFetch<{ items: unknown[] }>(`/items/collections/${collectionId}/items`);
+}
+
+export async function getCollectionItemCount(collectionId: string) {
+  return apiFetch<{ count: number }>(`/items/collections/${collectionId}/count`);
 }

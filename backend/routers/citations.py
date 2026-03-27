@@ -10,6 +10,117 @@ from services.auth import get_supabase_service, get_user_id
 router = APIRouter()
 
 
+def _get_citation_data(item_id: str, user_id: str):
+    """Shared helper: fetch citation + item title for a given item."""
+    supabase = get_supabase_service()
+
+    item_check = supabase.table("items").select("id, title").eq("id", item_id).eq("user_id", user_id).execute()
+    if not item_check.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    result = supabase.table("citations").select("*").eq("item_id", item_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Citation not found")
+
+    return result.data[0], item_check.data[0]["title"]
+
+
+def _format_apa(citation: dict, title: str) -> str:
+    """Generate APA 7th edition citation string."""
+    authors = citation.get("authors") or []
+    year = citation.get("year") or "n.d."
+    venue = citation.get("venue") or ""
+    doi = citation.get("doi") or ""
+
+    # Format authors: Last, F. I., & Last, F. I.
+    formatted_authors = []
+    for a in authors:
+        name = a.get("name", "Unknown")
+        parts = name.split()
+        if len(parts) >= 2:
+            last = parts[-1]
+            initials = " ".join(p[0] + "." for p in parts[:-1])
+            formatted_authors.append(f"{last}, {initials}")
+        else:
+            formatted_authors.append(name)
+
+    if len(formatted_authors) == 0:
+        author_str = "Unknown"
+    elif len(formatted_authors) == 1:
+        author_str = formatted_authors[0]
+    elif len(formatted_authors) == 2:
+        author_str = f"{formatted_authors[0]}, & {formatted_authors[1]}"
+    elif len(formatted_authors) <= 20:
+        author_str = ", ".join(formatted_authors[:-1]) + f", & {formatted_authors[-1]}"
+    else:
+        author_str = ", ".join(formatted_authors[:19]) + f", ... {formatted_authors[-1]}"
+
+    apa = f"{author_str} ({year}). {title}."
+    if venue:
+        apa += f" *{venue}*."
+    if doi:
+        apa += f" https://doi.org/{doi}"
+
+    return apa
+
+
+def _format_mla(citation: dict, title: str) -> str:
+    """Generate MLA 9th edition citation string."""
+    authors = citation.get("authors") or []
+    year = citation.get("year") or ""
+    venue = citation.get("venue") or ""
+    doi = citation.get("doi") or ""
+
+    # MLA: Last, First Middle. for first author; First Last for subsequent
+    formatted_authors = []
+    for i, a in enumerate(authors):
+        name = a.get("name", "Unknown")
+        parts = name.split()
+        if i == 0 and len(parts) >= 2:
+            first_names = " ".join(parts[:-1])
+            formatted_authors.append(f"{parts[-1]}, {first_names}")
+        else:
+            formatted_authors.append(name)
+
+    if len(formatted_authors) == 0:
+        author_str = "Unknown"
+    elif len(formatted_authors) == 1:
+        author_str = formatted_authors[0]
+    elif len(formatted_authors) == 2:
+        author_str = f"{formatted_authors[0]}, and {formatted_authors[1]}"
+    elif len(formatted_authors) == 3:
+        author_str = f"{formatted_authors[0]}, {formatted_authors[1]}, and {formatted_authors[2]}"
+    else:
+        author_str = f"{formatted_authors[0]}, et al."
+
+    mla = f'{author_str}. "{title}."'
+    if venue:
+        mla += f" *{venue}*"
+    if year:
+        mla += f", {year}"
+    mla += "."
+    if doi:
+        mla += f" https://doi.org/{doi}."
+
+    return mla
+
+
+@router.get("/{item_id}/apa")
+async def export_apa(item_id: str, request: Request):
+    """Export a citation in APA 7th edition format."""
+    user_id = await get_user_id(request)
+    citation, title = _get_citation_data(item_id, user_id)
+    return {"apa": _format_apa(citation, title)}
+
+
+@router.get("/{item_id}/mla")
+async def export_mla(item_id: str, request: Request):
+    """Export a citation in MLA 9th edition format."""
+    user_id = await get_user_id(request)
+    citation, title = _get_citation_data(item_id, user_id)
+    return {"mla": _format_mla(citation, title)}
+
+
 @router.get("/{item_id}/bib")
 async def export_bibtex(item_id: str, request: Request):
     """Export a citation as BibTeX."""

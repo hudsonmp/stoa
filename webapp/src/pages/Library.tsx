@@ -159,37 +159,51 @@ export default function Library({ status, type }: LibraryProps) {
         </div>
       )}
 
-      {/* Bookshelf section */}
-      {books.length > 0 && (
-        <motion.section
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
-          className="mb-10"
-        >
-          <div className="flex items-center gap-3 mb-3 px-3">
-            <h2 className="text-[11px] font-mono text-text-tertiary uppercase tracking-[0.15em]">
-              Books
-            </h2>
-            <div className="flex-1 h-px bg-border" />
+      {/* Bookshelf section — always visible */}
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05, duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
+        className="mb-10"
+      >
+        <div className="flex items-center gap-3 mb-3 px-3">
+          <h2 className="text-[11px] font-mono text-text-tertiary uppercase tracking-[0.15em]">
+            Bookshelf
+          </h2>
+          <div className="flex-1 h-px bg-border" />
+          {books.length > 0 && (
             <span className="text-[11px] font-mono text-text-tertiary tabular-nums">
-              {books.length} {books.length === 1 ? "item" : "items"}
+              {books.length} {books.length === 1 ? "book" : "books"}
             </span>
-            {effectiveStatus === "to_read" && books.length > 0 && (
-              <button
-                onClick={handleDeleteAllBooks}
-                disabled={deletingAll}
-                className="text-[10px] font-mono text-text-tertiary hover:text-red-500
-                           transition-warm disabled:opacity-40 flex items-center gap-1"
-              >
-                <Trash2 size={10} />
-                {deletingAll ? "Deleting..." : "Clear all"}
-              </button>
-            )}
-          </div>
+          )}
+          {effectiveStatus === "to_read" && books.length > 0 && (
+            <button
+              onClick={handleDeleteAllBooks}
+              disabled={deletingAll}
+              className="text-[10px] font-mono text-text-tertiary hover:text-red-500
+                         transition-warm disabled:opacity-40 flex items-center gap-1"
+            >
+              <Trash2 size={10} />
+              {deletingAll ? "Deleting..." : "Clear all"}
+            </button>
+          )}
+        </div>
+        {books.length > 0 ? (
           <Bookshelf books={books} onDeleted={reload} />
-        </motion.section>
-      )}
+        ) : (
+          <div>
+            <div className="bookshelf-perspective">
+              <div className="flex items-end px-6 pb-0" style={{ minHeight: 60 }} />
+            </div>
+            <div className="relative mx-2">
+              <div className="shelf-ledge h-[10px] rounded-b-sm relative" />
+            </div>
+            <p className="text-center text-[11px] text-text-tertiary mt-3 font-serif italic">
+              Save items as &ldquo;book&rdquo; to see them on the shelf
+            </p>
+          </div>
+        )}
+      </motion.section>
 
       {/* List sections (collapsible) */}
       {listSections.map((section, sIdx) => (

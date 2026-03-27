@@ -1,16 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { Item, Highlight, Citation } from "@/lib/supabase";
 import SelectionToolbar, { type HighlightColor } from "./SelectionToolbar";
-
-// --- Highlight colors matching design system ---
-const HIGHLIGHT_COLORS: Record<string, { bg: string; border: string; label: string }> = {
-  yellow: { bg: "#FEF3C7", border: "#F59E0B", label: "Yellow" },
-  green:  { bg: "#D1FAE5", border: "#10B981", label: "Green" },
-  blue:   { bg: "#DBEAFE", border: "#3B82F6", label: "Blue" },
-  pink:   { bg: "#FCE7F3", border: "#EC4899", label: "Pink" },
-  purple: { bg: "#EDE9FE", border: "#8B5CF6", label: "Purple" },
-};
 
 // --- Reading time calculation ---
 function estimateReadingTime(text: string): number {
@@ -18,68 +11,9 @@ function estimateReadingTime(text: string): number {
   return Math.max(1, Math.ceil(words / 238)); // 238 wpm average
 }
 
-// --- Text processing: convert plain extracted_text to rendered paragraphs ---
-function processText(raw: string): string[] {
-  return raw
-    .split(/\n{2,}/)
-    .map((p) => p.replace(/\n/g, " ").trim())
-    .filter((p) => p.length > 0);
-}
-
-// --- Highlight overlay logic ---
-function renderParagraphWithHighlights(
-  text: string,
-  highlights: Highlight[],
-  onHighlightClick: (hl: Highlight) => void
-): React.ReactNode {
-  // Find highlights that appear in this paragraph
-  const matches: { start: number; end: number; hl: Highlight }[] = [];
-  for (const hl of highlights) {
-    const idx = text.indexOf(hl.text);
-    if (idx !== -1) {
-      matches.push({ start: idx, end: idx + hl.text.length, hl });
-    }
-  }
-
-  if (matches.length === 0) return text;
-
-  // Sort by start position, merge overlaps
-  matches.sort((a, b) => a.start - b.start);
-
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-
-  for (const m of matches) {
-    if (m.start > cursor) {
-      parts.push(text.slice(cursor, m.start));
-    }
-    const color = HIGHLIGHT_COLORS[m.hl.color] || HIGHLIGHT_COLORS.yellow;
-    parts.push(
-      <mark
-        key={m.hl.id}
-        id={`hl-${m.hl.id}`}
-        onClick={() => onHighlightClick(m.hl)}
-        style={{
-          backgroundColor: color.bg,
-          borderBottom: `2px solid ${color.border}`,
-          borderRadius: "2px",
-          padding: "1px 2px",
-          cursor: "pointer",
-          transition: "background-color 0.15s ease",
-        }}
-        title={m.hl.note || undefined}
-      >
-        {text.slice(m.start, m.end)}
-      </mark>
-    );
-    cursor = m.end;
-  }
-
-  if (cursor < text.length) {
-    parts.push(text.slice(cursor));
-  }
-
-  return parts;
+/** Detect if text is markdown (has headers, bold, lists, etc.) */
+function isMarkdown(text: string): boolean {
+  return /^#{1,6} /m.test(text) || /\*\*.+\*\*/m.test(text) || /^[-*] /m.test(text) || /\|.+\|/m.test(text);
 }
 
 // --- Props ---
@@ -105,8 +39,9 @@ export default function ReaderView({
   const [progress, setProgress] = useState(0);
 
   const text = item.extracted_text || "";
-  const paragraphs = useMemo(() => processText(text), [text]);
+  const hasMarkdown = useMemo(() => isMarkdown(text), [text]);
   const readingTime = useMemo(() => estimateReadingTime(text), [text]);
+  const isTwoColumn = (item.metadata as Record<string, unknown>)?.is_two_column === true;
 
   // --- Scroll progress tracking ---
   const handleScroll = useCallback(() => {
@@ -208,13 +143,15 @@ export default function ReaderView({
       </div>
 
       {/* Body text — position: relative for toolbar positioning */}
-      <div ref={bodyRef} className="reader-body" style={{ position: "relative" }}>
-        {paragraphs.length > 0 ? (
-          paragraphs.map((p, i) => (
-            <p key={i}>
-              {renderParagraphWithHighlights(p, highlights, handleHighlightClick)}
-            </p>
-          ))
+      <div ref={bodyRef} className={`reader-text-content${isTwoColumn ? " reader-two-column" : ""}`} style={{ position: "relative" }}>
+        {text ? (
+          hasMarkdown ? (
+            <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+          ) : (
+            text.split(/\n{2,}/).map((p, i) => (
+              <p key={i}>{p.replace(/\n/g, " ").trim()}</p>
+            ))
+          )
         ) : (
           <p className="reader-empty">
             No extracted text available for this item.

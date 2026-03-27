@@ -42,9 +42,12 @@ const config: Config = {
           "0 4px 12px rgba(28, 25, 23, 0.08), 0 2px 4px rgba(28, 25, 23, 0.04)",
       },
       borderRadius: {
-        card: "6px",
-        modal: "8px",
-        tag: "2px",
+        card: "2px",
+        modal: "3px",
+        tag: "1px",
+      },
+      spacing: {
+        "section": "3rem",
       },
     },
   },

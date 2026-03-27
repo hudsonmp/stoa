@@ -11,7 +11,7 @@
  * - Social overlay (badge showing friends who saved this page)
  */
 
-const STOA_COLORS = ["yellow", "green", "blue", "pink", "purple"];
+const STOA_COLORS = ["green"];
 
 // --- State ---
 let stoaApiUrl = "http://localhost:8000";
@@ -24,6 +24,12 @@ let sidebarOpen = false;
 let sidebarElement = null;
 let highlightMap = new Map(); // Maps highlight text+selector → {id, span, data}
 let currentItemId = null; // Stoa item ID for this page
+let currentNoteId = null; // Stoa note ID for this page's source note
+let noteAutoSaveTimer = null; // Auto-save interval for the notepad
+let lastSavedNoteContent = ""; // Track last saved content to avoid redundant PATCHes
+let lastSidebarToggle = 0; // Debounce for Cmd+Shift+H (prevents double-toggle from keydown + commands API)
+let currentItemCollectionIds = []; // Collection IDs this item belongs to
+let currentItemPersonIds = []; // Person IDs linked to this item
 
 // --- Init ---
 async function init() {
@@ -32,9 +38,14 @@ async function init() {
     "stoa_api_url",
     "stoa_token",
   ]);
-  currentUser = stored.stoa_user_id;
+  currentUser = stored.stoa_user_id || "5f067d11-b2b8-4efe-84c7-5ac9c5602c9a"; // dev fallback
   authToken = stored.stoa_token || null;
   if (stored.stoa_api_url) stoaApiUrl = stored.stoa_api_url;
+
+  // Auto-persist the user ID if using fallback
+  if (!stored.stoa_user_id && currentUser) {
+    chrome.storage.local.set({ stoa_user_id: currentUser });
+  }
 
   if (currentUser) {
     await restoreHighlights();
@@ -46,19 +57,50 @@ async function init() {
   setupKeyboardShortcuts();
   setupScrollTracking();
   createProgressBar();
+
+  // Listen for commands from service worker (works on PDF pages where keydown doesn't)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === "TOGGLE_SIDEBAR") {
+      const now = Date.now();
+      if (now - lastSidebarToggle < 500) return; // debounce against keydown handler
+      lastSidebarToggle = now;
+      toggleSidebar();
+    }
+  });
   createSidebarToggle();
+}
+
+// Normalize URL for lookup — arxiv pdf/ → abs/, etc.
+function normalizeUrlForLookup(url) {
+  // arxiv.org/pdf/XXXX → arxiv.org/abs/XXXX
+  const arxivPdf = url.match(/arxiv\.org\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivPdf) return `https://arxiv.org/abs/${arxivPdf[1]}`;
+  // arxiv html → abs
+  const arxivHtml = url.match(/arxiv\.org\/html\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+  if (arxivHtml) return `https://arxiv.org/abs/${arxivHtml[1]}`;
+  return url;
 }
 
 // Resolve the Stoa item ID for this URL (needed for notes + highlight deletion)
 async function resolveCurrentItemId() {
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
-    const resp = await fetch(
-      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+    let resp = await fetch(
+      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
+    // If normalized URL didn't match, try the raw URL
+    if (!resp.ok && lookupUrl !== window.location.href) {
+      resp = await fetch(
+        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+        { headers: getAuthHeaders() }
+      );
+    }
     if (resp.ok) {
       const data = await resp.json();
       currentItemId = data.item?.id || null;
+      currentItemCollectionIds = data.item?.collection_ids || [];
+      currentItemPersonIds = data.item?.person_ids || [];
     }
   } catch (e) {
     // Item doesn't exist yet — will be created on first highlight/save
@@ -87,22 +129,39 @@ function updateProgressBar() {
 
 // --- Highlight Toolbar ---
 function setupSelectionListener() {
-  document.addEventListener("mouseup", (e) => {
-    const selection = window.getSelection();
-    if (
-      !selection ||
-      selection.isCollapsed ||
-      selection.toString().trim().length < 3
-    ) {
-      removeToolbar();
-      return;
-    }
+  // On Stoa webapp: show toolbar on any text selection (single click)
+  // On other sites: only show toolbar on double-click
+  const isStoa = window.location.hostname === "localhost" && window.location.port === "3000";
 
-    // Don't show toolbar inside our own UI
-    if (e.target.closest(".stoa-toolbar")) return;
+  if (isStoa) {
+    document.addEventListener("mouseup", (e) => {
+      // Don't show toolbar inside editors (ProseMirror, TipTap, contenteditable)
+      if (e.target.closest(".ProseMirror, .research-editor, [contenteditable]")) return;
+      // Don't show on notes page
+      if (window.location.pathname.startsWith("/notes")) return;
 
-    showToolbar(selection, e);
-  });
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) {
+        removeToolbar();
+        return;
+      }
+      if (e.target.closest(".stoa-toolbar")) return;
+      showToolbar(selection, e);
+    });
+  } else {
+    // External sites: show toolbar on any text selection (mouseup)
+    document.addEventListener("mouseup", (e) => {
+      if (e.target.closest(".stoa-sidebar, .stoa-toolbar, [contenteditable]")) return;
+      setTimeout(() => {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.toString().trim().length < 3) {
+          removeToolbar();
+          return;
+        }
+        showToolbar(selection, e);
+      }, 10);
+    });
+  }
 
   document.addEventListener("mousedown", (e) => {
     if (!e.target.closest(".stoa-toolbar")) {
@@ -114,44 +173,35 @@ function setupSelectionListener() {
 function showToolbar(selection) {
   removeToolbar();
 
-  // Stash range for keyboard shortcuts
   pendingSelection = selection.getRangeAt(0).cloneRange();
 
   toolbar = document.createElement("div");
   toolbar.className = "stoa-toolbar";
 
-  STOA_COLORS.forEach((color, i) => {
-    const btn = document.createElement("button");
-    btn.className = `stoa-btn-${color}`;
-    btn.title = `Highlight ${color} (${i + 1})`;
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      highlightSelection(selection, color);
-    });
-    toolbar.appendChild(btn);
+  // Highlight button (green only)
+  const hlBtn = document.createElement("button");
+  hlBtn.className = "stoa-btn-highlight";
+  hlBtn.textContent = "Highlight";
+  hlBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    highlightSelection(selection, "green");
   });
+  toolbar.appendChild(hlBtn);
 
   // Note button
   const noteBtn = document.createElement("button");
   noteBtn.className = "stoa-btn-note";
   noteBtn.textContent = "Note";
-  noteBtn.title = "Add note (n)";
   noteBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     showNoteInput(selection.getRangeAt(0).cloneRange());
   });
   toolbar.appendChild(noteBtn);
 
-  // Keyboard hint
-  const hint = document.createElement("span");
-  hint.className = "stoa-kbd-hint";
-  hint.textContent = "1-5 / n";
-  toolbar.appendChild(hint);
-
   const range = selection.getRangeAt(0);
   const rect = range.getBoundingClientRect();
   toolbar.style.top = `${window.scrollY + rect.top - 44}px`;
-  toolbar.style.left = `${window.scrollX + rect.left + rect.width / 2 - 100}px`;
+  toolbar.style.left = `${window.scrollX + rect.left + rect.width / 2 - 80}px`;
 
   document.body.appendChild(toolbar);
 }
@@ -196,14 +246,23 @@ function removeToolbar() {
 // --- Keyboard Shortcuts ---
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
-    // Ignore when typing in inputs/textareas/contenteditable
     const tag = e.target.tagName;
-    if (
-      tag === "INPUT" ||
-      tag === "TEXTAREA" ||
-      e.target.isContentEditable ||
-      e.target.closest(".stoa-note-input")
-    ) {
+    const inEditable = tag === "INPUT" || tag === "TEXTAREA" ||
+      e.target.isContentEditable || e.target.closest(".stoa-note-input");
+
+    // Cmd/Ctrl+Shift+H — toggle sidebar with debounce to prevent double-toggle
+    // (Chrome commands API may also fire this via service worker message)
+    if (e.key.toLowerCase() === "h" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastSidebarToggle < 500) return; // debounce
+      lastSidebarToggle = now;
+      toggleSidebar();
+      return;
+    }
+
+    // Ignore other shortcuts when typing in inputs/textareas/contenteditable
+    if (inEditable) {
       return;
     }
 
@@ -231,20 +290,14 @@ function setupKeyboardShortcuts() {
       return;
     }
 
-    // Cmd/Ctrl+Shift+N → toggle notes sidebar
-    if (e.key.toLowerCase() === "n" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
-      e.preventDefault();
-      toggleSidebar();
-      return;
-    }
+    // (Cmd/Ctrl+Shift+N handled above, before editable check)
 
-    // 1-5 → instant highlight with color (toolbar or bare selection)
-    if (e.key >= "1" && e.key <= "5") {
+    // h → instant highlight with green (toolbar or bare selection)
+    if (e.key === "h") {
       const sel = window.getSelection();
       const range = pendingSelection || (sel && !sel.isCollapsed ? sel.getRangeAt(0).cloneRange() : null);
       if (range && range.toString().trim().length >= 3) {
-        const colorIdx = parseInt(e.key) - 1;
-        highlightFromRange(range, STOA_COLORS[colorIdx]);
+        highlightFromRange(range, "green");
         removeToolbar();
         sel?.removeAllRanges();
         return;
@@ -312,6 +365,11 @@ function _applyHighlight(range, text, color, note = null) {
   span.classList.add("stoa-highlight-flash");
   setTimeout(() => span.classList.remove("stoa-highlight-flash"), 600);
 
+  // Show note as inline margin annotation
+  if (note) {
+    renderMarginNote(span, note);
+  }
+
   _saveHighlightData(text, context, cssSelector, color, note, span);
   updateHighlightBadge(1);
 }
@@ -329,8 +387,89 @@ function _saveHighlightData(text, context, cssSelector, color, note, span) {
       span.dataset.stoaId = highlightData.id;
       highlightMap.set(highlightData.id, { span, data: highlightData });
       refreshSidebar();
+
+      // Auto-append highlight to master reading notes
+      appendToMasterNote(
+        `> "${text.substring(0, 300)}${text.length > 300 ? '...' : ''}"\n\n`,
+        document.title,
+        window.location.href
+      );
     }
   });
+}
+
+// --- Master Reading Notes ---
+// One continuous note file. Each page gets a ## heading with the page title.
+// Highlights and notes auto-append under the current page's heading.
+let masterNoteId = null;
+
+async function getMasterNoteId() {
+  if (masterNoteId) return masterNoteId;
+
+  const stored = await chrome.storage.local.get("stoa_master_note_id");
+  if (stored.stoa_master_note_id) {
+    masterNoteId = stored.stoa_master_note_id;
+    return masterNoteId;
+  }
+
+  // Check if master note exists on the server
+  try {
+    const resp = await fetch(`${stoaApiUrl}/notes/search?q=Reading%20Notes`, {
+      headers: getAuthHeaders(),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const existing = data.notes?.find((n) => n.title === "Reading Notes");
+      if (existing) {
+        masterNoteId = existing.id;
+        await chrome.storage.local.set({ stoa_master_note_id: masterNoteId });
+        return masterNoteId;
+      }
+    }
+  } catch (e) { /* will create */ }
+
+  // Create master note
+  try {
+    const resp = await fetch(`${stoaApiUrl}/notes`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        title: "Reading Notes",
+        content: "<h1>Reading Notes</h1><p>Auto-generated from highlights and annotations.</p>",
+        tags: ["journal"],
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      masterNoteId = data.note?.id;
+      if (masterNoteId) {
+        await chrome.storage.local.set({ stoa_master_note_id: masterNoteId });
+      }
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to create master note:", e);
+  }
+
+  return masterNoteId;
+}
+
+async function appendToMasterNote(content, pageTitle, pageUrl) {
+  const noteId = await getMasterNoteId();
+  if (!noteId) return;
+
+  // Build the append content: heading with page link + the content
+  const heading = `<h2><a href="${pageUrl}">${pageTitle}</a></h2>`;
+  const appendContent = `${heading}${content}`;
+
+  try {
+    await fetch(`${stoaApiUrl}/notes/${noteId}/append`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ content: appendContent }),
+    });
+  } catch (e) {
+    console.error("[Stoa] Failed to append to master note:", e);
+  }
 }
 
 // --- Highlight Actions (remove/edit on click) ---
@@ -476,6 +615,29 @@ function getCSSSelector(el) {
   return parts.join(" > ");
 }
 
+// --- Inline Margin Notes ---
+function renderMarginNote(highlightSpan, noteText) {
+  if (!noteText || !highlightSpan) return;
+
+  // Need the highlight's parent to be position:relative for absolute positioning
+  const container = highlightSpan.closest("p, div, li, blockquote, td, section, article");
+  if (container) {
+    const existing = container.style.position;
+    if (!existing || existing === "static") {
+      container.style.position = "relative";
+    }
+  }
+
+  const annotation = document.createElement("span");
+  annotation.className = "stoa-highlight-annotation";
+  annotation.textContent = noteText;
+  annotation.dataset.stoaHighlightId = highlightSpan.dataset.stoaId || "";
+
+  // Position relative to the highlight span within its container
+  highlightSpan.style.position = "relative";
+  highlightSpan.appendChild(annotation);
+}
+
 // --- Auth Headers ---
 function getAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
@@ -553,22 +715,27 @@ function updateHighlightBadge(delta) {
 
 // --- Restore Highlights ---
 async function restoreHighlights() {
+  // Skip restore on pages that block cross-origin requests (e.g., x.com intent pages)
+  const skipHosts = ["x.com", "twitter.com", "accounts.google.com"];
+  if (skipHosts.some((h) => window.location.hostname.includes(h))) return;
+
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
     const resp = await fetch(
-      `${stoaApiUrl}/highlights?url=${encodeURIComponent(window.location.href)}`,
+      `${stoaApiUrl}/highlights?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
+    if (!resp.ok) return;
     const data = await resp.json();
     if (data?.highlights) {
       data.highlights.forEach((h) => injectHighlight(h));
-      // Set initial badge count
       chrome.runtime.sendMessage({
         type: "SET_BADGE",
         payload: { count: data.highlights.length },
       });
     }
-  } catch (err) {
-    console.error("[Stoa] Failed to restore highlights:", err);
+  } catch {
+    // Fetch blocked by CSP or backend unreachable — non-fatal
   }
 }
 
@@ -619,6 +786,11 @@ function injectHighlight(highlight) {
           range.surroundContents(span);
         } catch (e) {
           // Multi-element span — skip gracefully
+        }
+
+        // Show note as inline margin annotation
+        if (highlight.note) {
+          renderMarginNote(span, highlight.note);
         }
 
         // Track in highlightMap
@@ -1079,7 +1251,7 @@ function createSidebarToggle() {
   const toggle = document.createElement("button");
   toggle.className = "stoa-sidebar-toggle";
   toggle.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 6h8M2 9h10M2 12h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-  toggle.title = "Notes & Highlights (Cmd+Shift+N)";
+  toggle.title = "Notes & Highlights (Cmd+Shift+H)";
   toggle.addEventListener("click", toggleSidebar);
   document.documentElement.appendChild(toggle);
 }
@@ -1092,14 +1264,31 @@ function toggleSidebar() {
   }
 }
 
-function openSidebar() {
+async function openSidebar() {
   if (sidebarElement) sidebarElement.remove();
   sidebarOpen = true;
+
+  // Detect PDF pages (Chrome's built-in PDF viewer)
+  const isPdf = document.contentType === "application/pdf" ||
+    window.location.href.endsWith(".pdf") ||
+    !!document.querySelector("embed[type='application/pdf']");
+
+  // Shift page content left to make room
+  if (isPdf) {
+    // PDF viewer: resize the embed element
+    const embed = document.querySelector("embed") || document.body;
+    embed.style.width = "65%";
+    embed.style.transition = "width 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
+    document.body.style.overflow = "hidden";
+  } else {
+    document.body.style.marginRight = "35%";
+    document.body.style.transition = "margin-right 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
+  }
 
   sidebarElement = document.createElement("div");
   sidebarElement.className = "stoa-sidebar";
 
-  // Header
+  // --- Header ---
   const header = document.createElement("div");
   header.className = "stoa-sb-header";
 
@@ -1107,73 +1296,708 @@ function openSidebar() {
   title.className = "stoa-sb-title";
   title.textContent = "Marginalia";
 
+  const headerRight = document.createElement("div");
+  headerRight.style.cssText = "display:flex;align-items:center;gap:8px;";
+
+  const saveStatus = document.createElement("span");
+  saveStatus.className = "stoa-sb-save-status";
+  saveStatus.id = "stoa-sb-save-status";
+  saveStatus.textContent = "";
+
+  // Private mode toggle
+  const privateToggle = document.createElement("label");
+  privateToggle.className = "stoa-sb-private-toggle";
+  privateToggle.title = "Private: notes stay on device only";
+  const privateCheck = document.createElement("input");
+  privateCheck.type = "checkbox";
+  privateCheck.id = "stoa-sb-private";
+  privateCheck.addEventListener("change", () => {
+    privateToggle.querySelector("span").textContent = privateCheck.checked ? "🔒" : "☁️";
+  });
+  const privateIcon = document.createElement("span");
+  privateIcon.textContent = "☁️";
+  privateToggle.appendChild(privateCheck);
+  privateToggle.appendChild(privateIcon);
+
   const closeBtn = document.createElement("button");
   closeBtn.className = "stoa-sb-close";
   closeBtn.innerHTML = "&times;";
   closeBtn.addEventListener("click", closeSidebar);
 
+  headerRight.appendChild(saveStatus);
+  headerRight.appendChild(privateToggle);
+  headerRight.appendChild(closeBtn);
   header.appendChild(title);
-  header.appendChild(closeBtn);
+  header.appendChild(headerRight);
   sidebarElement.appendChild(header);
 
-  // Note input area
-  const inputArea = document.createElement("div");
-  inputArea.className = "stoa-sb-input-area";
+  // --- Source link ---
+  const sourceBar = document.createElement("div");
+  sourceBar.className = "stoa-sb-source-bar";
+  const sourceDomain = window.location.hostname.replace("www.", "");
+  const sourceTitle = document.title.substring(0, 60) || sourceDomain;
+  sourceBar.innerHTML = `<span class="stoa-sb-source-label">Source</span><span class="stoa-sb-source-title" title="${document.title}">${sourceTitle}</span>`;
+  sidebarElement.appendChild(sourceBar);
 
-  const noteInput = document.createElement("textarea");
-  noteInput.className = "stoa-sb-note-input";
-  noteInput.placeholder = "Write a note...";
-  noteInput.rows = 3;
+  // --- "Open in Stoa" button for PDF pages ---
+  if (isPdf) {
+    const openInStoa = document.createElement("button");
+    openInStoa.className = "stoa-sb-open-stoa";
+    openInStoa.textContent = "📄 Save & Open in Stoa";
+    openInStoa.addEventListener("click", async () => {
+      openInStoa.textContent = "Downloading...";
+      openInStoa.disabled = true;
+      try {
+        // Download the PDF
+        const pdfResp = await fetch(window.location.href);
+        const pdfBlob = await pdfResp.blob();
+        const file = new File([pdfBlob], window.location.pathname.split("/").pop() || "paper.pdf", { type: "application/pdf" });
 
-  const inputActions = document.createElement("div");
-  inputActions.className = "stoa-sb-input-actions";
+        // Upload to Stoa
+        const formData = new FormData();
+        formData.append("file", file);
 
-  // Voice dictation button
-  const voiceBtn = document.createElement("button");
-  voiceBtn.className = "stoa-sb-voice-btn";
-  voiceBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v0a2 2 0 012 2v3a2 2 0 01-4 0V3a2 2 0 012-2z" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6.5a3.5 3.5 0 007 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M7 10v2.5M5.5 12.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
-  voiceBtn.title = "Voice dictation";
-  voiceBtn.addEventListener("click", () => toggleVoiceDictation(noteInput, voiceBtn));
+        const headers = {};
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        else if (currentUser) headers["X-User-Id"] = currentUser;
 
-  const saveNoteBtn = document.createElement("button");
-  saveNoteBtn.className = "stoa-sb-save-btn";
-  saveNoteBtn.textContent = "Save";
-  saveNoteBtn.addEventListener("click", () => {
-    const content = noteInput.value.trim();
-    if (content) {
-      saveSidebarNote(content);
-      noteInput.value = "";
+        const uploadResp = await fetch(`${stoaApiUrl}/ingest/pdf`, {
+          method: "POST",
+          headers,
+          body: formData,
+        });
+
+        if (uploadResp.ok) {
+          const data = await uploadResp.json();
+          const itemId = data.item?.id;
+          openInStoa.textContent = "Saved ✓ Opening...";
+          // Open in Stoa's PDF viewer
+          setTimeout(() => {
+            window.open(`http://localhost:3000/item/${itemId}`, "_blank");
+          }, 500);
+        } else {
+          openInStoa.textContent = "Upload failed";
+        }
+      } catch (e) {
+        console.error("[Stoa] Failed to save PDF:", e);
+        openInStoa.textContent = "Failed";
+      }
+      setTimeout(() => { openInStoa.textContent = "📄 Save & Open in Stoa"; openInStoa.disabled = false; }, 3000);
+    });
+    sidebarElement.appendChild(openInStoa);
+  }
+
+  // --- Save options: type + collection ---
+  const saveOpts = document.createElement("div");
+  saveOpts.className = "stoa-sb-save-opts";
+
+  // Type selector
+  const typeSelect = document.createElement("select");
+  typeSelect.className = "stoa-sb-type-select";
+  ["blog", "paper", "book", "page", "person"].forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
+    typeSelect.appendChild(opt);
+  });
+  // Restore saved type or auto-detect
+  const savedTypeKey = `type:${window.location.href}`;
+  const savedTypeData = await chrome.storage.local.get(savedTypeKey);
+  if (savedTypeData[savedTypeKey]) {
+    typeSelect.value = savedTypeData[savedTypeKey];
+  } else {
+    const detectedType = guessContentType(window.location.hostname);
+    typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
+  }
+  typeSelect.addEventListener("change", async () => {
+    // Persist selection
+    await chrome.storage.local.set({ [savedTypeKey]: typeSelect.value });
+    if (currentItemId && typeSelect.value !== "person") {
+      await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ type: typeSelect.value }),
+      });
     }
   });
 
-  noteInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      const content = noteInput.value.trim();
-      if (content) {
-        saveSidebarNote(content);
-        noteInput.value = "";
+  // Collection selector
+  const collectionSelect = document.createElement("select");
+  collectionSelect.className = "stoa-sb-type-select";
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = "No collection";
+  collectionSelect.appendChild(defaultOpt);
+
+  // Load collections and pre-select if item already belongs to one
+  try {
+    const collResp = await fetch(`${stoaApiUrl}/items/collections`, { headers: getAuthHeaders() });
+    if (collResp.ok) {
+      const collData = await collResp.json();
+      (collData.collections || []).forEach((col) => {
+        const opt = document.createElement("option");
+        opt.value = col.id;
+        opt.textContent = col.name;
+        collectionSelect.appendChild(opt);
+      });
+      // Pre-select first matching collection
+      if (currentItemCollectionIds.length > 0) {
+        collectionSelect.value = currentItemCollectionIds[0];
       }
     }
+  } catch (e) { /* collections optional */ }
+
+  collectionSelect.addEventListener("change", async () => {
+    if (currentItemId && collectionSelect.value) {
+      try {
+        await fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ item_id: currentItemId }),
+        });
+        currentItemCollectionIds = [collectionSelect.value];
+      } catch (e) { console.error("[Stoa] Failed to add to collection:", e); }
+    }
   });
 
-  inputActions.appendChild(voiceBtn);
-  inputActions.appendChild(saveNoteBtn);
-  inputArea.appendChild(noteInput);
-  inputArea.appendChild(inputActions);
-  sidebarElement.appendChild(inputArea);
+  // New collection row
+  const newCollRow = document.createElement("div");
+  newCollRow.className = "stoa-sb-person-row";
+  newCollRow.style.display = "flex";
 
-  // Content list (highlights + notes)
-  const list = document.createElement("div");
-  list.className = "stoa-sb-list";
-  list.id = "stoa-sb-list";
-  sidebarElement.appendChild(list);
+  const newCollInput = document.createElement("input");
+  newCollInput.type = "text";
+  newCollInput.className = "stoa-sb-person-input";
+  newCollInput.placeholder = "New collection...";
+
+  const newCollBtn = document.createElement("button");
+  newCollBtn.className = "stoa-sb-person-confirm";
+  newCollBtn.textContent = "+";
+  newCollBtn.title = "Create collection";
+  newCollBtn.addEventListener("click", async () => {
+    const name = newCollInput.value.trim();
+    if (!name) return;
+    newCollBtn.disabled = true;
+    newCollBtn.textContent = "...";
+    try {
+      // Try direct fetch first, fall back to service worker proxy if CSP blocks it
+      let data;
+      try {
+        const resp = await fetch(`${stoaApiUrl}/items/collections`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ name }),
+        });
+        if (!resp.ok) throw new Error(`API ${resp.status}`);
+        data = await resp.json();
+      } catch (fetchErr) {
+        // CSP blocked — proxy through service worker
+        data = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({
+            type: "API_PROXY",
+            payload: { method: "POST", path: "/items/collections", body: { name } },
+          }, (resp) => resp?.error ? reject(new Error(resp.error)) : resolve(resp));
+        });
+      }
+      const col = data.collection;
+      const opt = document.createElement("option");
+      opt.value = col.id;
+      opt.textContent = col.name;
+      collectionSelect.appendChild(opt);
+      collectionSelect.value = col.id;
+      newCollInput.value = "";
+      if (currentItemId) {
+        try {
+          await fetch(`${stoaApiUrl}/items/collections/${col.id}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId }),
+          });
+        } catch { /* will try on next sidebar open */ }
+      }
+      newCollBtn.textContent = "✓";
+      setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 1500);
+    } catch (e) {
+      console.error("[Stoa] Collection create error:", e);
+      newCollBtn.textContent = "!";
+      setTimeout(() => { newCollBtn.textContent = "+"; newCollBtn.disabled = false; }, 2000);
+    }
+  });
+
+  newCollInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") newCollBtn.click();
+  });
+
+  newCollRow.appendChild(newCollInput);
+  newCollRow.appendChild(newCollBtn);
+
+  const typeLabel = document.createElement("span");
+  typeLabel.className = "stoa-sb-opt-label";
+  typeLabel.textContent = "Type";
+
+  const collLabel = document.createElement("span");
+  collLabel.className = "stoa-sb-opt-label";
+  collLabel.textContent = "Collection";
+
+  saveOpts.appendChild(typeLabel);
+  saveOpts.appendChild(typeSelect);
+  saveOpts.appendChild(collLabel);
+  saveOpts.appendChild(collectionSelect);
+  saveOpts.appendChild(newCollRow);
+  sidebarElement.appendChild(saveOpts);
+
+  // --- Person assignment section ---
+  const personSection = document.createElement("div");
+  personSection.className = "stoa-sb-person-section";
+
+  const personLabel = document.createElement("span");
+  personLabel.className = "stoa-sb-opt-label";
+  personLabel.textContent = "Person";
+  personSection.appendChild(personLabel);
+
+  // Existing people dropdown
+  const personSelect = document.createElement("select");
+  personSelect.className = "stoa-sb-type-select";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "Assign to person...";
+  personSelect.appendChild(noneOpt);
+
+  let loadedPeople = [];
+  try {
+    const pResp = await fetch(`${stoaApiUrl}/people`, { headers: getAuthHeaders() });
+    if (pResp.ok) {
+      const pData = await pResp.json();
+      loadedPeople = pData.people || [];
+      loadedPeople.forEach((p) => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.name;
+        personSelect.appendChild(opt);
+      });
+      // Pre-select first matching person
+      if (currentItemPersonIds.length > 0) {
+        personSelect.value = currentItemPersonIds[0];
+      }
+    }
+  } catch (e) { /* people optional */ }
+
+  personSelect.addEventListener("change", async () => {
+    if (!currentItemId || !personSelect.value) return;
+    try {
+      await fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+      });
+      currentItemPersonIds = [personSelect.value];
+      const statusEl = document.getElementById("stoa-sb-save-status");
+      if (statusEl) { statusEl.textContent = "Linked ✓"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
+    } catch (e) { console.error("[Stoa] Failed to link person:", e); }
+  });
+
+  personSection.appendChild(personSelect);
+
+  // Create new person row
+  const newPersonRow = document.createElement("div");
+  newPersonRow.className = "stoa-sb-person-row";
+  newPersonRow.style.display = "flex";
+
+  const newPersonInput = document.createElement("input");
+  newPersonInput.type = "text";
+  newPersonInput.className = "stoa-sb-person-input";
+  newPersonInput.placeholder = "New person name...";
+
+  const newPersonBtn = document.createElement("button");
+  newPersonBtn.className = "stoa-sb-person-confirm";
+  newPersonBtn.textContent = "+";
+  newPersonBtn.title = "Create person and assign to this page";
+  newPersonBtn.addEventListener("click", async () => {
+    const name = newPersonInput.value.trim();
+    if (!name) return;
+    newPersonBtn.disabled = true;
+    newPersonBtn.textContent = "...";
+    try {
+      const resp = await fetch(`${stoaApiUrl}/people`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name, website_url: window.location.href, role: "intellectual hero" }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const person = data.person;
+        // Add to dropdown and select
+        const opt = document.createElement("option");
+        opt.value = person.id;
+        opt.textContent = person.name;
+        personSelect.appendChild(opt);
+        personSelect.value = person.id;
+        newPersonInput.value = "";
+        // Auto-link if item exists
+        if (currentItemId) {
+          await fetch(`${stoaApiUrl}/people/${person.id}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+          });
+        }
+        newPersonBtn.textContent = "✓";
+        setTimeout(() => { newPersonBtn.textContent = "+"; newPersonBtn.disabled = false; }, 1500);
+      }
+    } catch (e) {
+      newPersonBtn.textContent = "!";
+      newPersonBtn.disabled = false;
+    }
+  });
+
+  newPersonInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") newPersonBtn.click();
+  });
+
+  newPersonRow.appendChild(newPersonInput);
+  newPersonRow.appendChild(newPersonBtn);
+  personSection.appendChild(newPersonRow);
+  sidebarElement.appendChild(personSection);
+
+  // --- Formatting toolbar ---
+  const fmtBar = document.createElement("div");
+  fmtBar.className = "stoa-sb-fmt-bar";
+
+  const boldBtn = document.createElement("button");
+  boldBtn.className = "stoa-sb-fmt-btn";
+  boldBtn.innerHTML = "<strong>B</strong>";
+  boldBtn.title = "Bold (Cmd+B)";
+  boldBtn.addEventListener("click", () => document.execCommand("bold"));
+
+  const italicBtn = document.createElement("button");
+  italicBtn.className = "stoa-sb-fmt-btn";
+  italicBtn.innerHTML = "<em>I</em>";
+  italicBtn.title = "Italic (Cmd+I)";
+  italicBtn.addEventListener("click", () => document.execCommand("italic"));
+
+  const listBtn = document.createElement("button");
+  listBtn.className = "stoa-sb-fmt-btn";
+  listBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="2.5" cy="3" r="1" fill="currentColor"/><circle cx="2.5" cy="7" r="1" fill="currentColor"/><circle cx="2.5" cy="11" r="1" fill="currentColor"/><line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+  listBtn.title = "Bullet list";
+  listBtn.addEventListener("click", () => document.execCommand("insertUnorderedList"));
+
+  // Bookmark button
+  const bookmarkBtn = document.createElement("button");
+  bookmarkBtn.className = "stoa-sb-fmt-btn";
+  bookmarkBtn.innerHTML = "📌";
+  bookmarkBtn.title = "Place/jump to bookmark";
+  bookmarkBtn.addEventListener("click", () => {
+    if (bookmarkElement && bookmarkElement.isConnected) {
+      jumpToBookmark();
+    } else {
+      placeBookmark();
+    }
+  });
+
+  fmtBar.appendChild(boldBtn);
+  fmtBar.appendChild(italicBtn);
+  fmtBar.appendChild(listBtn);
+  fmtBar.appendChild(bookmarkBtn);
+  sidebarElement.appendChild(fmtBar);
+
+  // --- Notepad (contenteditable) ---
+  const notepad = document.createElement("div");
+  notepad.className = "stoa-sb-notepad";
+  notepad.id = "stoa-sb-notepad";
+  notepad.contentEditable = "true";
+  notepad.spellcheck = true;
+  notepad.dataset.placeholder = "Write your notes...";
+  sidebarElement.appendChild(notepad);
 
   document.documentElement.appendChild(sidebarElement);
-  populateSidebar(list);
+
+  // --- Auto-save the page to Stoa if not already saved ---
+  await ensurePageSaved();
+
+  // Re-resolve item data (collections, persons) if we just created the item
+  if (currentItemId && currentItemCollectionIds.length === 0 && currentItemPersonIds.length === 0) {
+    await resolveCurrentItemId();
+    // Update dropdowns if data was found
+    if (currentItemCollectionIds.length > 0 && collectionSelect) {
+      collectionSelect.value = currentItemCollectionIds[0];
+    }
+    if (currentItemPersonIds.length > 0 && personSelect) {
+      personSelect.value = currentItemPersonIds[0];
+    }
+  }
+
+  // --- Load or create the source note ---
+  await loadOrCreateSourceNote(notepad);
+
+  // --- Auto-save notepad every 5 seconds ---
+  noteAutoSaveTimer = setInterval(() => {
+    autoSaveNotepad();
+  }, 5000);
+
+  // Also save on blur
+  notepad.addEventListener("blur", () => {
+    autoSaveNotepad();
+  });
 }
 
-function closeSidebar() {
+async function ensurePageSaved() {
+  if (currentItemId) return;
+  const lookupUrl = normalizeUrlForLookup(window.location.href);
+  try {
+    // Check if URL already has a Stoa item (try normalized URL first)
+    let checkResp = await fetch(
+      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
+      { headers: getAuthHeaders() }
+    );
+    if (!checkResp.ok && lookupUrl !== window.location.href) {
+      checkResp = await fetch(
+        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+        { headers: getAuthHeaders() }
+      );
+    }
+    if (checkResp.ok) {
+      const checkData = await checkResp.json();
+      if (checkData.item?.id) {
+        currentItemId = checkData.item.id;
+        return;
+      }
+    }
+  } catch (e) { /* not found, will ingest */ }
+
+  // Auto-save via /ingest (use normalized URL so it matches existing items)
+  try {
+    const resp = await fetch(`${stoaApiUrl}/ingest`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        url: lookupUrl,
+        type: guessContentType(window.location.hostname),
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      currentItemId = data.item?.id || null;
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to auto-save page:", e);
+  }
+}
+
+async function loadOrCreateSourceNote(notepad) {
+  // Create note even without item_id — will link later if ingest succeeds
+
+  const statusEl = document.getElementById("stoa-sb-save-status");
+  const backupKey = `note-backup:${window.location.href}`;
+
+  // Try to load existing note for this item
+  if (currentItemId) {
+    try {
+      const resp = await fetch(
+        `${stoaApiUrl}/notes?item_id=${currentItemId}`,
+        { headers: getAuthHeaders() }
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const notes = data.notes || [];
+        const sourceNote = notes.find(n => (n.tags || []).includes("source-note")) || notes[0];
+        if (sourceNote) {
+          currentNoteId = sourceNote.id;
+          let content = sourceNote.content || "";
+
+          // Restore from local backup if API content is empty but backup has content
+          if (!content.replace(/<[^>]*>/g, "").trim()) {
+            const backup = await chrome.storage.local.get(backupKey);
+            if (backup[backupKey] && backup[backupKey].replace(/<[^>]*>/g, "").trim()) {
+              content = backup[backupKey];
+              // Push backup to API
+              fetch(`${stoaApiUrl}/notes/${currentNoteId}`, {
+                method: "PATCH",
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ content }),
+              }).catch(() => {});
+            }
+          }
+
+          notepad.innerHTML = content;
+          lastSavedNoteContent = notepad.innerHTML;
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("[Stoa] Failed to load notes:", e);
+      // API unreachable — try loading from local backup
+      const backup = await chrome.storage.local.get(backupKey);
+      if (backup[backupKey]) {
+        notepad.innerHTML = backup[backupKey];
+        lastSavedNoteContent = notepad.innerHTML;
+        if (statusEl) statusEl.textContent = "Loaded from backup";
+        return;
+      }
+    }
+  }
+
+  // Also check by URL in chrome.storage (for pages that failed to ingest)
+  const storageKey = `note:${window.location.href}`;
+  const stored = await chrome.storage.local.get(storageKey);
+  if (stored[storageKey]?.noteId) {
+    currentNoteId = stored[storageKey].noteId;
+    try {
+      const resp = await fetch(`${stoaApiUrl}/notes/${currentNoteId}`, { headers: getAuthHeaders() });
+      if (resp.ok) {
+        const data = await resp.json();
+        const note = data.note || data;
+        notepad.innerHTML = note.content || "";
+        lastSavedNoteContent = notepad.innerHTML;
+        return;
+      }
+    } catch (e) { /* note deleted, create new */ }
+  }
+
+  // Create new note (works even without item_id)
+  // Check for local backup to use as initial content
+  let initialContent = "";
+  try {
+    const backup = await chrome.storage.local.get(backupKey);
+    if (backup[backupKey] && backup[backupKey].replace(/<[^>]*>/g, "").trim()) {
+      initialContent = backup[backupKey];
+    }
+  } catch (e) { /* no backup */ }
+
+  try {
+    const tags = ["source-note"];
+    if (currentItemId) tags.push(`ref:${currentItemId}`);
+
+    const resp = await fetch(`${stoaApiUrl}/notes`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        item_id: currentItemId || null,
+        content: initialContent,
+        title: document.title || window.location.href,
+        tags,
+      }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      currentNoteId = data.note?.id || null;
+      if (initialContent) {
+        notepad.innerHTML = initialContent;
+      }
+      lastSavedNoteContent = notepad.innerHTML;
+      // Cache the note ID by URL for later retrieval
+      if (currentNoteId) {
+        await chrome.storage.local.set({ [storageKey]: { noteId: currentNoteId } });
+      }
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to create note:", e);
+    // Load from backup if API failed
+    if (initialContent) {
+      notepad.innerHTML = initialContent;
+      lastSavedNoteContent = notepad.innerHTML;
+    }
+  }
+}
+
+async function autoSaveNotepad() {
+  const notepad = document.getElementById("stoa-sb-notepad");
+  const statusEl = document.getElementById("stoa-sb-save-status");
+  const isPrivate = document.getElementById("stoa-sb-private")?.checked;
+
+  if (!notepad) return;
+
+  const content = notepad.innerHTML;
+  // Normalize empty state — treat empty contenteditable divs as empty
+  const normalizedContent = content.replace(/<br\s*\/?>/gi, "").replace(/<div><\/div>/gi, "").trim();
+  const normalizedLast = lastSavedNoteContent.replace(/<br\s*\/?>/gi, "").replace(/<div><\/div>/gi, "").trim();
+  if (normalizedContent === normalizedLast) return;
+
+  // Always save locally as backup
+  const localKey = `note-backup:${window.location.href}`;
+  await chrome.storage.local.set({ [localKey]: content });
+
+  // Private mode: save to chrome.storage only
+  if (isPrivate) {
+    const key = `private-note:${window.location.href}`;
+    await chrome.storage.local.set({ [key]: content });
+    lastSavedNoteContent = content;
+    if (statusEl) { statusEl.textContent = "Saved locally"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
+    return;
+  }
+
+  // Cloud mode: save to Stoa API
+  if (!currentNoteId) {
+    if (!currentItemId) await ensurePageSaved();
+    await loadOrCreateSourceNote(notepad);
+    if (!currentNoteId) {
+      // Last resort: save locally
+      const key = `private-note:${window.location.href}`;
+      await chrome.storage.local.set({ [key]: content });
+      lastSavedNoteContent = content;
+      if (statusEl) statusEl.textContent = "Saved locally";
+      return;
+    }
+  }
+
+  try {
+    if (statusEl) statusEl.textContent = "Saving...";
+    const resp = await fetch(`${stoaApiUrl}/notes/${currentNoteId}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    if (resp.ok) {
+      lastSavedNoteContent = content;
+      if (statusEl) {
+        statusEl.textContent = "Saved";
+        setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000);
+      }
+    } else {
+      // API error — still saved locally via backup above
+      if (statusEl) statusEl.textContent = "Saved locally";
+    }
+  } catch (e) {
+    console.error("[Stoa] Failed to auto-save note:", e);
+    if (statusEl) statusEl.textContent = "Saved locally";
+  }
+}
+
+async function closeSidebar() {
+  // Immediately snapshot notepad content before any async operations
+  const notepad = document.getElementById("stoa-sb-notepad");
+  if (notepad) {
+    const content = notepad.innerHTML;
+    const backupKey = `note-backup:${window.location.href}`;
+    chrome.storage.local.set({ [backupKey]: content });
+  }
+
+  // Final save before closing — MUST await to prevent currentNoteId from being nulled before save completes
+  await autoSaveNotepad();
+
   sidebarOpen = false;
+
+  // Clear auto-save timer
+  if (noteAutoSaveTimer) {
+    clearInterval(noteAutoSaveTimer);
+    noteAutoSaveTimer = null;
+  }
+
+  // Reset note state for this session
+  currentNoteId = null;
+  lastSavedNoteContent = "";
+
+  // Restore page layout
+  const isPdf = document.contentType === "application/pdf" ||
+    window.location.href.endsWith(".pdf") ||
+    !!document.querySelector("embed[type='application/pdf']");
+  if (isPdf) {
+    const embed = document.querySelector("embed") || document.body;
+    embed.style.width = "";
+    document.body.style.overflow = "";
+  } else {
+    document.body.style.marginRight = "";
+  }
+
   if (sidebarElement) {
     sidebarElement.classList.add("stoa-sb-exit");
     setTimeout(() => {
@@ -1187,11 +2011,29 @@ function closeSidebar() {
 function refreshSidebar() {
   if (!sidebarOpen) return;
   const list = document.getElementById("stoa-sb-list");
-  if (list) populateSidebar(list);
+  if (list) populateSidebarHighlights(list);
 }
 
-async function populateSidebar(list) {
+async function populateSidebarHighlights(list) {
   list.innerHTML = "";
+
+  // Also fetch highlights from API (in case local map is stale)
+  try {
+    const resp = await fetch(
+      `${stoaApiUrl}/highlights?url=${encodeURIComponent(window.location.href)}`,
+      { headers: getAuthHeaders() }
+    );
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data?.highlights) {
+        data.highlights.forEach((h) => {
+          if (!highlightMap.has(h.id)) {
+            highlightMap.set(h.id, { span: null, data: h });
+          }
+        });
+      }
+    }
+  } catch (e) { /* backend unreachable */ }
 
   // Section: Highlights
   const hlSection = document.createElement("div");
@@ -1239,7 +2081,6 @@ async function populateSidebar(list) {
         if (span && span.isConnected) {
           removeHighlight(span);
         } else {
-          // Span not in DOM (page changed), delete from backend only
           deleteHighlightById(id);
         }
       });
@@ -1259,111 +2100,9 @@ async function populateSidebar(list) {
     });
   }
   list.appendChild(hlSection);
-
-  // Section: Notes
-  const noteSection = document.createElement("div");
-  noteSection.className = "stoa-sb-section";
-  const noteHeading = document.createElement("h4");
-  noteHeading.className = "stoa-sb-section-title";
-  noteHeading.textContent = "Notes";
-  noteSection.appendChild(noteHeading);
-
-  // Fetch notes from backend
-  if (currentItemId) {
-    try {
-      const resp = await fetch(
-        `${stoaApiUrl}/notes?item_id=${currentItemId}`,
-        { headers: getAuthHeaders() }
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const notes = data.notes || [];
-        if (notes.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "stoa-sb-empty";
-          empty.textContent = "No notes yet.";
-          noteSection.appendChild(empty);
-        } else {
-          notes.forEach((note) => {
-            const card = document.createElement("div");
-            card.className = "stoa-sb-card stoa-sb-card-note-item";
-
-            if (note.title) {
-              const t = document.createElement("p");
-              t.className = "stoa-sb-card-note-title";
-              t.textContent = note.title;
-              card.appendChild(t);
-            }
-
-            const content = document.createElement("p");
-            content.className = "stoa-sb-card-text";
-            content.textContent = note.content;
-            card.appendChild(content);
-
-            const time = document.createElement("span");
-            time.className = "stoa-sb-card-time";
-            time.textContent = new Date(note.created_at).toLocaleDateString();
-            card.appendChild(time);
-
-            noteSection.appendChild(card);
-          });
-        }
-      }
-    } catch (e) {
-      const empty = document.createElement("p");
-      empty.className = "stoa-sb-empty";
-      empty.textContent = "Could not load notes.";
-      noteSection.appendChild(empty);
-    }
-  } else {
-    const empty = document.createElement("p");
-    empty.className = "stoa-sb-empty";
-    empty.textContent = "Save this page first to add notes.";
-    noteSection.appendChild(empty);
-  }
-
-  list.appendChild(noteSection);
 }
 
-async function saveSidebarNote(content) {
-  if (!currentItemId) {
-    // Need to ingest the page first
-    try {
-      const headers = getAuthHeaders();
-      const resp = await fetch(`${stoaApiUrl}/ingest`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          url: window.location.href,
-          type: guessContentType(window.location.hostname),
-        }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        currentItemId = data.item?.id;
-      }
-    } catch (e) {
-      console.error("[Stoa] Failed to ingest for note:", e);
-      return;
-    }
-  }
-
-  if (!currentItemId) return;
-
-  try {
-    await fetch(`${stoaApiUrl}/notes`, {
-      method: "POST",
-      headers: getAuthHeaders(),
-      body: JSON.stringify({
-        item_id: currentItemId,
-        content,
-      }),
-    });
-    refreshSidebar();
-  } catch (e) {
-    console.error("[Stoa] Failed to save note:", e);
-  }
-}
+// saveSidebarNote is now handled by autoSaveNotepad() via contenteditable
 
 async function deleteHighlightById(id) {
   highlightMap.delete(id);
@@ -1492,3 +2231,94 @@ window.addEventListener("scroll", () => {
   clearTimeout(backendScrollTimer);
   backendScrollTimer = setTimeout(syncScrollToBackend, 5000);
 });
+
+// --- Movable Bookmark ---
+// A draggable marker that persists via chrome.storage.
+// Click the bookmark button in the sidebar to place/move it.
+let bookmarkElement = null;
+
+async function initBookmark() {
+  const key = `bookmark:${window.location.href}`;
+  const stored = await chrome.storage.local.get(key);
+  const pos = stored[key];
+  if (pos && pos.y) {
+    createBookmarkMarker(pos.y);
+  }
+}
+
+function createBookmarkMarker(yPos) {
+  if (bookmarkElement) bookmarkElement.remove();
+
+  bookmarkElement = document.createElement("div");
+  bookmarkElement.className = "stoa-bookmark";
+  bookmarkElement.innerHTML = `<span class="stoa-bookmark-flag">📌 You left off here <button class="stoa-bookmark-hide" title="Hide bookmark">×</button></span>`;
+
+  // Hide button
+  bookmarkElement.querySelector(".stoa-bookmark-hide").addEventListener("click", (e) => {
+    e.stopPropagation();
+    bookmarkElement.style.display = "none";
+  });
+  bookmarkElement.style.top = `${yPos}px`;
+
+  // Make it draggable
+  let isDragging = false;
+  let startY = 0;
+  let startTop = 0;
+
+  bookmarkElement.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startY = e.clientY;
+    startTop = parseInt(bookmarkElement.style.top) || 0;
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const dy = e.clientY - startY;
+    bookmarkElement.style.top = `${startTop + dy}px`;
+  });
+
+  document.addEventListener("mouseup", async () => {
+    if (!isDragging) return;
+    isDragging = false;
+    const newY = parseInt(bookmarkElement.style.top) || 0;
+    const key = `bookmark:${window.location.href}`;
+    await chrome.storage.local.set({ [key]: { y: newY } });
+  });
+
+  // Double-click to remove
+  bookmarkElement.addEventListener("dblclick", async () => {
+    bookmarkElement.remove();
+    bookmarkElement = null;
+    const key = `bookmark:${window.location.href}`;
+    await chrome.storage.local.remove(key);
+  });
+
+  document.body.appendChild(bookmarkElement);
+}
+
+function placeBookmark() {
+  const y = window.scrollY + window.innerHeight / 2;
+  createBookmarkMarker(y);
+  const key = `bookmark:${window.location.href}`;
+  chrome.storage.local.set({ [key]: { y } });
+
+  // Scroll into view
+  bookmarkElement.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// Jump to bookmark
+function jumpToBookmark() {
+  if (bookmarkElement && bookmarkElement.isConnected) {
+    bookmarkElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    bookmarkElement.classList.add("stoa-bookmark-flash");
+    setTimeout(() => bookmarkElement.classList.remove("stoa-bookmark-flash"), 800);
+  }
+}
+
+// Initialize bookmark on page load
+if (document.readyState === "complete") {
+  initBookmark();
+} else {
+  window.addEventListener("load", initBookmark);
+}
