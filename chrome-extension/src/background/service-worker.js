@@ -331,7 +331,9 @@ chrome.commands.onCommand.addListener(async (command) => {
 
     // PDF pages: Chrome's viewer blocks content script injection.
     // Save the PDF and open in Stoa instead.
-    const isPdf = tab.url?.endsWith(".pdf") || tab.url?.includes("/pdf/");
+    // Only treat as PDF if the URL ends with .pdf or is an arxiv/openreview PDF viewer
+    const isPdf = tab.url?.endsWith(".pdf") ||
+      (tab.url?.includes("arxiv.org/pdf/") && !tab.url?.includes(".html"));
     if (isPdf) {
       try {
         const config = await getConfig();
