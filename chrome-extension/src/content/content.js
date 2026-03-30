@@ -63,12 +63,16 @@ async function init() {
   }
 
   // Listen for commands from service worker (works on PDF pages where keydown doesn't)
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "TOGGLE_SIDEBAR") {
       const now = Date.now();
-      if (now - lastSidebarToggle < 500) return; // debounce against keydown handler
+      if (now - lastSidebarToggle < 500) {
+        sendResponse({ ok: true, debounced: true });
+        return;
+      }
       lastSidebarToggle = now;
       toggleSidebar();
+      sendResponse({ ok: true });
     }
   });
   createSidebarToggle();
