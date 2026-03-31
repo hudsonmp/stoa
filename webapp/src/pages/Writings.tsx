@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, ExternalLink, Link2 } from "lucide-react";
+import { Plus, Search, FileText, Trash2, ExternalLink } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
@@ -39,7 +39,6 @@ export default function Writings() {
   const [titleDraft, setTitleDraft] = useState("");
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [overleafUrl, setOverleafUrl] = useState("");
-  const [editingOverleaf, setEditingOverleaf] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,10 +68,8 @@ export default function Writings() {
     if (activeNote) {
       setEditingTitleId(activeNote.id);
       setTitleDraft(activeNote.title && activeNote.title !== "Untitled" ? activeNote.title : "");
-      // Extract overleaf URL from tags (stored as "overleaf:https://...")
       const olTag = activeNote.tags?.find((t: string) => t.startsWith("overleaf:"));
       setOverleafUrl(olTag ? olTag.replace("overleaf:", "") : "");
-      setEditingOverleaf(false);
     }
   }, [activeNote?.id]);
 
@@ -264,51 +261,35 @@ export default function Writings() {
                 </span>
               </div>
             </div>
-            {/* Overleaf link */}
-            <div className="px-6 pb-2">
-              {overleafUrl && !editingOverleaf ? (
-                <div className="flex items-center gap-2 text-[12px]">
-                  <Link2 size={12} className="text-text-tertiary" />
-                  <a
-                    href={overleafUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-text-secondary hover:text-text-primary underline underline-offset-2 decoration-border transition-warm"
-                  >
-                    Open in Overleaf
-                  </a>
-                  <button
-                    onClick={() => setEditingOverleaf(true)}
-                    className="text-text-tertiary hover:text-text-secondary text-[10px] ml-1"
-                  >
-                    edit
-                  </button>
-                </div>
+            {/* Overleaf integration */}
+            <div className="px-6 pb-2 flex items-center gap-3">
+              {overleafUrl ? (
+                <a
+                  href={overleafUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[12px] text-text-secondary
+                             hover:text-text-primary transition-warm"
+                >
+                  <ExternalLink size={11} />
+                  Open in Overleaf
+                </a>
               ) : (
-                <div className="flex items-center gap-2">
-                  <Link2 size={12} className="text-text-tertiary flex-shrink-0" />
-                  <input
-                    value={overleafUrl}
-                    onChange={(e) => setOverleafUrl(e.target.value)}
-                    placeholder="Paste Overleaf project URL..."
-                    className="flex-1 text-[12px] bg-transparent border-b border-border outline-none
-                               text-text-secondary placeholder:text-text-tertiary/50 py-0.5
-                               focus:border-accent/30 transition-warm"
-                    onBlur={async () => {
-                      setEditingOverleaf(false);
-                      if (!activeNote) return;
-                      const oldTags = (activeNote.tags || []).filter((t: string) => !t.startsWith("overleaf:"));
-                      const newTags = overleafUrl.trim()
-                        ? [...oldTags, `overleaf:${overleafUrl.trim()}`]
-                        : oldTags;
-                      await updateNote(activeNote.id, { tags: newTags });
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                    }}
-                    autoFocus={editingOverleaf}
-                  />
-                </div>
+                <button
+                  onClick={() => {
+                    if (!activeNote) return;
+                    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+                    const texUrl = `${apiUrl}/writings/${activeNote.id}/export-tex`;
+                    const overleafCreateUrl = `https://www.overleaf.com/docs?snip_uri=${encodeURIComponent(texUrl)}`;
+                    window.open(overleafCreateUrl, "_blank");
+                    // Save the Overleaf URL back (user will need to grab it after project is created)
+                  }}
+                  className="inline-flex items-center gap-1.5 text-[12px] text-accent
+                             hover:text-accent-hover transition-warm font-medium"
+                >
+                  <ExternalLink size={11} />
+                  Create on Overleaf
+                </button>
               )}
             </div>
 

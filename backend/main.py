@@ -42,6 +42,91 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/writings/{note_id}/export-tex")
+async def export_writing_as_tex(note_id: str, request: Request):
+    """Export a writing note as LaTeX using Hudson's research paper template.
+    Returns raw .tex content that Overleaf can import via snip_uri."""
+    from fastapi.responses import Response
+    from services.auth import get_user_id, get_supabase_service
+    import re
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    note_res = supabase.table("notes").select("*").eq("id", note_id).eq("user_id", user_id).single().execute()
+    if not note_res.data:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    note = note_res.data
+    title = note.get("title") or "Untitled"
+    html_content = note.get("content") or ""
+
+    # Convert HTML to basic LaTeX
+    text = html_content
+    text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'\\section{\1}', text)
+    text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'\\subsection{\1}', text)
+    text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'\\subsubsection{\1}', text)
+    text = re.sub(r'<strong>(.*?)</strong>', r'\\textbf{\1}', text)
+    text = re.sub(r'<b>(.*?)</b>', r'\\textbf{\1}', text)
+    text = re.sub(r'<em>(.*?)</em>', r'\\textit{\1}', text)
+    text = re.sub(r'<i>(.*?)</i>', r'\\textit{\1}', text)
+    text = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\\begin{quote}\1\\end{quote}', text, flags=re.DOTALL)
+    text = re.sub(r'<li>(.*?)</li>', r'\\item \1', text)
+    text = re.sub(r'<ul[^>]*>', r'\\begin{itemize}', text)
+    text = re.sub(r'</ul>', r'\\end{itemize}', text)
+    text = re.sub(r'<ol[^>]*>', r'\\begin{enumerate}', text)
+    text = re.sub(r'</ol>', r'\\end{enumerate}', text)
+    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'\\href{\1}{\2}', text)
+    text = re.sub(r'<br\s*/?>', '\n', text)
+    text = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', text, flags=re.DOTALL)
+    text = re.sub(r'<[^>]+>', '', text)  # strip remaining HTML
+    text = text.strip()
+
+    # Escape LaTeX special chars in remaining text (but not our commands)
+    # Only escape & and % which are common in prose
+    text = text.replace('&', '\\&').replace('%', '\\%')
+
+    from datetime import datetime
+    date_str = datetime.now().strftime("%B %Y")
+
+    tex = f"""\\documentclass[twocolumn]{{article}}
+\\usepackage{{graphicx}}
+\\usepackage{{hyperref}}
+\\usepackage[compact]{{titlesec}}
+\\titlespacing*{{\\subsection}}{{0pt}}{{0.5em plus 0.2em minus 0.1em}}{{0.3em}}
+\\begin{{document}}
+
+\\begin{{titlepage}}
+    \\centering
+    {{\\large Draft\\par}}
+    \\vspace{{2cm}}
+
+    {{\\huge\\bfseries {title}\\par}}
+
+    \\vspace{{2cm}}
+
+    {{\\Large Hudson Mitchell-Pullman\\par}}
+
+    \\vspace{{2cm}}
+
+    {{\\large {date_str}\\par}}
+\\end{{titlepage}}
+
+{text}
+
+\\end{{document}}
+"""
+    return Response(
+        content=tex,
+        media_type="application/x-tex",
+        headers={
+            "Content-Disposition": f'attachment; filename="{title.replace(" ", "_")}.tex"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
 @app.get("/proxy/pdf")
 async def proxy_pdf(url: str):
     """Proxy external PDFs to avoid CORS issues in the browser PDF viewer."""
