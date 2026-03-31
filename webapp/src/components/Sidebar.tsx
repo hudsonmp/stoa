@@ -31,6 +31,7 @@ const navItems = [
 const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
   { to: "/notes", label: "Notes", icon: PenLine },
+  { to: "/writings", label: "Writings", icon: FileText },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
 ];

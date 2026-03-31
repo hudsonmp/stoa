@@ -14,6 +14,7 @@ import Collections from "@/pages/Collections";
 import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
 import Notes from "@/pages/Notes";
+import Writings from "@/pages/Writings";
 
 export default function App() {
   return (
@@ -24,7 +25,8 @@ export default function App() {
             <Route element={<Layout />}>
               <Route index element={<Library status="to_read" />} />
               <Route path="/read" element={<Library status="read" />} />
-              <Route path="/writings" element={<Library type="writing" />} />
+              <Route path="/writings" element={<Writings />} />
+              <Route path="/writings/:id" element={<Writings />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetail />} />
               <Route path="/item/:id" element={<ItemDetail />} />
