@@ -1434,12 +1434,14 @@ async function openSidebar() {
     opt.textContent = t.charAt(0).toUpperCase() + t.slice(1);
     typeSelect.appendChild(opt);
   });
-  // Restore saved type or auto-detect
+  // Restore saved type or auto-detect (non-blocking)
   const savedTypeKey = `type:${window.location.href}`;
-  const savedTypeData = await chrome.storage.local.get(savedTypeKey);
-  if (savedTypeData[savedTypeKey]) {
-    typeSelect.value = savedTypeData[savedTypeKey];
-  } else {
+  chrome.storage.local.get(savedTypeKey).then(savedTypeData => {
+    if (savedTypeData[savedTypeKey]) {
+      typeSelect.value = savedTypeData[savedTypeKey];
+    }
+  });
+  {
     const detectedType = guessContentType(window.location.hostname);
     typeSelect.value = detectedType === "blog" ? "essay" : detectedType;
   }
@@ -1463,23 +1465,22 @@ async function openSidebar() {
   defaultOpt.textContent = "No collection";
   collectionSelect.appendChild(defaultOpt);
 
-  // Load collections and pre-select if item already belongs to one
-  try {
-    const collResp = await fetch(`${stoaApiUrl}/items/collections`, { headers: getAuthHeaders() });
-    if (collResp.ok) {
-      const collData = await collResp.json();
-      (collData.collections || []).forEach((col) => {
+  // Load collections in background (non-blocking)
+  fetch(`${stoaApiUrl}/items/collections`, { headers: getAuthHeaders() })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) return;
+      (data.collections || []).forEach((col) => {
         const opt = document.createElement("option");
         opt.value = col.id;
         opt.textContent = col.name;
         collectionSelect.appendChild(opt);
       });
-      // Pre-select first matching collection
       if (currentItemCollectionIds.length > 0) {
         collectionSelect.value = currentItemCollectionIds[0];
       }
-    }
-  } catch (e) { /* collections optional */ }
+    })
+    .catch(() => {});
 
   collectionSelect.addEventListener("change", async () => {
     if (currentItemId && collectionSelect.value) {
@@ -1597,13 +1598,12 @@ async function openSidebar() {
   noneOpt.textContent = "Assign to person...";
   personSelect.appendChild(noneOpt);
 
-  let loadedPeople = [];
-  try {
-    const pResp = await fetch(`${stoaApiUrl}/people`, { headers: getAuthHeaders() });
-    if (pResp.ok) {
-      const pData = await pResp.json();
-      loadedPeople = pData.people || [];
-      loadedPeople.forEach((p) => {
+  // Load people in background (non-blocking)
+  fetch(`${stoaApiUrl}/people`, { headers: getAuthHeaders() })
+    .then(r => r.ok ? r.json() : null)
+    .then(async (data) => {
+      if (!data) return;
+      (data.people || []).forEach((p) => {
         const opt = document.createElement("option");
         opt.value = p.id;
         opt.textContent = p.name;
@@ -1613,7 +1613,6 @@ async function openSidebar() {
       if (currentItemPersonIds.length > 0) {
         personSelect.value = currentItemPersonIds[0];
       } else {
-        // Check domain-based auto-assignment
         const domain = window.location.hostname.replace("www.", "");
         const domainPersonKey = `domain-person:${domain}`;
         const cached = await chrome.storage.local.get(domainPersonKey);
@@ -1621,8 +1620,8 @@ async function openSidebar() {
           personSelect.value = cached[domainPersonKey];
         }
       }
-    }
-  } catch (e) { /* people optional */ }
+    })
+    .catch(() => {});
 
   personSelect.addEventListener("change", async () => {
     if (!currentItemId || !personSelect.value) return;
@@ -1803,29 +1802,38 @@ async function openSidebar() {
 
   document.documentElement.appendChild(sidebarElement);
 
-  // Wait for initial resolve to finish (runs on page load, non-blocking)
-  if (resolvePromise) {
-    await resolvePromise;
-    resolvePromise = null;
-  }
+  // --- All network calls in parallel, non-blocking ---
+  // The sidebar is already visible; these populate it asynchronously.
+  (async () => {
+    try {
+      // Wait for page-load resolve if still running
+      if (resolvePromise) { await resolvePromise; resolvePromise = null; }
 
-  // --- Auto-save the page to Stoa if not already saved ---
-  await ensurePageSaved();
+      // Ensure page is saved + re-resolve in parallel
+      await ensurePageSaved();
+      if (currentItemId && currentItemCollectionIds.length === 0 && currentItemPersonIds.length === 0) {
+        await resolveCurrentItemId();
+      }
 
-  // Re-resolve item data (collections, persons) if needed
-  if (currentItemId && currentItemCollectionIds.length === 0 && currentItemPersonIds.length === 0) {
-    await resolveCurrentItemId();
-    // Update dropdowns if data was found
-    if (currentItemCollectionIds.length > 0 && collectionSelect) {
-      collectionSelect.value = currentItemCollectionIds[0];
+      // Update dropdowns after resolve
+      if (currentItemCollectionIds.length > 0 && collectionSelect) {
+        collectionSelect.value = currentItemCollectionIds[0];
+      }
+      if (currentItemPersonIds.length > 0 && personSelect) {
+        personSelect.value = currentItemPersonIds[0];
+      }
+      // Update Save button
+      if (currentItemId && savePageBtn) {
+        savePageBtn.textContent = "Saved";
+        savePageBtn.disabled = true;
+      }
+
+      // Load notes
+      await loadOrCreateSourceNote(notepad);
+    } catch (e) {
+      console.error("[Stoa] Sidebar async init error:", e);
     }
-    if (currentItemPersonIds.length > 0 && personSelect) {
-      personSelect.value = currentItemPersonIds[0];
-    }
-  }
-
-  // --- Load or create the source note ---
-  await loadOrCreateSourceNote(notepad);
+  })();
 
   // --- Auto-save notepad every 5 seconds ---
   noteAutoSaveTimer = setInterval(() => {
