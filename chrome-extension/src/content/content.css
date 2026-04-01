@@ -1105,6 +1105,25 @@
   50% { background: #F59E0B; }
 }
 
+/* Save Page button */
+.stoa-sb-save-page-btn {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px;
+  padding: 8px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.stoa-sb-save-page-btn:hover { background: #9A3412; }
+.stoa-sb-save-page-btn:disabled { background: #10B981; cursor: default; }
+
 /* Person assignment section */
 .stoa-sb-person-section {
   padding: 8px 16px;

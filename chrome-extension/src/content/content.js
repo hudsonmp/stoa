@@ -624,6 +624,8 @@ function getCSSSelector(el) {
 }
 
 // --- Inline Margin Notes ---
+const marginNotes = []; // track all margin notes for collision avoidance
+
 function renderMarginNote(highlightSpan, noteText) {
   if (!noteText || !highlightSpan) return;
 
@@ -632,26 +634,42 @@ function renderMarginNote(highlightSpan, noteText) {
   annotation.textContent = noteText;
   annotation.dataset.stoaHighlightId = highlightSpan.dataset.stoaId || "";
 
-  // Position as fixed element in the right margin using the highlight's position
   document.body.appendChild(annotation);
+  marginNotes.push(annotation);
 
-  const updatePosition = () => {
-    const rect = highlightSpan.getBoundingClientRect();
-    annotation.style.top = `${window.scrollY + rect.top}px`;
+  const updateAllPositions = () => {
+    // Sort notes by their highlight's vertical position
+    const sorted = marginNotes
+      .filter((n) => n.isConnected && n.dataset.stoaHighlightId)
+      .map((n) => {
+        const hl = document.querySelector(`[data-stoa-id="${n.dataset.stoaHighlightId}"]`);
+        const rect = hl?.getBoundingClientRect();
+        return { el: n, idealTop: rect ? window.scrollY + rect.top : 0 };
+      })
+      .sort((a, b) => a.idealTop - b.idealTop);
+
+    // Place notes with collision avoidance (push down if overlapping)
+    let lastBottom = 0;
+    for (const { el, idealTop } of sorted) {
+      const top = Math.max(idealTop, lastBottom + 8); // 8px gap minimum
+      el.style.top = `${top}px`;
+      lastBottom = top + el.offsetHeight;
+    }
   };
-  updatePosition();
 
-  // Reposition on scroll (debounced)
-  let scrollTimer;
-  const scrollHandler = () => {
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(updatePosition, 50);
-  };
-  window.addEventListener("scroll", scrollHandler);
+  updateAllPositions();
 
-  // Store cleanup reference on the span
+  // Reposition all on scroll (debounced, shared)
+  if (!renderMarginNote._scrollBound) {
+    renderMarginNote._scrollBound = true;
+    let scrollTimer;
+    window.addEventListener("scroll", () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(updateAllPositions, 50);
+    });
+  }
+
   highlightSpan._stoaAnnotation = annotation;
-  highlightSpan._stoaScrollHandler = scrollHandler;
 }
 
 // --- Auth Headers ---
@@ -1591,9 +1609,17 @@ async function openSidebar() {
         opt.textContent = p.name;
         personSelect.appendChild(opt);
       });
-      // Pre-select first matching person
+      // Pre-select: from item data first, then from domain cache
       if (currentItemPersonIds.length > 0) {
         personSelect.value = currentItemPersonIds[0];
+      } else {
+        // Check domain-based auto-assignment
+        const domain = window.location.hostname.replace("www.", "");
+        const domainPersonKey = `domain-person:${domain}`;
+        const cached = await chrome.storage.local.get(domainPersonKey);
+        if (cached[domainPersonKey]) {
+          personSelect.value = cached[domainPersonKey];
+        }
       }
     }
   } catch (e) { /* people optional */ }
@@ -1674,6 +1700,56 @@ async function openSidebar() {
   newPersonRow.appendChild(newPersonBtn);
   personSection.appendChild(newPersonRow);
   sidebarElement.appendChild(personSection);
+
+  // --- Save Page Button ---
+  const savePageBtn = document.createElement("button");
+  savePageBtn.className = "stoa-sb-save-page-btn";
+  savePageBtn.textContent = currentItemId ? "Saved" : "Save Page";
+  if (currentItemId) savePageBtn.disabled = true;
+  savePageBtn.addEventListener("click", async () => {
+    savePageBtn.textContent = "Saving...";
+    savePageBtn.disabled = true;
+    try {
+      await ensurePageSaved();
+      // Assign collection if selected
+      if (currentItemId && collectionSelect.value) {
+        await fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ item_id: currentItemId }),
+        }).catch(() => {});
+        currentItemCollectionIds = [collectionSelect.value];
+      }
+      // Assign person if selected
+      if (currentItemId && personSelect.value) {
+        await fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+        }).catch(() => {});
+        currentItemPersonIds = [personSelect.value];
+      }
+      // Assign type if changed
+      if (currentItemId) {
+        await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ type: typeSelect.value }),
+        }).catch(() => {});
+      }
+      savePageBtn.textContent = "Saved ✓";
+      // Cache the domain→person mapping for auto-assignment
+      if (personSelect.value) {
+        const domain = window.location.hostname.replace("www.", "");
+        const domainPersonKey = `domain-person:${domain}`;
+        await chrome.storage.local.set({ [domainPersonKey]: personSelect.value });
+      }
+    } catch (e) {
+      savePageBtn.textContent = "Failed";
+      setTimeout(() => { savePageBtn.textContent = "Save Page"; savePageBtn.disabled = false; }, 2000);
+    }
+  });
+  sidebarElement.appendChild(savePageBtn);
 
   // --- Formatting toolbar ---
   const fmtBar = document.createElement("div");
