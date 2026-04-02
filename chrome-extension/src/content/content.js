@@ -1682,8 +1682,8 @@ async function openSidebar() {
   // --- Save Page Button ---
   const savePageBtn = document.createElement("button");
   savePageBtn.className = "stoa-sb-save-page-btn";
-  savePageBtn.textContent = "Save Page";
-  // Never auto-disable — user should always be able to click to save/update metadata
+  savePageBtn.textContent = currentItemId ? "Saved — Update" : "Save Page";
+  // Always clickable — if already saved, user can still update metadata
   savePageBtn.addEventListener("click", async () => {
     savePageBtn.textContent = "Saving...";
     savePageBtn.disabled = true;
@@ -1730,10 +1730,10 @@ async function openSidebar() {
         await chrome.storage.local.set({ [domainPersonKey]: personSelect.value });
       }
       // Re-enable after brief confirmation so user can update again
-      setTimeout(() => { savePageBtn.textContent = "Save Page"; savePageBtn.disabled = false; }, 1500);
+      setTimeout(() => { savePageBtn.textContent = "Saved — Update"; savePageBtn.disabled = false; }, 1500);
     } catch (e) {
       savePageBtn.textContent = "Failed";
-      setTimeout(() => { savePageBtn.textContent = "Save Page"; savePageBtn.disabled = false; }, 2000);
+      setTimeout(() => { savePageBtn.textContent = currentItemId ? "Saved — Update" : "Save Page"; savePageBtn.disabled = false; }, 2000);
     }
   });
   sidebarElement.appendChild(savePageBtn);
@@ -1810,7 +1810,10 @@ async function openSidebar() {
       if (currentItemPersonIds.length > 0 && personSelect) {
         personSelect.value = currentItemPersonIds[0];
       }
-      // Save button stays enabled — user can always click to apply metadata
+      // Reflect saved state but keep clickable for metadata updates
+      if (currentItemId && savePageBtn) {
+        savePageBtn.textContent = "Saved — Update";
+      }
 
       // Load notes
       await loadOrCreateSourceNote(notepad);
@@ -2084,11 +2087,10 @@ async function closeSidebar() {
   stopVoiceDictation();
 
   // Fire-and-forget cloud save — local backup already captured above,
-  // and autoSaveNotepad reads notepad.innerHTML synchronously before the 250ms DOM removal
-  autoSaveNotepad().catch(() => {}).finally(() => {
-    currentNoteId = null;
-    lastSavedNoteContent = "";
-  });
+  // and autoSaveNotepad reads notepad.innerHTML synchronously before the 250ms DOM removal.
+  // Don't null currentNoteId here — openSidebar resets all state on next open,
+  // and a deferred .finally() would race with a quick reopen.
+  autoSaveNotepad().catch(() => {});
 }
 
 function refreshSidebar() {
