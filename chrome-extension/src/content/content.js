@@ -1478,17 +1478,9 @@ async function openSidebar() {
     })
     .catch(() => {});
 
-  collectionSelect.addEventListener("change", async () => {
-    if (currentItemId && collectionSelect.value) {
-      try {
-        await fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ item_id: currentItemId }),
-        });
-        currentItemCollectionIds = [collectionSelect.value];
-      } catch (e) { console.error("[Stoa] Failed to add to collection:", e); }
-    }
+  // Collection assignment deferred to Save button click — just track selection here
+  collectionSelect.addEventListener("change", () => {
+    // Selection is read by the Save button handler when clicked
   });
 
   // New collection row
@@ -1619,18 +1611,9 @@ async function openSidebar() {
     })
     .catch(() => {});
 
-  personSelect.addEventListener("change", async () => {
-    if (!currentItemId || !personSelect.value) return;
-    try {
-      await fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
-      });
-      currentItemPersonIds = [personSelect.value];
-      const statusEl = document.getElementById("stoa-sb-save-status");
-      if (statusEl) { statusEl.textContent = "Linked ✓"; setTimeout(() => { if (statusEl) statusEl.textContent = ""; }, 2000); }
-    } catch (e) { console.error("[Stoa] Failed to link person:", e); }
+  // Person assignment deferred to Save button click — just track selection here
+  personSelect.addEventListener("change", () => {
+    // Selection is read by the Save button handler when clicked
   });
 
   personSection.appendChild(personSelect);
@@ -1699,39 +1682,46 @@ async function openSidebar() {
   // --- Save Page Button ---
   const savePageBtn = document.createElement("button");
   savePageBtn.className = "stoa-sb-save-page-btn";
-  savePageBtn.textContent = currentItemId ? "Saved" : "Save Page";
-  if (currentItemId) savePageBtn.disabled = true;
+  savePageBtn.textContent = "Save Page";
+  // Never auto-disable — user should always be able to click to save/update metadata
   savePageBtn.addEventListener("click", async () => {
     savePageBtn.textContent = "Saving...";
     savePageBtn.disabled = true;
     try {
       await ensurePageSaved();
+      // Apply all metadata in parallel — works whether or not collection/person are selected
+      const promises = [];
       // Assign collection if selected
       if (currentItemId && collectionSelect.value) {
-        await fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ item_id: currentItemId }),
-        }).catch(() => {});
-        currentItemCollectionIds = [collectionSelect.value];
+        promises.push(
+          fetch(`${stoaApiUrl}/items/collections/${collectionSelect.value}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId }),
+          }).then(() => { currentItemCollectionIds = [collectionSelect.value]; }).catch(() => {})
+        );
       }
       // Assign person if selected
       if (currentItemId && personSelect.value) {
-        await fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
-        }).catch(() => {});
-        currentItemPersonIds = [personSelect.value];
+        promises.push(
+          fetch(`${stoaApiUrl}/people/${personSelect.value}/items`, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ item_id: currentItemId, relation: "authored" }),
+          }).then(() => { currentItemPersonIds = [personSelect.value]; }).catch(() => {})
+        );
       }
-      // Assign type if changed
+      // Assign type
       if (currentItemId) {
-        await fetch(`${stoaApiUrl}/items/${currentItemId}`, {
-          method: "PATCH",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({ type: typeSelect.value }),
-        }).catch(() => {});
+        promises.push(
+          fetch(`${stoaApiUrl}/items/${currentItemId}`, {
+            method: "PATCH",
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ type: typeSelect.value }),
+          }).catch(() => {})
+        );
       }
+      await Promise.all(promises);
       savePageBtn.textContent = "Saved ✓";
       // Cache the domain→person mapping for auto-assignment
       if (personSelect.value) {
@@ -1739,6 +1729,8 @@ async function openSidebar() {
         const domainPersonKey = `domain-person:${domain}`;
         await chrome.storage.local.set({ [domainPersonKey]: personSelect.value });
       }
+      // Re-enable after brief confirmation so user can update again
+      setTimeout(() => { savePageBtn.textContent = "Save Page"; savePageBtn.disabled = false; }, 1500);
     } catch (e) {
       savePageBtn.textContent = "Failed";
       setTimeout(() => { savePageBtn.textContent = "Save Page"; savePageBtn.disabled = false; }, 2000);
@@ -1818,11 +1810,7 @@ async function openSidebar() {
       if (currentItemPersonIds.length > 0 && personSelect) {
         personSelect.value = currentItemPersonIds[0];
       }
-      // Update Save button
-      if (currentItemId && savePageBtn) {
-        savePageBtn.textContent = "Saved";
-        savePageBtn.disabled = true;
-      }
+      // Save button stays enabled — user can always click to apply metadata
 
       // Load notes
       await loadOrCreateSourceNote(notepad);
