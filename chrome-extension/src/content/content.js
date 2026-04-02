@@ -2061,9 +2061,7 @@ async function closeSidebar() {
     chrome.storage.local.set({ [backupKey]: content });
   }
 
-  // Final save before closing — MUST await to prevent currentNoteId from being nulled before save completes
-  await autoSaveNotepad();
-
+  // Close the sidebar UI immediately — never block on network
   sidebarOpen = false;
 
   // Clear auto-save timer
@@ -2071,10 +2069,6 @@ async function closeSidebar() {
     clearInterval(noteAutoSaveTimer);
     noteAutoSaveTimer = null;
   }
-
-  // Reset note state for this session
-  currentNoteId = null;
-  lastSavedNoteContent = "";
 
   // Restore page layout
   document.body.style.width = "";
@@ -2088,6 +2082,13 @@ async function closeSidebar() {
     }, 250);
   }
   stopVoiceDictation();
+
+  // Fire-and-forget cloud save — local backup already captured above,
+  // and autoSaveNotepad reads notepad.innerHTML synchronously before the 250ms DOM removal
+  autoSaveNotepad().catch(() => {}).finally(() => {
+    currentNoteId = null;
+    lastSavedNoteContent = "";
+  });
 }
 
 function refreshSidebar() {

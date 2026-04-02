@@ -1108,6 +1108,7 @@
 /* Save Page button */
 .stoa-sb-save-page-btn {
   display: block;
+  flex-shrink: 0;
   width: calc(100% - 32px);
   margin: 8px 16px;
   padding: 8px;
