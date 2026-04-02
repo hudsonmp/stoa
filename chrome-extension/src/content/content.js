@@ -1308,15 +1308,11 @@ async function openSidebar() {
     !!document.querySelector("embed[type='application/pdf']");
 
   // Shift page content to make room for sidebar
-  if (isPdf) {
-    // PDF: overlay only (can't shift Chrome's PDF viewer)
-    // Sidebar renders on top
-  } else {
-    // Non-PDF: shrink the html element to make room
-    const html = document.documentElement;
-    html.style.marginRight = "350px";
-    html.style.transition = "margin-right 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
-    html.style.position = "relative";
+  if (!isPdf) {
+    // Shrink body width so centered content reflows properly
+    document.body.style.width = "calc(100vw - 350px)";
+    document.body.style.overflow = "visible";
+    document.body.style.transition = "width 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
   }
 
   sidebarElement = document.createElement("div");
@@ -2093,9 +2089,8 @@ async function closeSidebar() {
   lastSavedNoteContent = "";
 
   // Restore page layout
-  const html = document.documentElement;
-  html.style.marginRight = "";
-  html.style.position = "";
+  document.body.style.width = "";
+  document.body.style.overflow = "";
 
   if (sidebarElement) {
     sidebarElement.classList.add("stoa-sb-exit");
