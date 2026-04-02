@@ -276,19 +276,39 @@ export default function Writings() {
                 </a>
               ) : (
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (!activeNote) return;
                     const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-                    const texUrl = `${apiUrl}/writings/${activeNote.id}/export-tex`;
-                    const overleafCreateUrl = `https://www.overleaf.com/docs?snip_uri=${encodeURIComponent(texUrl)}`;
-                    window.open(overleafCreateUrl, "_blank");
-                    // Save the Overleaf URL back (user will need to grab it after project is created)
+                    // Fetch .tex from backend
+                    const headers: Record<string, string> = { "Content-Type": "application/json" };
+                    const devId = import.meta.env.VITE_DEV_USER_ID;
+                    const token = localStorage.getItem("stoa_token");
+                    const userId = localStorage.getItem("stoa_user_id");
+                    if (devId) headers["X-User-Id"] = devId;
+                    else if (token) headers["Authorization"] = `Bearer ${token}`;
+                    else if (userId) headers["X-User-Id"] = userId;
+
+                    const resp = await fetch(`${apiUrl}/writings/${activeNote.id}/export-tex`, { headers });
+                    if (!resp.ok) return;
+                    const tex = await resp.text();
+
+                    // Download the .tex file
+                    const blob = new Blob([tex], { type: "application/x-tex" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${(activeNote.title || "draft").replace(/\s+/g, "_")}.tex`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    // Open Overleaf new project page
+                    window.open("https://www.overleaf.com/project", "_blank");
                   }}
                   className="inline-flex items-center gap-1.5 text-[12px] text-accent
                              hover:text-accent-hover transition-warm font-medium"
                 >
                   <ExternalLink size={11} />
-                  Create on Overleaf
+                  Export to LaTeX
                 </button>
               )}
             </div>
