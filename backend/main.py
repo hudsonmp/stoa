@@ -42,6 +42,67 @@ async def health():
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# Test session harness — create/teardown isolated test data
+# ---------------------------------------------------------------------------
+_test_sessions: dict[str, str] = {}  # session_id -> ISO timestamp
+
+TEST_USER_ID = "5f067d11-b2b8-4efe-84c7-5ac9c5602c9a"
+
+# Tables in FK-safe deletion order
+_CLEANUP_TABLES = [
+    "collection_items",
+    "person_items",
+    "highlights",
+    "notes",
+    "items",
+    "people",
+]
+
+
+@app.post("/test/start-session")
+async def test_start_session(request: Request):
+    """Record a test session start timestamp. All records created after this
+    point (for the test user) can be cleaned up via /test/end-session."""
+    import uuid
+    from datetime import datetime, timezone
+    from services.auth import get_supabase_service
+
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    _test_sessions[session_id] = now
+    return {"session_id": session_id, "started_at": now}
+
+
+@app.post("/test/end-session")
+async def test_end_session(request: Request):
+    """Delete all records created after the session start for the test user,
+    then remove the session."""
+    from fastapi import HTTPException
+    from services.auth import get_supabase_service
+
+    body = await request.json()
+    session_id = body.get("session_id")
+    if not session_id or session_id not in _test_sessions:
+        raise HTTPException(status_code=400, detail="Invalid or unknown session_id")
+
+    started_at = _test_sessions.pop(session_id)
+    supabase = get_supabase_service()
+    deleted: dict[str, int] = {}
+
+    for table in _CLEANUP_TABLES:
+        resp = (
+            supabase.table(table)
+            .delete()
+            .gt("created_at", started_at)
+            .eq("user_id", TEST_USER_ID)
+            .execute()
+        )
+        deleted[table] = len(resp.data) if resp.data else 0
+
+    return {"session_id": session_id, "started_at": started_at, "deleted": deleted}
+
+
 def _html_to_latex(html_content: str) -> str:
     """Convert HTML to basic LaTeX."""
     import re
