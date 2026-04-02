@@ -279,7 +279,6 @@ export default function Writings() {
                   onClick={async () => {
                     if (!activeNote) return;
                     const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-                    // Fetch .tex from backend
                     const headers: Record<string, string> = { "Content-Type": "application/json" };
                     const devId = import.meta.env.VITE_DEV_USER_ID;
                     const token = localStorage.getItem("stoa_token");
@@ -288,27 +287,34 @@ export default function Writings() {
                     else if (token) headers["Authorization"] = `Bearer ${token}`;
                     else if (userId) headers["X-User-Id"] = userId;
 
-                    const resp = await fetch(`${apiUrl}/writings/${activeNote.id}/export-tex`, { headers });
-                    if (!resp.ok) return;
-                    const tex = await resp.text();
+                    const btn = document.activeElement as HTMLButtonElement;
+                    if (btn) { btn.textContent = "Pushing..."; btn.disabled = true; }
 
-                    // Download the .tex file
-                    const blob = new Blob([tex], { type: "application/x-tex" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `${(activeNote.title || "draft").replace(/\s+/g, "_")}.tex`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-
-                    // Open Overleaf new project page
-                    window.open("https://www.overleaf.com/project", "_blank");
+                    try {
+                      const resp = await fetch(`${apiUrl}/writings/${activeNote.id}/push-to-overleaf`, {
+                        method: "POST", headers,
+                      });
+                      const data = await resp.json();
+                      if (data.success && data.overleaf_url) {
+                        // Save the Overleaf URL to the note's tags
+                        const oldTags = (activeNote.tags || []).filter((t: string) => !t.startsWith("overleaf:"));
+                        await updateNote(activeNote.id, { tags: [...oldTags, `overleaf:${data.overleaf_url}`] });
+                        setOverleafUrl(data.overleaf_url);
+                        window.open(data.overleaf_url, "_blank");
+                        if (btn) btn.textContent = "Pushed ✓";
+                      } else {
+                        if (btn) btn.textContent = "Failed";
+                      }
+                    } catch {
+                      if (btn) btn.textContent = "Failed";
+                    }
+                    setTimeout(() => { if (btn) { btn.textContent = "Push to Overleaf"; btn.disabled = false; } }, 2000);
                   }}
                   className="inline-flex items-center gap-1.5 text-[12px] text-accent
                              hover:text-accent-hover transition-warm font-medium"
                 >
                   <ExternalLink size={11} />
-                  Export to LaTeX
+                  Push to Overleaf
                 </button>
               )}
             </div>
