@@ -93,14 +93,14 @@ function normalizeUrlForLookup(url) {
 async function resolveCurrentItemId() {
   const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
-    let resp = await fetch(
-      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
+    let resp = await stoaFetch(
+      `/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
     // If normalized URL didn't match, try the raw URL
     if (!resp.ok && lookupUrl !== window.location.href) {
-      resp = await fetch(
-        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+      resp = await stoaFetch(
+        `/items/by-url?url=${encodeURIComponent(window.location.href)}`,
         { headers: getAuthHeaders() }
       );
     }
@@ -684,6 +684,30 @@ function getAuthHeaders() {
 }
 
 // --- Save Highlight ---
+// Fetch wrapper: try direct fetch, fall back to service worker proxy if CSP/network blocks it
+async function stoaFetch(path, options = {}) {
+  const url = `${stoaApiUrl}${path}`;
+  try {
+    const resp = await fetch(url, options);
+    if (resp.ok) return resp;
+    // If we get an HTTP error, return it (not a network failure)
+    return resp;
+  } catch (networkErr) {
+    // Network error (CSP blocked, CORS, etc.) — proxy through service worker
+    console.warn("[Stoa] Direct fetch failed, proxying through service worker:", path);
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    const proxyResp = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        type: "API_PROXY",
+        payload: { method: options.method || "GET", path, body },
+      }, (resp) => resolve(resp));
+    });
+    if (proxyResp?.error) throw new Error(proxyResp.error);
+    // Wrap proxy response to match fetch API shape
+    return { ok: true, json: async () => proxyResp, text: async () => JSON.stringify(proxyResp) };
+  }
+}
+
 async function saveHighlight(data) {
   if (!currentUser && !authToken) return null;
 
@@ -691,7 +715,7 @@ async function saveHighlight(data) {
 
   try {
     // Ensure the item exists (dedup handled server-side)
-    const itemResp = await fetch(`${stoaApiUrl}/ingest`, {
+    const itemResp = await stoaFetch("/ingest", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -715,7 +739,7 @@ async function saveHighlight(data) {
     }
 
     // Sync highlight to backend API
-    const hlResp = await fetch(`${stoaApiUrl}/highlights`, {
+    const hlResp = await stoaFetch("/highlights", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -755,8 +779,8 @@ async function restoreHighlights() {
 
   const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
-    const resp = await fetch(
-      `${stoaApiUrl}/highlights?url=${encodeURIComponent(lookupUrl)}`,
+    const resp = await stoaFetch(
+      `/highlights?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
     if (!resp.ok) return;
@@ -1838,13 +1862,13 @@ async function ensurePageSaved() {
   const lookupUrl = normalizeUrlForLookup(window.location.href);
   try {
     // Check if URL already has a Stoa item (try normalized URL first)
-    let checkResp = await fetch(
-      `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
+    let checkResp = await stoaFetch(
+      `/items/by-url?url=${encodeURIComponent(lookupUrl)}`,
       { headers: getAuthHeaders() }
     );
     if (!checkResp.ok && lookupUrl !== window.location.href) {
-      checkResp = await fetch(
-        `${stoaApiUrl}/items/by-url?url=${encodeURIComponent(window.location.href)}`,
+      checkResp = await stoaFetch(
+        `/items/by-url?url=${encodeURIComponent(window.location.href)}`,
         { headers: getAuthHeaders() }
       );
     }
@@ -1859,7 +1883,7 @@ async function ensurePageSaved() {
 
   // Auto-save via /ingest (use normalized URL so it matches existing items)
   try {
-    const resp = await fetch(`${stoaApiUrl}/ingest`, {
+    const resp = await stoaFetch("/ingest", {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify({
@@ -2034,7 +2058,7 @@ async function autoSaveNotepad() {
 
   try {
     if (statusEl) statusEl.textContent = "Saving...";
-    const resp = await fetch(`${stoaApiUrl}/notes/${currentNoteId}`, {
+    const resp = await stoaFetch(`/notes/${currentNoteId}`, {
       method: "PATCH",
       headers: getAuthHeaders(),
       body: JSON.stringify({ content }),
