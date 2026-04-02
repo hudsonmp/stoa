@@ -118,12 +118,11 @@ async def export_writing_as_tex(note_id: str, request: Request):
 
 @app.post("/writings/{note_id}/push-to-overleaf")
 async def push_writing_to_overleaf(note_id: str, request: Request):
-    """Clone the Stoa writing template on Overleaf, replace main.tex with writing content.
-    Stoa notes are embedded as %% LaTeX comments.
+    """Push a writing as a .tex file to the Stoa Drafts project on Overleaf.
 
-    Template project: 69bf8cd0622169b4534b4a21 (custom fonts, SOP layout)
-    The endpoint pushes to this project, replacing main.tex. User should
-    then click Menu → Copy Project in Overleaf to get their own copy."""
+    Template preserved at 69bf8cd0622169b4534b4a21 (never modified).
+    Drafts pushed to 69ce07fa6cda05ae5f8eae42 (has template fonts).
+    Each writing = separate .tex file with the template preamble + Stoa notes as %% comments."""
     import subprocess, tempfile, os, json, re
     from fastapi.responses import JSONResponse
     from services.auth import get_user_id, get_supabase_service
@@ -142,99 +141,89 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     body_latex = _html_to_latex(note.get("content") or "")
     date_str = datetime.now().strftime("%B %d, %Y")
 
-    # Build %% comment block from Stoa note content
+    # Build %% comment block from Stoa notes
     stoa_lines = [
-        f"%% ═══════════════════════════════════════════════",
+        f"%% {'=' * 50}",
         f"%% Stoa Writing: {title}",
         f"%% Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         f"%% Note ID: {note_id}",
-        f"%% ═══════════════════════════════════════════════",
+        f"%% {'=' * 50}",
     ]
-    # Add the raw note content as %% comments for reference
-    raw_text = (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
-    raw_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+    raw_text = re.sub(r'<[^>]+>', '', (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")).strip()
     for line in raw_text.split("\n"):
         stripped = line.strip()
         if stripped:
             stoa_lines.append(f"%% {stripped}")
-    stoa_lines.append(f"%% ═══════════════════════════════════════════════")
+    stoa_lines.append(f"%% {'=' * 50}")
     stoa_comment_block = "\n".join(stoa_lines)
 
-    # Git config
+    DRAFTS_PROJECT_ID = "69ce07fa6cda05ae5f8eae42"
     TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
+
     config_path = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
     with open(config_path) as f:
         config = json.load(f)
-
-    # Find the git token from any project (all share the same token)
-    git_token = None
-    for p in config["projects"].values():
-        if p.get("gitToken"):
-            git_token = p["gitToken"]
-            break
+    git_token = next((p["gitToken"] for p in config["projects"].values() if p.get("gitToken")), None)
     if not git_token:
-        return JSONResponse({"error": "No Overleaf git token found"}, status_code=500)
+        return JSONResponse({"error": "No Overleaf git token"}, status_code=500)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        repo_path = os.path.join(tmpdir, "repo")
+        drafts_path = os.path.join(tmpdir, "drafts")
+        template_path = os.path.join(tmpdir, "template")
 
-        # Clone the template
-        result = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{TEMPLATE_PROJECT_ID}", repo_path],
+        # Clone both projects
+        r1 = subprocess.run(
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{DRAFTS_PROJECT_ID}", drafts_path],
             capture_output=True, text=True, timeout=30
         )
-        if result.returncode != 0:
-            return JSONResponse({"error": f"Git clone failed: {result.stderr}"}, status_code=500)
+        r2 = subprocess.run(
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{TEMPLATE_PROJECT_ID}", template_path],
+            capture_output=True, text=True, timeout=30
+        )
+        if r1.returncode != 0 or r2.returncode != 0:
+            return JSONResponse({"error": "Git clone failed"}, status_code=500)
 
-        # Read existing main.tex template
-        main_tex_path = os.path.join(repo_path, "main.tex")
-        with open(main_tex_path) as f:
-            template = f.read()
+        # Read template main.tex
+        with open(os.path.join(template_path, "main.tex")) as f:
+            template_tex = f.read()
 
-        # Replace template variables
-        modified = template.replace(
+        # Fill in template: title, date, body, Stoa comments
+        filled = template_tex.replace(
             "\\newcommand{\\soptitle}{TITLE}",
             f"\\newcommand{{\\soptitle}}{{{title}}}"
         ).replace(
             "\\newcommand{\\yourdate}{DATE}",
             f"\\newcommand{{\\yourdate}}{{{date_str}}}"
-        )
-
-        # Insert body content before \end{document}
-        modified = modified.replace(
+        ).replace(
             "\\end{document}",
-            f"{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}"
+            f"\n{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}"
         )
 
-        # Write modified main.tex
-        with open(main_tex_path, "w") as f:
-            f.write(modified)
+        # Write as new .tex file in drafts project
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', title)[:50] + ".tex"
+        tex_path = os.path.join(drafts_path, safe_name)
+        with open(tex_path, "w") as f:
+            f.write(filled)
 
-        # Git commit and push
+        # Git add, commit, push
         git_env = {
             **os.environ,
-            "GIT_AUTHOR_NAME": "Stoa",
-            "GIT_AUTHOR_EMAIL": "stoa@hudsonmp.github.io",
-            "GIT_COMMITTER_NAME": "Stoa",
-            "GIT_COMMITTER_EMAIL": "stoa@hudsonmp.github.io",
+            "GIT_AUTHOR_NAME": "Stoa", "GIT_AUTHOR_EMAIL": "stoa@stoa.app",
+            "GIT_COMMITTER_NAME": "Stoa", "GIT_COMMITTER_EMAIL": "stoa@stoa.app",
         }
-        subprocess.run(["git", "-C", repo_path, "add", "main.tex"], capture_output=True)
+        subprocess.run(["git", "-C", drafts_path, "add", safe_name], capture_output=True)
         subprocess.run(
-            ["git", "-C", repo_path, "commit", "-m", f"Stoa: {title}"],
+            ["git", "-C", drafts_path, "commit", "-m", f"Add: {title}"],
             capture_output=True, text=True, env=git_env
         )
         push_result = subprocess.run(
-            ["git", "-C", repo_path, "push"], capture_output=True, text=True, timeout=30
+            ["git", "-C", drafts_path, "push"], capture_output=True, text=True, timeout=30
         )
         if push_result.returncode != 0:
             return JSONResponse({"error": f"Git push failed: {push_result.stderr}"}, status_code=500)
 
-    overleaf_url = f"https://www.overleaf.com/project/{TEMPLATE_PROJECT_ID}"
-    return {
-        "success": True,
-        "overleaf_url": overleaf_url,
-        "message": f"Pushed '{title}' to template project. Open in Overleaf, then Menu → Copy Project to create your own copy.",
-    }
+    overleaf_url = f"https://www.overleaf.com/project/{DRAFTS_PROJECT_ID}"
+    return {"success": True, "overleaf_url": overleaf_url, "filename": safe_name}
 
 
 @app.get("/proxy/pdf")
