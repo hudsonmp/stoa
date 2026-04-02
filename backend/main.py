@@ -118,9 +118,13 @@ async def export_writing_as_tex(note_id: str, request: Request):
 
 @app.post("/writings/{note_id}/push-to-overleaf")
 async def push_writing_to_overleaf(note_id: str, request: Request):
-    """Push a writing note to Overleaf as a .tex file in the Active Research project.
-    Stoa notes are embedded as %% LaTeX comments."""
-    import subprocess, tempfile, os, json
+    """Clone the Stoa writing template on Overleaf, replace main.tex with writing content.
+    Stoa notes are embedded as %% LaTeX comments.
+
+    Template project: 69bf8cd0622169b4534b4a21 (custom fonts, SOP layout)
+    The endpoint pushes to this project, replacing main.tex. User should
+    then click Menu → Copy Project in Overleaf to get their own copy."""
+    import subprocess, tempfile, os, json, re
     from fastapi.responses import JSONResponse
     from services.auth import get_user_id, get_supabase_service
     from datetime import datetime
@@ -135,91 +139,102 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
 
     note = note_res.data
     title = note.get("title") or "Untitled"
-    text = _html_to_latex(note.get("content") or "")
-    date_str = datetime.now().strftime("%B %Y")
+    body_latex = _html_to_latex(note.get("content") or "")
+    date_str = datetime.now().strftime("%B %d, %Y")
 
-    # Get all notes for this writing (sidebar notes become %% comments)
-    all_notes = supabase.table("notes").select("content, title, created_at").eq("user_id", user_id).execute()
-    stoa_comments = []
-    for n in (all_notes.data or []):
-        if n.get("content") and n["content"] != note.get("content"):
-            # Check if this note references our writing
-            clean = n["content"].replace("<p>", "").replace("</p>", "").replace("<br>", "").strip()
-            if clean and len(clean) > 5:
-                pass  # Only include notes explicitly linked; skip for now
+    # Build %% comment block from Stoa note content
+    stoa_lines = [
+        f"%% ═══════════════════════════════════════════════",
+        f"%% Stoa Writing: {title}",
+        f"%% Exported: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"%% Note ID: {note_id}",
+        f"%% ═══════════════════════════════════════════════",
+    ]
+    # Add the raw note content as %% comments for reference
+    raw_text = (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")
+    raw_text = re.sub(r'<[^>]+>', '', raw_text).strip()
+    for line in raw_text.split("\n"):
+        stripped = line.strip()
+        if stripped:
+            stoa_lines.append(f"%% {stripped}")
+    stoa_lines.append(f"%% ═══════════════════════════════════════════════")
+    stoa_comment_block = "\n".join(stoa_lines)
 
-    # Build .tex with Stoa notes as %% comments
-    stoa_header = f"%% Stoa Writing: {title}\n%% Exported: {datetime.now().isoformat()}\n%% Note ID: {note_id}\n"
-
-    tex = f"""{stoa_header}\\documentclass[twocolumn]{{article}}
-\\usepackage{{graphicx}}
-\\usepackage{{hyperref}}
-\\usepackage[compact]{{titlesec}}
-\\titlespacing*{{\\subsection}}{{0pt}}{{0.5em plus 0.2em minus 0.1em}}{{0.3em}}
-\\begin{{document}}
-
-\\begin{{titlepage}}
-    \\centering
-    {{\\large Draft\\par}}
-    \\vspace{{2cm}}
-    {{\\huge\\bfseries {title}\\par}}
-    \\vspace{{2cm}}
-    {{\\Large Hudson Mitchell-Pullman\\par}}
-    \\vspace{{2cm}}
-    {{\\large {date_str}\\par}}
-\\end{{titlepage}}
-
-{text}
-
-\\end{{document}}
-"""
-
-    # Load Overleaf config
+    # Git config
+    TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
     config_path = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
     with open(config_path) as f:
         config = json.load(f)
 
-    # Use "active-research" project as the target
-    project = config["projects"].get("active-research")
-    if not project:
-        return JSONResponse({"error": "No active-research project configured"}, status_code=500)
-
-    project_id = project["projectId"]
-    git_token = project["gitToken"]
-    safe_filename = title.replace(" ", "_").replace("/", "-")[:40] + ".tex"
+    # Find the git token from any project (all share the same token)
+    git_token = None
+    for p in config["projects"].values():
+        if p.get("gitToken"):
+            git_token = p["gitToken"]
+            break
+    if not git_token:
+        return JSONResponse({"error": "No Overleaf git token found"}, status_code=500)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = os.path.join(tmpdir, "repo")
-        # Clone
+
+        # Clone the template
         result = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{project_id}", repo_path],
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{TEMPLATE_PROJECT_ID}", repo_path],
             capture_output=True, text=True, timeout=30
         )
         if result.returncode != 0:
             return JSONResponse({"error": f"Git clone failed: {result.stderr}"}, status_code=500)
 
-        # Write .tex file
-        tex_path = os.path.join(repo_path, safe_filename)
-        with open(tex_path, "w") as f:
-            f.write(tex)
+        # Read existing main.tex template
+        main_tex_path = os.path.join(repo_path, "main.tex")
+        with open(main_tex_path) as f:
+            template = f.read()
 
-        # Git add, commit, push
-        subprocess.run(["git", "-C", repo_path, "add", safe_filename], capture_output=True)
+        # Replace template variables
+        modified = template.replace(
+            "\\newcommand{\\soptitle}{TITLE}",
+            f"\\newcommand{{\\soptitle}}{{{title}}}"
+        ).replace(
+            "\\newcommand{\\yourdate}{DATE}",
+            f"\\newcommand{{\\yourdate}}{{{date_str}}}"
+        )
+
+        # Insert body content before \end{document}
+        modified = modified.replace(
+            "\\end{document}",
+            f"{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}"
+        )
+
+        # Write modified main.tex
+        with open(main_tex_path, "w") as f:
+            f.write(modified)
+
+        # Git commit and push
+        git_env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Stoa",
+            "GIT_AUTHOR_EMAIL": "stoa@hudsonmp.github.io",
+            "GIT_COMMITTER_NAME": "Stoa",
+            "GIT_COMMITTER_EMAIL": "stoa@hudsonmp.github.io",
+        }
+        subprocess.run(["git", "-C", repo_path, "add", "main.tex"], capture_output=True)
         subprocess.run(
-            ["git", "-C", repo_path, "commit", "-m", f"Add {title} from Stoa"],
-            capture_output=True, text=True,
-            env={**os.environ, "GIT_AUTHOR_NAME": "Stoa", "GIT_AUTHOR_EMAIL": "stoa@hudsonmp.github.io",
-                 "GIT_COMMITTER_NAME": "Stoa", "GIT_COMMITTER_EMAIL": "stoa@hudsonmp.github.io"}
+            ["git", "-C", repo_path, "commit", "-m", f"Stoa: {title}"],
+            capture_output=True, text=True, env=git_env
         )
         push_result = subprocess.run(
-            ["git", "-C", repo_path, "push"],
-            capture_output=True, text=True, timeout=30
+            ["git", "-C", repo_path, "push"], capture_output=True, text=True, timeout=30
         )
         if push_result.returncode != 0:
             return JSONResponse({"error": f"Git push failed: {push_result.stderr}"}, status_code=500)
 
-    overleaf_url = f"https://www.overleaf.com/project/{project_id}"
-    return {"success": True, "overleaf_url": overleaf_url, "filename": safe_filename}
+    overleaf_url = f"https://www.overleaf.com/project/{TEMPLATE_PROJECT_ID}"
+    return {
+        "success": True,
+        "overleaf_url": overleaf_url,
+        "message": f"Pushed '{title}' to template project. Open in Overleaf, then Menu → Copy Project to create your own copy.",
+    }
 
 
 @app.get("/proxy/pdf")
