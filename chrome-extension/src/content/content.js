@@ -684,6 +684,15 @@ function getAuthHeaders() {
 }
 
 // --- Save Highlight ---
+// Check if extension context is still valid (becomes invalid after extension reload)
+function isExtensionContextValid() {
+  try {
+    return !!chrome.runtime?.id;
+  } catch {
+    return false;
+  }
+}
+
 // Fetch wrapper: try direct fetch, fall back to service worker proxy if CSP/network blocks it
 async function stoaFetch(path, options = {}) {
   const url = `${stoaApiUrl}${path}`;
@@ -693,7 +702,10 @@ async function stoaFetch(path, options = {}) {
     // If we get an HTTP error, return it (not a network failure)
     return resp;
   } catch (networkErr) {
-    // Network error (CSP blocked, CORS, etc.) — proxy through service worker
+    // Network error — try service worker proxy, but only if extension context is still alive
+    if (!isExtensionContextValid()) {
+      throw new Error("Extension context invalidated — please refresh the page");
+    }
     console.warn("[Stoa] Direct fetch failed, proxying through service worker:", path);
     const body = options.body ? JSON.parse(options.body) : undefined;
     const proxyResp = await new Promise((resolve) => {
