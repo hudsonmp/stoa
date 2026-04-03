@@ -329,59 +329,11 @@ chrome.commands.onCommand.addListener(async (command) => {
     // Skip chrome:// and chrome-extension:// pages
     if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
 
-    // PDF pages: Chrome's viewer blocks content script injection.
-    // Save the PDF and open in Stoa instead.
-    // Only treat as PDF if the URL ends with .pdf or is an arxiv/openreview PDF viewer
-    const isPdf = tab.url?.endsWith(".pdf") ||
-      (tab.url?.includes("arxiv.org/pdf/") && !tab.url?.includes(".html"));
-    if (isPdf) {
-      try {
-        const config = await getConfig();
-        const headers = buildAuthHeaders(config);
-        // Ingest the PDF URL
-        const resp = await fetch(`${config.apiUrl}/ingest`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ url: tab.url, type: "paper" }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          const itemId = data.item?.id;
-          if (itemId) {
-            const webappUrl = (await chrome.storage.local.get("stoa_webapp_url")).stoa_webapp_url || "http://localhost:3000";
-            chrome.tabs.create({ url: `${webappUrl}/item/${itemId}` });
-          }
-        }
-      } catch (e) {
-        console.error("[Stoa] Failed to save PDF:", e);
-      }
-      return;
-    }
-
+    // Open Chrome's native side panel — this automatically shrinks the page viewport
     try {
-      // Try sending to existing content script
-      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
+      await chrome.sidePanel.open({ tabId: tab.id });
     } catch (e) {
-      // Content script not injected — inject it first, then toggle
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["src/content/content.js"],
-        });
-        await chrome.scripting.insertCSS({
-          target: { tabId: tab.id },
-          files: ["src/content/content.css"],
-        });
-        setTimeout(async () => {
-          try {
-            await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
-          } catch (e3) {
-            console.error("[Stoa] Content script not responding after injection:", e3);
-          }
-        }, 1000);
-      } catch (e2) {
-        console.error("[Stoa] Cannot inject into this page:", e2);
-      }
+      console.error("[Stoa] Failed to open side panel:", e);
     }
     return;
   }
@@ -417,7 +369,7 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-// --- Context Menu ---
+// --- Context Menu + Side Panel Setup ---
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "stoa-save-page",
@@ -429,6 +381,9 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "Save link to Stoa",
     contexts: ["link"],
   });
+
+  // Clicking the extension icon opens the side panel
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {

@@ -1,0 +1,332 @@
+/* ================================================================
+   Stoa Side Panel Styles
+   Design system: Newsreader (serif), DM Sans (UI), warm cream palette
+   ================================================================ */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #FAFAF7;
+  font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Header */
+.sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #F5F5F4;
+  flex-shrink: 0;
+}
+
+.sp-title {
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1C1917;
+  letter-spacing: -0.01em;
+}
+
+.sp-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sp-save-status {
+  font-size: 10px;
+  color: #A8A29E;
+  font-style: italic;
+}
+
+.sp-private-toggle {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.sp-private-toggle input { display: none; }
+
+/* Source bar */
+.sp-source-bar {
+  padding: 10px 20px;
+  border-bottom: 1px solid #F5F5F4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sp-source-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #A8A29E;
+  flex-shrink: 0;
+}
+
+.sp-source-title {
+  font-size: 12px;
+  color: #44403C;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Save options */
+.sp-save-opts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #E7E5E4;
+  flex-shrink: 0;
+}
+
+.sp-opt-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #A8A29E;
+}
+
+.sp-select {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #E7E5E4;
+  border-radius: 2px;
+  background: white;
+  color: #1C1917;
+  outline: none;
+  cursor: pointer;
+}
+
+.sp-select:focus { border-color: #C2410C; }
+
+.sp-input {
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #E7E5E4;
+  border-radius: 2px;
+  background: white;
+  color: #1C1917;
+  outline: none;
+  width: 100%;
+}
+
+.sp-input:focus { border-color: #C2410C; }
+
+.sp-inline-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+
+.sp-confirm-btn {
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sp-confirm-btn:hover { background: #9A3412; }
+.sp-confirm-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Person section */
+.sp-person-section {
+  padding: 8px 16px;
+  border-bottom: 1px solid #E7E5E4;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Save button */
+.sp-save-btn {
+  display: block;
+  flex-shrink: 0;
+  width: calc(100% - 32px);
+  margin: 8px 16px;
+  padding: 8px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sp-save-btn:hover { background: #9A3412; }
+.sp-save-btn:disabled { background: #10B981; cursor: default; }
+
+/* Open in Stoa (PDF) */
+.sp-open-stoa {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 8px 16px;
+  padding: 8px 12px;
+  background: #C2410C;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+}
+
+.sp-open-stoa:hover { background: #9A3412; }
+.sp-open-stoa:disabled { opacity: 0.6; cursor: wait; }
+
+/* Formatting toolbar */
+.sp-fmt-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 20px;
+  border-bottom: 1px solid #F5F5F4;
+  flex-shrink: 0;
+}
+
+.sp-fmt-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #78716C;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 13px;
+  transition: all 0.12s ease;
+  padding: 0;
+}
+
+.sp-fmt-btn:hover {
+  background: #F3F1EC;
+  color: #1C1917;
+}
+
+/* Notepad */
+.sp-notepad {
+  flex: 1;
+  min-height: 120px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #F5F5F4;
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #1C1917;
+  outline: none;
+  overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.005em;
+}
+
+.sp-notepad:empty::before {
+  content: attr(data-placeholder);
+  color: #A8A29E;
+  font-style: italic;
+  pointer-events: none;
+}
+
+.sp-notepad:focus { background: rgba(255, 255, 255, 0.5); }
+.sp-notepad b, .sp-notepad strong { font-weight: 700; }
+.sp-notepad i, .sp-notepad em { font-style: italic; }
+.sp-notepad ul { padding-left: 1.5em; margin: 0.5em 0; }
+.sp-notepad li { margin-bottom: 0.25em; }
+.sp-notepad a { color: #C2410C; text-decoration-color: rgba(194, 65, 12, 0.3); }
+
+/* Highlight list */
+.sp-highlights {
+  overflow-y: auto;
+  padding: 12px 20px 24px;
+}
+
+.sp-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #A8A29E;
+  margin: 0 0 10px 0;
+}
+
+.sp-empty {
+  font-size: 13px;
+  color: #A8A29E;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.sp-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-left: 3px solid #6EE7B7;
+  background: #fff;
+  transition: box-shadow 0.15s ease;
+}
+
+.sp-card:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
+.sp-card-green  { border-left-color: #6EE7B7; }
+.sp-card-yellow { border-left-color: #FCD34D; }
+.sp-card-blue   { border-left-color: #93C5FD; }
+.sp-card-pink   { border-left-color: #F9A8D4; }
+.sp-card-purple { border-left-color: #C4B5FD; }
+
+.sp-card-text {
+  font-family: Georgia, "Newsreader", serif;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #44403C;
+  margin: 0 0 6px 0;
+  word-break: break-word;
+}
+
+.sp-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.sp-card-jump, .sp-card-remove {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.sp-card-jump { background: #F3F1EC; color: #44403C; }
+.sp-card-jump:hover { background: #E7E5E4; color: #1C1917; }
+.sp-card-remove { background: transparent; color: #A8A29E; }
+.sp-card-remove:hover { background: #FEE2E2; color: #DC2626; }

@@ -62,20 +62,81 @@ async function init() {
     resolvePromise = resolveCurrentItemId();
   }
 
-  // Listen for commands from service worker (works on PDF pages where keydown doesn't)
+  // Listen for messages from side panel and service worker
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "TOGGLE_SIDEBAR") {
-      const now = Date.now();
-      if (now - lastSidebarToggle < 500) {
-        sendResponse({ ok: true, debounced: true });
-        return;
-      }
-      lastSidebarToggle = now;
+      // Legacy — kept for backwards compat during migration
       toggleSidebar();
       sendResponse({ ok: true });
+      return;
+    }
+    if (msg.type === "GET_PAGE_INFO") {
+      sendResponse({
+        url: window.location.href,
+        title: document.title,
+        hostname: window.location.hostname,
+        isPdf: document.contentType === "application/pdf" ||
+          window.location.href.endsWith(".pdf") ||
+          !!document.querySelector("embed[type='application/pdf']"),
+      });
+      return;
+    }
+    if (msg.type === "GET_HIGHLIGHTS") {
+      const highlights = [];
+      highlightMap.forEach((entry, id) => {
+        highlights.push({
+          id,
+          text: entry.data?.text || entry.span?.dataset?.stoaText || "",
+          color: entry.data?.color || entry.span?.dataset?.stoaColor || "green",
+          note: entry.data?.note || null,
+          css_selector: entry.data?.css_selector || entry.span?.dataset?.stoaSelector || "",
+        });
+      });
+      sendResponse({ highlights });
+      return;
+    }
+    if (msg.type === "SCROLL_TO_HIGHLIGHT") {
+      const entry = highlightMap.get(msg.payload?.highlightId);
+      if (entry?.span?.isConnected) {
+        entry.span.scrollIntoView({ behavior: "smooth", block: "center" });
+        entry.span.classList.add("stoa-highlight-flash");
+        setTimeout(() => entry.span.classList.remove("stoa-highlight-flash"), 600);
+      }
+      sendResponse({ ok: true });
+      return;
+    }
+    if (msg.type === "REMOVE_HIGHLIGHT") {
+      const entry = highlightMap.get(msg.payload?.highlightId);
+      if (entry?.span?.isConnected) {
+        // Unwrap the highlight span
+        const parent = entry.span.parentNode;
+        while (entry.span.firstChild) parent.insertBefore(entry.span.firstChild, entry.span);
+        entry.span.remove();
+        parent.normalize();
+      }
+      highlightMap.delete(msg.payload?.highlightId);
+      sendResponse({ ok: true });
+      return;
+    }
+    if (msg.type === "GET_ITEM_ID") {
+      sendResponse({
+        itemId: currentItemId,
+        collectionIds: currentItemCollectionIds,
+        personIds: currentItemPersonIds,
+      });
+      return;
+    }
+    if (msg.type === "TOGGLE_BOOKMARK") {
+      if (typeof bookmarkElement !== "undefined" && bookmarkElement && bookmarkElement.isConnected) {
+        jumpToBookmark();
+      } else {
+        placeBookmark();
+      }
+      sendResponse({ ok: true });
+      return;
     }
   });
-  createSidebarToggle();
+  // Floating toggle button removed — side panel is toggled via Cmd+Shift+H or extension icon
 }
 
 // Normalize URL for lookup — arxiv pdf/ → abs/, etc.
@@ -395,6 +456,11 @@ function _saveHighlightData(text, context, cssSelector, color, note, span) {
       span.dataset.stoaId = highlightData.id;
       highlightMap.set(highlightData.id, { span, data: highlightData });
       refreshSidebar();
+
+      // Notify side panel of new highlight
+      if (isExtensionContextValid()) {
+        chrome.runtime.sendMessage({ type: "HIGHLIGHT_CHANGED", payload: { action: "added", highlight: highlightData } }).catch(() => {});
+      }
 
       // Auto-append highlight to master reading notes
       appendToMasterNote(

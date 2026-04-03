@@ -9,11 +9,11 @@
     "tabGroups",
     "tabs",
     "contextMenus",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "src/popup/popup.html",
     "default_icon": {
       "16": "public/icons/icon16.png",
       "48": "public/icons/icon48.png",
@@ -37,6 +37,9 @@
     }
   ],
   "options_page": "src/options/options.html",
+  "side_panel": {
+    "default_path": "src/sidepanel/sidepanel.html"
+  },
   "commands": {
     "toggle-sidebar": {
       "suggested_key": {

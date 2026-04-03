@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stoa — Marginalia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="sp-header">
+    <h1 class="sp-title">Marginalia</h1>
+    <div class="sp-header-right">
+      <span class="sp-save-status" id="save-status"></span>
+      <label class="sp-private-toggle" title="Private: notes stay on device only">
+        <input type="checkbox" id="private-mode">
+        <span id="private-icon">&#9729;&#65039;</span>
+      </label>
+    </div>
+  </header>
+
+  <!-- Source bar -->
+  <div class="sp-source-bar">
+    <span class="sp-source-label">Source</span>
+    <span class="sp-source-title" id="source-title">Loading...</span>
+  </div>
+
+  <!-- PDF section (hidden by default) -->
+  <button class="sp-open-stoa" id="pdf-open-stoa" style="display:none;">Save &amp; Open in Stoa</button>
+
+  <!-- Save options -->
+  <div class="sp-save-opts">
+    <span class="sp-opt-label">Type</span>
+    <select class="sp-select" id="type-select">
+      <option value="blog">Blog</option>
+      <option value="essay">Essay</option>
+      <option value="paper">Paper</option>
+      <option value="book">Book</option>
+      <option value="page">Page</option>
+      <option value="person">Person</option>
+    </select>
+    <span class="sp-opt-label">Collection</span>
+    <select class="sp-select" id="collection-select">
+      <option value="">No collection</option>
+    </select>
+    <div class="sp-inline-row">
+      <input type="text" class="sp-input" id="new-collection-input" placeholder="New collection...">
+      <button class="sp-confirm-btn" id="new-collection-btn">+</button>
+    </div>
+  </div>
+
+  <!-- Person section -->
+  <div class="sp-person-section">
+    <span class="sp-opt-label">Person</span>
+    <select class="sp-select" id="person-select">
+      <option value="">Assign to person...</option>
+    </select>
+    <div class="sp-inline-row">
+      <input type="text" class="sp-input" id="new-person-input" placeholder="New person name...">
+      <button class="sp-confirm-btn" id="new-person-btn">+</button>
+    </div>
+  </div>
+
+  <!-- Save button -->
+  <button class="sp-save-btn" id="save-btn">Save Page</button>
+
+  <!-- Formatting toolbar -->
+  <div class="sp-fmt-bar">
+    <button class="sp-fmt-btn" id="fmt-bold" title="Bold (Cmd+B)"><strong>B</strong></button>
+    <button class="sp-fmt-btn" id="fmt-italic" title="Italic (Cmd+I)"><em>I</em></button>
+    <button class="sp-fmt-btn" id="fmt-list" title="Bullet list">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="2.5" cy="3" r="1" fill="currentColor"/>
+        <circle cx="2.5" cy="7" r="1" fill="currentColor"/>
+        <circle cx="2.5" cy="11" r="1" fill="currentColor"/>
+        <line x1="5" y1="3" x2="12" y2="3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="5" y1="7" x2="12" y2="7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="5" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <button class="sp-fmt-btn" id="fmt-bookmark" title="Place/jump to bookmark">&#128204;</button>
+  </div>
+
+  <!-- Notepad -->
+  <div class="sp-notepad" id="notepad" contenteditable="true" spellcheck="true" data-placeholder="Write your notes..."></div>
+
+  <!-- Highlight list -->
+  <div class="sp-highlights" id="highlight-list"></div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
