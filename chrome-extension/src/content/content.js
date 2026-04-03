@@ -1343,11 +1343,12 @@ async function openSidebar() {
     window.location.href.endsWith(".pdf") ||
     !!document.querySelector("embed[type='application/pdf']");
 
-  // Shift page content to make room for sidebar
+  // Shift page content to make room for sidebar.
+  // Use body width + overflow-x:clip so sidenotes/footnotes are clipped.
+  // Sidebar is appended to <html>, so body clip doesn't affect it.
   if (!isPdf) {
-    // Shrink body width so centered content reflows properly
     document.body.style.width = "calc(100vw - 350px)";
-    document.body.style.overflow = "visible";
+    document.body.style.overflowX = "clip";
     document.body.style.transition = "width 0.25s cubic-bezier(0.23, 1, 0.32, 1)";
   }
 
@@ -2111,7 +2112,8 @@ async function closeSidebar() {
 
   // Restore page layout
   document.body.style.width = "";
-  document.body.style.overflow = "";
+  document.body.style.overflowX = "";
+  document.body.style.transition = "";
 
   if (sidebarElement) {
     sidebarElement.classList.add("stoa-sb-exit");
