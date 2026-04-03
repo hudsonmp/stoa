@@ -62,7 +62,8 @@ async function sendToContentScript(message) {
 }
 
 // --- Init ---
-document.addEventListener("DOMContentLoaded", async () => {
+async function initSidePanel() {
+  try {
   // Load config
   const stored = await chrome.storage.local.get(["stoa_user_id", "stoa_api_url", "stoa_token"]);
   currentUser = stored.stoa_user_id || "5f067d11-b2b8-4efe-84c7-5ac9c5602c9a";
@@ -71,14 +72,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Get active tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return;
+  if (!tab) { console.error("[Stoa SP] No active tab"); return; }
   activeTabId = tab.id;
 
   // Get page info from content script
   pageInfo = await sendToContentScript({ type: "GET_PAGE_INFO" });
   if (!pageInfo) {
-    // Fallback: use tab info
-    pageInfo = { url: tab.url, title: tab.title, hostname: new URL(tab.url).hostname, isPdf: tab.url.endsWith(".pdf") };
+    // Fallback: use tab info directly
+    let hostname = "";
+    try { hostname = new URL(tab.url || "").hostname; } catch (e) {}
+    pageInfo = { url: tab.url || "", title: tab.title || "", hostname, isPdf: (tab.url || "").endsWith(".pdf") };
   }
 
   // Populate source bar
@@ -130,7 +133,19 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Auto-save notepad every 5 seconds
   noteAutoSaveTimer = setInterval(autoSaveNotepad, 5000);
-});
+
+  } catch (e) {
+    console.error("[Stoa SP] Init failed:", e);
+    $("source-title").textContent = "Error: " + e.message;
+  }
+}
+
+// Run init — works whether DOM is already loaded or not
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initSidePanel);
+} else {
+  initSidePanel();
+}
 
 // --- Resolve item ID ---
 async function resolveCurrentItemId() {
