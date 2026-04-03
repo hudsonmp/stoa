@@ -330,10 +330,28 @@ chrome.commands.onCommand.addListener(async (command) => {
     if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
 
     // Open Chrome's native side panel — this automatically shrinks the page viewport
+    // Falls back to old content-script sidebar if sidePanel API unavailable
+    if (chrome.sidePanel?.open) {
+      try {
+        await chrome.sidePanel.open({ tabId: tab.id });
+        return;
+      } catch (e) {
+        console.warn("[Stoa] Side panel failed, falling back to content script:", e);
+      }
+    }
+    // Fallback: old content-script injection approach
     try {
-      await chrome.sidePanel.open({ tabId: tab.id });
+      await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" });
     } catch (e) {
-      console.error("[Stoa] Failed to open side panel:", e);
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/content/content.js"] });
+        await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ["src/content/content.css"] });
+        setTimeout(async () => {
+          try { await chrome.tabs.sendMessage(tab.id, { type: "TOGGLE_SIDEBAR" }); } catch (e3) {}
+        }, 1000);
+      } catch (e2) {
+        console.error("[Stoa] Cannot inject into this page:", e2);
+      }
     }
     return;
   }

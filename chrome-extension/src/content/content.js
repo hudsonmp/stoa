@@ -136,7 +136,7 @@ async function init() {
       return;
     }
   });
-  // Floating toggle button removed — side panel is toggled via Cmd+Shift+H or extension icon
+  createSidebarToggle();
 }
 
 // Normalize URL for lookup — arxiv pdf/ → abs/, etc.
