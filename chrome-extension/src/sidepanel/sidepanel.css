@@ -10,8 +10,8 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "DM Sans", system-ui, sans-serif;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 100vh;
+  overflow-y: auto;
 }
 
 /* Header */
@@ -233,10 +233,10 @@ body {
   color: #1C1917;
 }
 
-/* Notepad */
+/* Notepad — grows with content, no fixed max */
 .sp-notepad {
-  flex: 1;
-  min-height: 120px;
+  flex: none;
+  min-height: 200px;
   padding: 10px 14px;
   border-bottom: 1px solid #F5F5F4;
   font-family: Georgia, "Newsreader", serif;
