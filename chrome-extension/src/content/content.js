@@ -136,7 +136,6 @@ async function init() {
       return;
     }
   });
-  createSidebarToggle();
 }
 
 // Normalize URL for lookup — arxiv pdf/ → abs/, etc.
