@@ -15,6 +15,8 @@ import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
 import Notes from "@/pages/Notes";
 import Writings from "@/pages/Writings";
+import Friends from "@/pages/Friends";
+import Profile from "@/pages/Profile";
 
 export default function App() {
   return (
@@ -39,6 +41,8 @@ export default function App() {
               <Route path="/notes/:id" element={<Notes />} />
               <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
+              <Route path="/friends" element={<Friends />} />
+              <Route path="/@:username" element={<Profile />} />
             </Route>
           </Routes>
         </AnimatePresence>

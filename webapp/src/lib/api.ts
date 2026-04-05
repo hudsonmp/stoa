@@ -403,3 +403,139 @@ export async function getCollectionItems(collectionId: string) {
 export async function getCollectionItemCount(collectionId: string) {
   return apiFetch<{ count: number }>(`/items/collections/${collectionId}/count`);
 }
+
+// ---------------------------------------------------------------------------
+// Social layer — profiles + bidirectional friendships
+// ---------------------------------------------------------------------------
+
+export interface Profile {
+  user_id: string;
+  username: string;
+  display_name: string | null;
+  bio: string | null;
+  avatar_url: string | null;
+  created_at: string;
+}
+
+export type FriendshipState =
+  | "none"
+  | "pending_outgoing"
+  | "pending_incoming"
+  | "accepted"
+  | "self";
+
+export interface ProfileView {
+  profile: Profile;
+  friend_count: number;
+  friendship_state: FriendshipState;
+}
+
+export interface FeedItem {
+  id: string;
+  user_id: string;
+  action: "save" | "highlight" | "note" | "finish" | "recommend";
+  item_id: string | null;
+  highlight_id: string | null;
+  created_at: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  item_title: string | null;
+  item_url: string | null;
+  item_type: string | null;
+  item_cover_image_url: string | null;
+  item_domain: string | null;
+  item_favicon_url: string | null;
+}
+
+export interface FriendBookshelfItem {
+  id: string;
+  title: string;
+  url: string | null;
+  type: string;
+  domain: string | null;
+  favicon_url: string | null;
+  cover_image_url: string | null;
+  spine_color: string | null;
+  text_color: string | null;
+  summary: string | null;
+  created_at: string;
+}
+
+export interface PendingRequest extends Profile {
+  requested_at: string;
+}
+
+export async function getMyProfile() {
+  return apiFetch<{ profile: Profile; needs_setup: boolean }>("/social/me");
+}
+
+export async function setupProfile(data: {
+  username: string;
+  display_name?: string;
+  bio?: string;
+}) {
+  return apiFetch<{ profile: Profile }>("/social/setup", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateMyProfile(updates: Partial<Profile>) {
+  return apiFetch<{ profile: Profile }>("/social/me", {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function getProfileByUsername(username: string) {
+  return apiFetch<ProfileView>(`/social/profile/${username}`);
+}
+
+export async function getProfileItems(username: string) {
+  return apiFetch<{ items: FriendBookshelfItem[]; profile: Partial<Profile> }>(
+    `/social/profile/${username}/items`
+  );
+}
+
+export async function searchUsers(q: string) {
+  const qs = new URLSearchParams({ q }).toString();
+  return apiFetch<{ users: Profile[] }>(`/social/search?${qs}`);
+}
+
+export async function sendFriendRequest(username: string) {
+  return apiFetch<{ friendship_state: FriendshipState; auto_accepted?: boolean }>(
+    "/social/friend-request",
+    { method: "POST", body: JSON.stringify({ username }) }
+  );
+}
+
+export async function acceptFriendRequest(username: string) {
+  return apiFetch<{ friendship_state: FriendshipState }>("/social/friend-accept", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+}
+
+export async function removeFriend(username: string) {
+  return apiFetch<{ friendship_state: FriendshipState }>("/social/friend-remove", {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
+}
+
+export async function listFriends() {
+  return apiFetch<{ friends: Profile[] }>("/social/friends");
+}
+
+export async function listIncomingRequests() {
+  return apiFetch<{ requests: PendingRequest[] }>("/social/friend-requests/incoming");
+}
+
+export async function listOutgoingRequests() {
+  return apiFetch<{ requests: PendingRequest[] }>("/social/friend-requests/outgoing");
+}
+
+export async function getFeed() {
+  return apiFetch<{ feed: FeedItem[] }>("/social/feed");
+}
