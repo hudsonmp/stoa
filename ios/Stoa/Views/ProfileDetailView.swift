@@ -37,7 +37,7 @@ struct ProfileDetailView: View {
                 AvatarCircle(profile: pv.profile, size: 72)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pv.profile.displayName ?? pv.profile.username)
-                        .font(.system(.title2, design: .serif, weight: .semibold))
+                        .font(.system(.title2, weight: .semibold, design: .serif))
                     Text("@\(pv.profile.username)")
                         .font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
                     HStack(spacing: 4) {
@@ -56,19 +56,24 @@ struct ProfileDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func friendButton(_ pv: ProfileView) -> some View {
-        Button {
-            Task { await handleAction(pv) }
-        } label: {
-            HStack {
-                Image(systemName: buttonIcon(pv.friendshipState))
-                Text(buttonLabel(pv.friendshipState)).font(.subheadline.weight(.medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
+        let label = HStack {
+            Image(systemName: buttonIcon(pv.friendshipState))
+            Text(buttonLabel(pv.friendshipState)).font(.system(.subheadline, weight: .medium))
         }
-        .buttonStyle(pv.friendshipState == "none" || pv.friendshipState == "pending_incoming" ? .borderedProminent : .bordered)
-        .disabled(actionBusy)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+
+        if pv.friendshipState == "none" || pv.friendshipState == "pending_incoming" {
+            Button { Task { await handleAction(pv) } } label: { label }
+                .buttonStyle(.borderedProminent)
+                .disabled(actionBusy)
+        } else {
+            Button { Task { await handleAction(pv) } } label: { label }
+                .buttonStyle(.bordered)
+                .disabled(actionBusy)
+        }
     }
 
     private func buttonLabel(_ state: String) -> String {
@@ -95,7 +100,7 @@ struct ProfileDetailView: View {
     private func bookshelf(_ pv: ProfileView) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("SHELF").font(.system(.caption2, design: .monospaced, weight: .semibold)).foregroundStyle(.tertiary).tracking(1.5)
+                Text("SHELF").font(.system(.caption2, weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary).tracking(1.5)
                 Rectangle().fill(Color(.separator)).frame(height: 0.5)
                 if pv.friendshipState == "accepted" || pv.friendshipState == "self" {
                     Text("\(items.count)").font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
@@ -123,7 +128,7 @@ struct ProfileDetailView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: typeIcon(item.type)).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.type.uppercased()).font(.system(size: 9, design: .monospaced, weight: .semibold)).foregroundStyle(.tertiary).tracking(1)
+                Text(item.type.uppercased()).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary).tracking(1)
                 Text(item.title).font(.system(.body, design: .serif)).lineLimit(2)
                 if let d = item.domain { Text(d).font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary) }
             }

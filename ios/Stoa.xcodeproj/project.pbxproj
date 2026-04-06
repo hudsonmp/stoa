@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -48,7 +48,7 @@
 		66C7B3815087E2CA02A492C7 /* Highlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Highlight.swift; sourceTree = "<group>"; };
 		74B6AFE677F642B558DFDDAB /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
 		83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoaAPI.swift; sourceTree = "<group>"; };
-		860B914C33A9F22A0726EB3C /* Stoa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Stoa.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		860B914C33A9F22A0726EB3C /* Stoa.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stoa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C99D523C8D0A69E24D18FB4 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		AFFC53BD0F1C575C2860C40B /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		C6949875982616553976453C /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
@@ -192,11 +192,8 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					583A3255D3645A6AFFAFA779 = {
-						DevelopmentTeam = "";
-					};
 					69077CF4B5A16B99DC7162CF = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 7D7Z6RRL22;
 					};
 				};
 			};
@@ -210,7 +207,6 @@
 			);
 			mainGroup = 6AAD5FE9843C9187B20F5C92;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -315,7 +311,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 7D7Z6RRL22;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -379,7 +375,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 7D7Z6RRL22;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -407,6 +403,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 255UFAZ5KH;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Stoa uses the camera to capture book quotes for your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Stoa accesses your photos to import book page images for OCR.";
@@ -444,6 +442,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 255UFAZ5KH;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Stoa uses the camera to capture book quotes for your library.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Stoa accesses your photos to import book page images for OCR.";
