@@ -18,10 +18,12 @@ import {
   acceptFriendRequest,
   removeFriend,
   getFeed,
+  updateMyProfile,
   type Profile,
   type PendingRequest,
   type FeedItem,
 } from "@/lib/api";
+import { useProfile } from "@/hooks/useProfile";
 
 /**
  * Friends page — the main social surface.
@@ -38,6 +40,7 @@ import {
  * keeps the UI instant while still staying eventually-consistent.
  */
 export default function Friends() {
+  const { profile: myProfile, reload: reloadProfile } = useProfile();
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [friends, setFriends] = useState<Profile[]>([]);
@@ -46,6 +49,9 @@ export default function Friends() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({ display_name: "", bio: "" });
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadAll = async () => {
     try {
@@ -84,9 +90,33 @@ export default function Friends() {
       } finally {
         setSearching(false);
       }
-    }, 220);
+    }, 80);
     return () => clearTimeout(handle);
   }, [query]);
+
+  const startEdit = () => {
+    setEditForm({
+      display_name: myProfile?.display_name || "",
+      bio: myProfile?.bio || "",
+    });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setEditSaving(true);
+    try {
+      await updateMyProfile({
+        display_name: editForm.display_name || undefined,
+        bio: editForm.bio || undefined,
+      } as Partial<Profile>);
+      await reloadProfile();
+      setEditing(false);
+    } catch (err) {
+      console.warn("Profile update failed:", err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const friendIds = new Set(friends.map((f) => f.user_id));
   const outgoingIds = new Set(outgoing.map((o) => o.user_id));
@@ -157,6 +187,75 @@ export default function Friends() {
           A small circle of people whose reading you trust
         </p>
       </motion.div>
+
+      {/* Your profile card */}
+      {myProfile && (
+        <div className="mb-8 p-4 rounded-card border border-border bg-bg-primary">
+          {!editing ? (
+            <div className="flex items-center gap-4">
+              <Avatar profile={myProfile} size={48} />
+              <div className="flex-1 min-w-0">
+                <div className="font-serif text-base font-medium text-text-primary">
+                  {myProfile.display_name || myProfile.username}
+                </div>
+                <div className="text-[11px] text-text-tertiary font-mono">
+                  @{myProfile.username}
+                </div>
+                {myProfile.bio && (
+                  <div className="text-sm text-text-secondary mt-1 truncate">
+                    {myProfile.bio}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={startEdit}
+                className="px-3 py-1.5 rounded-card border border-border text-[11px] text-text-secondary hover:bg-bg-secondary transition-warm"
+              >
+                Edit profile
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-[11px] font-mono text-text-tertiary uppercase tracking-wider">
+                @{myProfile.username}
+              </div>
+              <input
+                type="text"
+                value={editForm.display_name}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, display_name: e.target.value })
+                }
+                placeholder="Display name"
+                className="w-full px-3 py-2 rounded-card border border-border bg-bg-primary text-sm outline-none focus:border-accent/30 transition-warm"
+              />
+              <textarea
+                value={editForm.bio}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, bio: e.target.value })
+                }
+                placeholder="Bio — what are you reading?"
+                rows={2}
+                className="w-full px-3 py-2 rounded-card border border-border bg-bg-primary text-sm outline-none focus:border-accent/30 transition-warm resize-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={saveEdit}
+                  disabled={editSaving}
+                  className="px-3 py-1.5 rounded-card bg-accent text-white text-[11px] font-medium hover:bg-accent-hover transition-warm disabled:opacity-40"
+                >
+                  {editSaving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-3 py-1.5 rounded-card border border-border text-[11px] text-text-secondary hover:bg-bg-secondary transition-warm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mb-10">

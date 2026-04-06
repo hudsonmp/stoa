@@ -46,6 +46,37 @@ final class StoaAPI {
         return result.item
     }
 
+    // MARK: - Highlights
+
+    func createHighlight(itemId: String, text: String, color: String = "yellow", note: String? = nil, pageNumber: Int? = nil) async throws -> Highlight {
+        var body: [String: Any] = [
+            "item_id": itemId,
+            "text": text,
+            "color": color,
+        ]
+        if let note { body["note"] = note }
+        if let pageNumber { body["page_number"] = pageNumber }
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let data = try await request("POST", path: "/highlights", body: jsonData)
+        let result = try JSONDecoder().decode(HighlightResponse.self, from: data)
+        return result.highlight
+    }
+
+    // MARK: - Books
+
+    func getBooks() async throws -> [Item] {
+        let data = try await request("GET", path: "/items?type=book")
+        let result = try JSONDecoder().decode(ItemsResponse.self, from: data)
+        return result.items
+    }
+
+    func searchItems(query: String) async throws -> [Item] {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let data = try await request("GET", path: "/items/quick-search?q=\(encoded)&limit=10")
+        let result = try JSONDecoder().decode(QuickSearchResponse.self, from: data)
+        return result.results
+    }
+
     // MARK: - Collections
 
     func getCollections() async throws -> [Collection] {
@@ -64,6 +95,87 @@ final class StoaAPI {
             return false
         }
     }
+
+    // MARK: - Social (v2 — bidirectional friendships)
+
+    func getMyProfile() async throws -> (Profile, Bool) {
+        let data = try await request("GET", path: "/social/me")
+        let res = try JSONDecoder().decode(MyProfileResponse.self, from: data)
+        return (res.profile, res.needsSetup)
+    }
+
+    func setupProfile(username: String, displayName: String?, bio: String?) async throws -> Profile {
+        var body: [String: Any] = ["username": username]
+        if let dn = displayName { body["display_name"] = dn }
+        if let b = bio { body["bio"] = b }
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let data = try await request("POST", path: "/social/setup", body: jsonData)
+        return try JSONDecoder().decode(ProfileEnvelope.self, from: data).profile
+    }
+
+    func updateMyProfile(displayName: String?, bio: String?) async throws -> Profile {
+        var body: [String: Any] = [:]
+        if let dn = displayName { body["display_name"] = dn }
+        if let b = bio { body["bio"] = b }
+        let jsonData = try JSONSerialization.data(withJSONObject: body)
+        let data = try await request("PATCH", path: "/social/me", body: jsonData)
+        return try JSONDecoder().decode(ProfileEnvelope.self, from: data).profile
+    }
+
+    func getProfile(username: String) async throws -> ProfileView {
+        let encoded = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        let data = try await request("GET", path: "/social/profile/\(encoded)")
+        return try JSONDecoder().decode(ProfileView.self, from: data)
+    }
+
+    func getProfileItems(username: String) async throws -> [FriendBookshelfItem] {
+        let encoded = username.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? username
+        let data = try await request("GET", path: "/social/profile/\(encoded)/items")
+        return try JSONDecoder().decode(ProfileItemsResponse.self, from: data).items
+    }
+
+    func searchUsers(_ query: String) async throws -> [Profile] {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let data = try await request("GET", path: "/social/search?q=\(encoded)")
+        return try JSONDecoder().decode(UsersResponse.self, from: data).users
+    }
+
+    func sendFriendRequest(username: String) async throws -> String {
+        let body = try JSONSerialization.data(withJSONObject: ["username": username])
+        let data = try await request("POST", path: "/social/friend-request", body: body)
+        let res = try JSONDecoder().decode(FriendshipActionResponse.self, from: data)
+        return res.friendshipState
+    }
+
+    func acceptFriendRequest(username: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["username": username])
+        _ = try await request("POST", path: "/social/friend-accept", body: body)
+    }
+
+    func removeFriend(username: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["username": username])
+        _ = try await request("POST", path: "/social/friend-remove", body: body)
+    }
+
+    func listFriends() async throws -> [Profile] {
+        let data = try await request("GET", path: "/social/friends")
+        return try JSONDecoder().decode(FriendsResponse.self, from: data).friends
+    }
+
+    func listIncomingRequests() async throws -> [PendingRequest] {
+        let data = try await request("GET", path: "/social/friend-requests/incoming")
+        return try JSONDecoder().decode(RequestsResponse.self, from: data).requests
+    }
+
+    func listOutgoingRequests() async throws -> [PendingRequest] {
+        let data = try await request("GET", path: "/social/friend-requests/outgoing")
+        return try JSONDecoder().decode(RequestsResponse.self, from: data).requests
+    }
+
+    func getFeed() async throws -> [FeedItem] {
+        let data = try await request("GET", path: "/social/feed")
+        return try JSONDecoder().decode(FeedResponse.self, from: data).feed
+    }
 }
 
 // MARK: - Response types
@@ -71,6 +183,28 @@ final class StoaAPI {
 private struct ItemsResponse: Codable { let items: [Item] }
 private struct CollectionsResponse: Codable { let collections: [Collection] }
 private struct IngestResponse: Codable { let item: Item }
+private struct HighlightResponse: Codable { let highlight: Highlight }
+private struct QuickSearchResponse: Codable { let results: [Item] }
+private struct MyProfileResponse: Codable {
+    let profile: Profile
+    let needsSetup: Bool
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case needsSetup = "needs_setup"
+    }
+}
+private struct ProfileEnvelope: Codable { let profile: Profile }
+private struct ProfileItemsResponse: Codable { let items: [FriendBookshelfItem] }
+private struct FriendsResponse: Codable { let friends: [Profile] }
+private struct UsersResponse: Codable { let users: [Profile] }
+private struct RequestsResponse: Codable { let requests: [PendingRequest] }
+private struct FeedResponse: Codable { let feed: [FeedItem] }
+private struct FriendshipActionResponse: Codable {
+    let friendshipState: String
+    enum CodingKeys: String, CodingKey {
+        case friendshipState = "friendship_state"
+    }
+}
 
 enum StoaError: LocalizedError {
     case api(String)
