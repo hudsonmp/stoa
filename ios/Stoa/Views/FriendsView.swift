@@ -54,7 +54,7 @@ struct FriendsView: View {
                             AvatarCircle(profile: p, size: 48)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(p.displayName ?? p.username)
-                                    .font(.system(.body, weight: .medium, design: .serif))
+                                    .font(.body).fontWeight(.medium).fontDesign(.serif)
                                 Text("@\(p.username)")
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -295,7 +295,7 @@ struct FriendsView: View {
 
     private func sectionHeader(_ title: String, count: Int) -> some View {
         HStack {
-            Text(title.uppercased()).font(.system(.caption2, weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary).tracking(1.5)
+            Text(title.uppercased()).font(.caption2).fontWeight(.semibold).fontDesign(.monospaced).foregroundStyle(.tertiary).tracking(1.5)
             Rectangle().fill(Color(.separator)).frame(height: 0.5)
             Text("\(count)").font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary).monospacedDigit()
         }

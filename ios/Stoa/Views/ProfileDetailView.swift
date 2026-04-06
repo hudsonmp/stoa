@@ -37,7 +37,7 @@ struct ProfileDetailView: View {
                 AvatarCircle(profile: pv.profile, size: 72)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pv.profile.displayName ?? pv.profile.username)
-                        .font(.system(.title2, weight: .semibold, design: .serif))
+                        .font(.title2).fontWeight(.semibold).fontDesign(.serif)
                     Text("@\(pv.profile.username)")
                         .font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary)
                     HStack(spacing: 4) {
@@ -60,7 +60,7 @@ struct ProfileDetailView: View {
     private func friendButton(_ pv: ProfileView) -> some View {
         let label = HStack {
             Image(systemName: buttonIcon(pv.friendshipState))
-            Text(buttonLabel(pv.friendshipState)).font(.system(.subheadline, weight: .medium))
+            Text(buttonLabel(pv.friendshipState)).font(.subheadline).fontWeight(.medium)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
@@ -100,7 +100,7 @@ struct ProfileDetailView: View {
     private func bookshelf(_ pv: ProfileView) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("SHELF").font(.system(.caption2, weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary).tracking(1.5)
+                Text("SHELF").font(.caption2).fontWeight(.semibold).fontDesign(.monospaced).foregroundStyle(.tertiary).tracking(1.5)
                 Rectangle().fill(Color(.separator)).frame(height: 0.5)
                 if pv.friendshipState == "accepted" || pv.friendshipState == "self" {
                     Text("\(items.count)").font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
@@ -128,7 +128,7 @@ struct ProfileDetailView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: typeIcon(item.type)).font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.type.uppercased()).font(.system(size: 9, weight: .semibold, design: .monospaced)).foregroundStyle(.tertiary).tracking(1)
+                Text(item.type.uppercased()).font(.system(size: 9)).fontWeight(.semibold).fontDesign(.monospaced).foregroundStyle(.tertiary).tracking(1)
                 Text(item.title).font(.system(.body, design: .serif)).lineLimit(2)
                 if let d = item.domain { Text(d).font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary) }
             }
