@@ -22,9 +22,10 @@ import {
   Copy,
   ChevronDown,
   FolderPlus,
+  Share2,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
+import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection, enablePublicShare, disablePublicShare, buildPublicShareUrl } from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
@@ -70,6 +71,10 @@ export default function ItemDetail() {
   const [tagInput, setTagInput] = useState("");
   const [citeDropdownOpen, setCiteDropdownOpen] = useState(false);
   const [citeCopied, setCiteCopied] = useState<string | null>(null);
+  const [shareDropdownOpen, setShareDropdownOpen] = useState(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [collectionDropdownOpen, setCollectionDropdownOpen] = useState(false);
   const [availableCollections, setAvailableCollections] = useState<{ id: string; name: string }[]>([]);
   const [mainNoteId, setMainNoteId] = useState<string | null>(null);
@@ -81,6 +86,7 @@ export default function ItemDetail() {
   const hlContainerRef = useRef<HTMLDivElement>(null);
   const citeRef = useRef<HTMLDivElement>(null);
   const collectionRef = useRef<HTMLDivElement>(null);
+  const shareRef = useRef<HTMLDivElement>(null);
 
   // Positional anchoring version — bumped when highlights change
   const hlVersion = highlights.length;
@@ -108,7 +114,12 @@ export default function ItemDetail() {
     setLoading(true);
     try {
       const data = await getItem(id!);
-      setItem(data.item as Item);
+      const loaded = data.item as Item & { public_share_token?: string | null };
+      setItem(loaded);
+      // Reflect existing share state so the button shows "Shared — copy link"
+      // on reload without a second round-trip.
+      setShareToken(loaded.public_share_token || null);
+      setShareCopied(false);
       setHighlights((data.highlights as Highlight[]) || []);
       const itemNotes = (data.notes as Note[]) || [];
       setNotes(itemNotes);
@@ -144,6 +155,9 @@ export default function ItemDetail() {
       }
       if (collectionRef.current && !collectionRef.current.contains(e.target as Node)) {
         setCollectionDropdownOpen(false);
+      }
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShareDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -184,6 +198,41 @@ export default function ItemDetail() {
     try {
       await addItemToCollection(collectionId, item.id);
       setCollectionDropdownOpen(false);
+    } catch { /* ignore */ }
+  };
+
+  const handleToggleShare = async () => {
+    if (!item || shareBusy) return;
+    setShareBusy(true);
+    try {
+      if (shareToken) {
+        // Enabled → disable
+        await disablePublicShare(item.id);
+        setShareToken(null);
+        setShareCopied(false);
+      } else {
+        // Disabled → enable + auto-copy URL to clipboard
+        const { token } = await enablePublicShare(item.id);
+        setShareToken(token);
+        try {
+          await navigator.clipboard.writeText(buildPublicShareUrl(token));
+          setShareCopied(true);
+          setTimeout(() => setShareCopied(false), 2000);
+        } catch { /* clipboard permission denied, button still works */ }
+      }
+    } catch (e) {
+      console.error("Failed to toggle share:", e);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const handleCopyShareUrl = async () => {
+    if (!shareToken) return;
+    try {
+      await navigator.clipboard.writeText(buildPublicShareUrl(shareToken));
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
     } catch { /* ignore */ }
   };
 
@@ -538,6 +587,64 @@ export default function ItemDetail() {
               )}
             </div>
           )}
+
+          {/* Public share */}
+          <div ref={shareRef} className="relative">
+            <button
+              onClick={() => {
+                if (shareToken) {
+                  setShareDropdownOpen(!shareDropdownOpen);
+                } else {
+                  handleToggleShare();
+                }
+              }}
+              className="reader-external-link"
+              title={shareToken ? "Manage public link" : "Create public link"}
+              disabled={shareBusy}
+            >
+              <Share2 size={12} />
+              {shareToken ? (shareCopied ? "Copied" : "Shared") : "Share"}
+              {shareToken && <ChevronDown size={10} />}
+            </button>
+            {shareDropdownOpen && shareToken && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[260px]
+                              bg-bg-primary border border-border rounded-card shadow-warm-lg
+                              py-2 text-sm">
+                <div className="px-3 py-1.5">
+                  <p className="text-[11px] text-text-tertiary mb-1">Public link</p>
+                  <code className="block text-[11px] font-mono text-text-secondary
+                                   break-all leading-tight">
+                    {buildPublicShareUrl(shareToken)}
+                  </code>
+                </div>
+                <div className="border-t border-border mt-1 pt-1">
+                  <button
+                    onClick={handleCopyShareUrl}
+                    className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                               flex items-center justify-between gap-2"
+                  >
+                    <span className="flex items-center gap-2 text-text-primary">
+                      <Copy size={12} /> Copy link
+                    </span>
+                    {shareCopied && (
+                      <span className="text-[10px] text-green-600">Copied</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await handleToggleShare();
+                      setShareDropdownOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary transition-warm
+                               flex items-center gap-2 text-red-600"
+                    disabled={shareBusy}
+                  >
+                    <X size={12} /> Unshare
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Add to collection */}
           <div ref={collectionRef} className="relative">

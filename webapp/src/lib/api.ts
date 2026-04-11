@@ -539,3 +539,85 @@ export async function listOutgoingRequests() {
 export async function getFeed() {
   return apiFetch<{ feed: FeedItem[] }>("/social/feed");
 }
+
+// ----------------------------------------------------------------
+// Public sharing
+// ----------------------------------------------------------------
+
+export async function enablePublicShare(itemId: string) {
+  return apiFetch<{ token: string; shared_at: string }>(
+    `/items/${itemId}/share`,
+    { method: "POST" }
+  );
+}
+
+export async function disablePublicShare(itemId: string) {
+  return apiFetch<{ unshared: boolean; id: string }>(
+    `/items/${itemId}/share`,
+    { method: "DELETE" }
+  );
+}
+
+/**
+ * Build the canonical public share URL for a token. This is the URL we
+ * copy to the clipboard and show the user.
+ */
+export function buildPublicShareUrl(token: string): string {
+  return `${window.location.origin}/share/${token}`;
+}
+
+/**
+ * Fetch a publicly shared item by token. Does NOT send auth headers —
+ * token possession is the sole credential.
+ */
+export async function getPublicItem(token: string) {
+  const res = await fetch(`${API_URL}/public/items/${encodeURIComponent(token)}`);
+  if (!res.ok) {
+    throw new Error(res.status === 404 ? "Not found" : `API error: ${res.status}`);
+  }
+  return res.json() as Promise<{
+    item: {
+      id: string;
+      url?: string;
+      title: string;
+      type: string;
+      favicon_url?: string;
+      cover_image_url?: string;
+      domain?: string;
+      summary?: string;
+      extracted_text?: string;
+      metadata?: Record<string, unknown>;
+      public_shared_at?: string;
+      created_at: string;
+    };
+    highlights: Array<{
+      id: string;
+      text: string;
+      context?: string;
+      color: string;
+      note?: string;
+      created_at: string;
+    }>;
+    source_note: {
+      id: string;
+      title?: string;
+      content: string;
+      tags?: string[];
+      created_at: string;
+      updated_at: string;
+    } | null;
+    citation: {
+      authors?: { name: string }[];
+      year?: number;
+      venue?: string;
+      doi?: string;
+      arxiv_id?: string;
+      abstract?: string;
+    } | null;
+    owner: {
+      username: string;
+      display_name?: string;
+      avatar_url?: string;
+    } | null;
+  }>;
+}
