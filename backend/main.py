@@ -1,4 +1,6 @@
+import json
 import os
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -104,30 +106,50 @@ async def test_end_session(request: Request):
     return {"session_id": session_id, "started_at": started_at, "deleted": deleted}
 
 
+_PANDOC_BIN = os.environ.get("PANDOC_BIN", "pandoc")
+
+
 def _html_to_latex(html_content: str) -> str:
-    """Convert HTML to basic LaTeX."""
+    """HTML → LaTeX via pandoc.
+
+    Replaces the previous hand-rolled regex soup, which processed <li>
+    before <p> and so mangled tiptap's <ul><li><p>...</p></li></ul>
+    output, dropping bold/italic inside list items and producing
+    malformed \\item blocks. Pandoc handles nested lists, tiptap's
+    paragraph-wrapped list items, bold-in-italic, code blocks, tables,
+    headings beyond h3, and links — every format the user cares about.
+
+    Falls back to stripping HTML tags if pandoc isn't available or
+    fails, so a pandoc outage doesn't block the whole push.
+    """
     import re
-    text = html_content
-    text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'\\section{\1}', text)
-    text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'\\subsection{\1}', text)
-    text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'\\subsubsection{\1}', text)
-    text = re.sub(r'<strong>(.*?)</strong>', r'\\textbf{\1}', text)
-    text = re.sub(r'<b>(.*?)</b>', r'\\textbf{\1}', text)
-    text = re.sub(r'<em>(.*?)</em>', r'\\textit{\1}', text)
-    text = re.sub(r'<i>(.*?)</i>', r'\\textit{\1}', text)
-    text = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\\begin{quote}\1\\end{quote}', text, flags=re.DOTALL)
-    text = re.sub(r'<li>(.*?)</li>', r'\\item \1', text)
-    text = re.sub(r'<ul[^>]*>', r'\\begin{itemize}', text)
-    text = re.sub(r'</ul>', r'\\end{itemize}', text)
-    text = re.sub(r'<ol[^>]*>', r'\\begin{enumerate}', text)
-    text = re.sub(r'</ol>', r'\\end{enumerate}', text)
-    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'\\href{\1}{\2}', text)
-    text = re.sub(r'<br\s*/?>', '\n', text)
-    text = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', text, flags=re.DOTALL)
-    text = re.sub(r'<[^>]+>', '', text)
-    text = text.strip()
-    text = text.replace('&', '\\&').replace('%', '\\%')
-    return text
+    import subprocess
+
+    if not html_content or not html_content.strip():
+        return ""
+
+    try:
+        result = subprocess.run(
+            [_PANDOC_BIN, "--from", "html", "--to", "latex", "--wrap=preserve"],
+            input=html_content,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("pandoc unavailable: %s", e)
+        return re.sub(r"<[^>]+>", "", html_content)
+
+    if result.returncode != 0:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "pandoc HTML→LaTeX failed (code %d): %s",
+            result.returncode, (result.stderr or "").strip(),
+        )
+        return re.sub(r"<[^>]+>", "", html_content)
+
+    return result.stdout
 
 
 @app.get("/writings/{note_id}/export-tex")
@@ -178,14 +200,60 @@ async def export_writing_as_tex(note_id: str, request: Request):
     })
 
 
+OVERLEAF_CONFIG_PATH = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
+OVERLEAF_TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
+
+
+def _get_overleaf_git_token() -> Optional[str]:
+    """Git Bridge token from projects.json."""
+    try:
+        with open(OVERLEAF_CONFIG_PATH) as f:
+            config = json.load(f)
+        return next(
+            (p["gitToken"] for p in config.get("projects", {}).values() if p.get("gitToken")),
+            None,
+        )
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _ensure_ulem_package(tex: str) -> str:
+    """Pandoc emits \\ul{} for HTML <u>. That command is only defined by
+    the ulem or soul packages. If the template doesn't load one, compile
+    fails on any underlined text. Inject \\usepackage{ulem} before
+    \\begin{document} as a defensive no-op when already present."""
+    if "\\usepackage{ulem}" in tex or "\\usepackage[normalem]{ulem}" in tex:
+        return tex
+    return tex.replace(
+        "\\begin{document}",
+        "\\usepackage[normalem]{ulem}\n\\begin{document}",
+        1,
+    )
+
+
 @app.post("/writings/{note_id}/push-to-overleaf")
 async def push_writing_to_overleaf(note_id: str, request: Request):
-    """Push a writing as a .tex file to the Stoa Drafts project on Overleaf.
+    """Push a writing to Overleaf as a new project — zero config required.
 
-    Template preserved at 69bf8cd0622169b4534b4a21 (never modified).
-    Drafts pushed to 69ce07fa6cda05ae5f8eae42 (has template fonts).
-    Each writing = separate .tex file with the template preamble + Stoa notes as %% comments."""
-    import subprocess, tempfile, os, json, re
+    Uses Overleaf's publisher "Open in Overleaf" feature (snip_uri):
+      1. Clone the template project (has fonts, .cls, preamble).
+      2. Replace main.tex body with pandoc-converted writing.
+      3. Zip the entire project (including fonts/assets).
+      4. Upload the zip to Supabase Storage with a 1-hour signed URL.
+      5. Return an Overleaf import URL that creates a new project from
+         the zip — user clicks and lands in a fresh, fully-compiled
+         project.
+
+    Why this approach:
+      - No pool of pre-created projects to manage.
+      - No session cookies or API keys beyond the existing git token.
+      - No manual Overleaf UI work. Each push creates a new project
+        automatically via Overleaf's snip_uri import.
+      - Template fonts and styling are preserved because the zip
+        includes all project files.
+    """
+    import subprocess, tempfile, re, zipfile, uuid
+    from urllib.parse import quote
     from fastapi.responses import JSONResponse
     from services.auth import get_user_id, get_supabase_service
     from datetime import datetime
@@ -211,7 +279,11 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
         f"%% Note ID: {note_id}",
         f"%% {'=' * 50}",
     ]
-    raw_text = re.sub(r'<[^>]+>', '', (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")).strip()
+    raw_text = re.sub(
+        r'<[^>]+>',
+        '',
+        (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n"),
+    ).strip()
     for line in raw_text.split("\n"):
         stripped = line.strip()
         if stripped:
@@ -219,73 +291,96 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     stoa_lines.append(f"%% {'=' * 50}")
     stoa_comment_block = "\n".join(stoa_lines)
 
-    DRAFTS_PROJECT_ID = "69ce07fa6cda05ae5f8eae42"
-    TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
-
-    config_path = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
-    with open(config_path) as f:
-        config = json.load(f)
-    git_token = next((p["gitToken"] for p in config["projects"].values() if p.get("gitToken")), None)
+    # ------------------------------------------------------------------
+    # 1. Clone template project (has fonts, .cls, etc.)
+    # ------------------------------------------------------------------
+    git_token = _get_overleaf_git_token()
     if not git_token:
-        return JSONResponse({"error": "No Overleaf git token"}, status_code=500)
+        return JSONResponse({"error": "No Overleaf git token configured"}, status_code=500)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        drafts_path = os.path.join(tmpdir, "drafts")
         template_path = os.path.join(tmpdir, "template")
-
-        # Clone both projects
-        r1 = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{DRAFTS_PROJECT_ID}", drafts_path],
-            capture_output=True, text=True, timeout=30
+        clone = subprocess.run(
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{OVERLEAF_TEMPLATE_PROJECT_ID}", template_path],
+            capture_output=True, text=True, timeout=30,
         )
-        r2 = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{TEMPLATE_PROJECT_ID}", template_path],
-            capture_output=True, text=True, timeout=30
-        )
-        if r1.returncode != 0 or r2.returncode != 0:
-            return JSONResponse({"error": "Git clone failed"}, status_code=500)
+        if clone.returncode != 0:
+            return JSONResponse(
+                {"error": f"Git clone failed: {(clone.stderr or '').strip()}"},
+                status_code=500,
+            )
 
-        # Read template main.tex
-        with open(os.path.join(template_path, "main.tex")) as f:
-            template_tex = f.read()
+        # ------------------------------------------------------------------
+        # 2. Replace main.tex body
+        # ------------------------------------------------------------------
+        main_tex_path = os.path.join(template_path, "main.tex")
+        try:
+            with open(main_tex_path) as f:
+                template_tex = f.read()
+        except FileNotFoundError:
+            return JSONResponse({"error": "Template has no main.tex"}, status_code=500)
 
-        # Fill in template: title, date, body, Stoa comments
         filled = template_tex.replace(
             "\\newcommand{\\soptitle}{TITLE}",
-            f"\\newcommand{{\\soptitle}}{{{title}}}"
+            f"\\newcommand{{\\soptitle}}{{{title}}}",
         ).replace(
             "\\newcommand{\\yourdate}{DATE}",
-            f"\\newcommand{{\\yourdate}}{{{date_str}}}"
+            f"\\newcommand{{\\yourdate}}{{{date_str}}}",
         ).replace(
             "\\end{document}",
-            f"\n{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}"
+            f"\n{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}",
         )
+        filled = _ensure_ulem_package(filled)
 
-        # Write as new .tex file in drafts project
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', title)[:50] + ".tex"
-        tex_path = os.path.join(drafts_path, safe_name)
-        with open(tex_path, "w") as f:
+        with open(main_tex_path, "w") as f:
             f.write(filled)
 
-        # Git add, commit, push
-        git_env = {
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Stoa", "GIT_AUTHOR_EMAIL": "stoa@stoa.app",
-            "GIT_COMMITTER_NAME": "Stoa", "GIT_COMMITTER_EMAIL": "stoa@stoa.app",
-        }
-        subprocess.run(["git", "-C", drafts_path, "add", safe_name], capture_output=True)
-        subprocess.run(
-            ["git", "-C", drafts_path, "commit", "-m", f"Add: {title}"],
-            capture_output=True, text=True, env=git_env
-        )
-        push_result = subprocess.run(
-            ["git", "-C", drafts_path, "push"], capture_output=True, text=True, timeout=30
-        )
-        if push_result.returncode != 0:
-            return JSONResponse({"error": f"Git push failed: {push_result.stderr}"}, status_code=500)
+        # ------------------------------------------------------------------
+        # 3. Zip the entire project (skip .git directory)
+        # ------------------------------------------------------------------
+        zip_path = os.path.join(tmpdir, "project.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(template_path):
+                dirs[:] = [d for d in dirs if d != ".git"]
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    arc_name = os.path.relpath(abs_path, template_path)
+                    zf.write(abs_path, arc_name)
 
-    overleaf_url = f"https://www.overleaf.com/project/{DRAFTS_PROJECT_ID}"
-    return {"success": True, "overleaf_url": overleaf_url, "filename": safe_name}
+        # ------------------------------------------------------------------
+        # 4. Upload to Supabase Storage + get signed URL
+        # ------------------------------------------------------------------
+        storage_key = f"{user_id}/overleaf-exports/{uuid.uuid4().hex}.zip"
+        with open(zip_path, "rb") as f:
+            zip_bytes = f.read()
+
+        supabase.storage.from_("documents").upload(
+            storage_key,
+            zip_bytes,
+            file_options={"content-type": "application/zip"},
+        )
+
+        signed = supabase.storage.from_("documents").create_signed_url(
+            storage_key, expires_in=3600,
+        )
+        signed_url = signed.get("signedURL") or signed.get("signedUrl") or ""
+        if not signed_url:
+            return JSONResponse({"error": "Failed to create signed URL"}, status_code=500)
+
+    # ------------------------------------------------------------------
+    # 5. Build Overleaf import URL
+    # ------------------------------------------------------------------
+    safe_title = re.sub(r'[^a-zA-Z0-9 _-]', '', title)[:60].strip() or "Stoa Writing"
+    overleaf_url = (
+        f"https://www.overleaf.com/docs?snip_uri={quote(signed_url, safe='')}"
+        f"&snip_name={quote(safe_title, safe='')}"
+    )
+
+    return {
+        "success": True,
+        "overleaf_url": overleaf_url,
+        "filename": "main.tex",
+    }
 
 
 @app.get("/proxy/pdf")
