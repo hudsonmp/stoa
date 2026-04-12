@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "7D7Z6RRL22"
 
 targets:
   Stoa:
@@ -19,15 +19,16 @@ targets:
       - path: Shared
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_CFBundleDisplayName: Stoa
         INFOPLIST_KEY_UILaunchScreen_Generation: true
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCameraUsageDescription: "Stoa uses the camera to capture book quotes for your library."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Stoa accesses your photos to import book page images for OCR."
         CODE_SIGN_ENTITLEMENTS: Stoa/Stoa.entitlements
     entitlements:
       path: Stoa/Stoa.entitlements
       properties:
-        com.apple.developer.applesignin:
-          - Default
         com.apple.security.application-groups:
           - group.com.stoa.shared
         keychain-access-groups:

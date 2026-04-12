@@ -310,6 +310,19 @@ body {
   word-break: break-word;
 }
 
+.sp-card-note {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #78716C;
+  margin: 0 0 6px 0;
+  padding: 4px 8px;
+  background: #FAF9F7;
+  border-radius: 4px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
 .sp-card-actions {
   display: flex;
   gap: 6px;

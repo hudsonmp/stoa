@@ -2,6 +2,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
+import ProfileSetupModal from "@/components/ProfileSetupModal";
 
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
@@ -31,7 +33,7 @@ export default function AuthGate({ children }: AuthGateProps) {
   }
 
   if (user) {
-    return <>{children}</>;
+    return <AuthenticatedShell>{children}</AuthenticatedShell>;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,5 +155,30 @@ export default function AuthGate({ children }: AuthGateProps) {
         </button>
       </motion.div>
     </div>
+  );
+}
+
+/**
+ * Wrapper rendered after authentication succeeds. Checks whether the user has
+ * claimed a Stoa username and shows the setup modal if not. Keeps the profile
+ * gate orthogonal to the auth gate so the rest of the app doesn't need to
+ * know about it.
+ */
+function AuthenticatedShell({ children }: { children: React.ReactNode }) {
+  const { needsSetup, loading, reload } = useProfile();
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-bg-primary">
+        <Loader2 size={20} className="animate-spin text-text-tertiary" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {children}
+      {needsSetup && <ProfileSetupModal onComplete={reload} />}
+    </>
   );
 }

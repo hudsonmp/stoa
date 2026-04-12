@@ -425,6 +425,13 @@ function renderHighlights(highlights, container) {
     text.textContent = `"${(h.text || "").substring(0, 200)}${(h.text || "").length > 200 ? "..." : ""}"`;
     card.appendChild(text);
 
+    if (h.note) {
+      const noteEl = document.createElement("p");
+      noteEl.className = "sp-card-note";
+      noteEl.textContent = h.note;
+      card.appendChild(noteEl);
+    }
+
     const actions = document.createElement("div");
     actions.className = "sp-card-actions";
 
@@ -446,6 +453,14 @@ function renderHighlights(highlights, container) {
       // Remove from page DOM
       sendToContentScript({ type: "REMOVE_HIGHLIGHT", payload: { highlightId: h.id } });
       card.remove();
+      // Update counter or show empty state
+      const remaining = container.querySelectorAll(".sp-card").length;
+      const titleEl = container.querySelector(".sp-section-title");
+      if (remaining === 0) {
+        container.innerHTML = '<p class="sp-empty">Highlight text on the page to see it here.</p>';
+      } else if (titleEl) {
+        titleEl.textContent = `Highlights (${remaining})`;
+      }
     });
 
     actions.appendChild(jumpBtn);

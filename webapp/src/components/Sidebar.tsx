@@ -9,6 +9,7 @@ import {
   LogOut,
   UserCheck,
   PenLine,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -34,6 +35,7 @@ const secondaryItems = [
   { to: "/writings", label: "Writings", icon: FileText },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
+  { to: "/friends", label: "Friends", icon: Users },
 ];
 
 export default function Sidebar({ counts, reviewDue = 0 }: SidebarProps) {

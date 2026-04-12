@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -13,9 +13,14 @@
 		41E23738FD7C587C85DD818E /* StoaAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */; };
 		45A36E5CF15890FCA55D6BB5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B2AEED7D04518F3CABA899 /* SettingsView.swift */; };
 		5121257F0E24399DAF8AB630 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */; };
+		53D6F8786C4D6E46AF8345D7 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4639698BD4175F1086B2748D /* Profile.swift */; };
 		54C4F22BF62EE813FB0927D3 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C99D523C8D0A69E24D18FB4 /* ShareViewController.swift */; };
 		607A5DE7B6E849E163DDB134 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFFC53BD0F1C575C2860C40B /* Constants.swift */; };
+		68A59740940587E98CEDC834 /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30DA7DD97F4292B6A29669E9 /* FriendsView.swift */; };
 		7ECE0D615F08CEB63CF3C9B9 /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B6AFE677F642B558DFDDAB /* ShareView.swift */; };
+		A0E0A4D7F993EF894875E35F /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF64450F405ED38D992B1EA /* CaptureView.swift */; };
+		CC3F182FC1CACBE9D47B0ADE /* ProfileDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39AA464D28E884209E8B5FC /* ProfileDetailView.swift */; };
+		DD0A738D1F490D9660AE9593 /* Highlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C7B3815087E2CA02A492C7 /* Highlight.swift */; };
 		DF338EF2592E700C23641DA2 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D6543DF0A088375CD2029D /* AuthService.swift */; };
 		F11AF5F69AE98F195DE79FB0 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF70B7D746D6174590E5ECD /* KeychainHelper.swift */; };
 		F274ED59A3DDD97D8442E4DB /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6949875982616553976453C /* Item.swift */; };
@@ -35,17 +40,22 @@
 /* Begin PBXFileReference section */
 		277E731D806ACC6936445220 /* StoaShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StoaShareExtension.entitlements; sourceTree = "<group>"; };
 		28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		30DA7DD97F4292B6A29669E9 /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		3CBAB7FAB0C601398845AB25 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		3CF64450F405ED38D992B1EA /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		4639698BD4175F1086B2748D /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
 		66A2DD330775A330362CC32F /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		66C7B3815087E2CA02A492C7 /* Highlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Highlight.swift; sourceTree = "<group>"; };
 		74B6AFE677F642B558DFDDAB /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
 		83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoaAPI.swift; sourceTree = "<group>"; };
-		860B914C33A9F22A0726EB3C /* Stoa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Stoa.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		860B914C33A9F22A0726EB3C /* Stoa.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stoa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C99D523C8D0A69E24D18FB4 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		AFFC53BD0F1C575C2860C40B /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		C6949875982616553976453C /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		CBF70B7D746D6174590E5ECD /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		DEFAF3FB812E906B39764BE6 /* StoaShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StoaShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1D6543DF0A088375CD2029D /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		E39AA464D28E884209E8B5FC /* ProfileDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileDetailView.swift; sourceTree = "<group>"; };
 		E6232C499923138EF1D40C5C /* Stoa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Stoa.entitlements; sourceTree = "<group>"; };
 		F0B2AEED7D04518F3CABA899 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FD82D649E91F17D4D2B7BA6B /* StoaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoaApp.swift; sourceTree = "<group>"; };
@@ -55,7 +65,9 @@
 		2888EEAE5D369D41E8211C45 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				66C7B3815087E2CA02A492C7 /* Highlight.swift */,
 				C6949875982616553976453C /* Item.swift */,
+				4639698BD4175F1086B2748D /* Profile.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -96,8 +108,11 @@
 		7B6A7E2164DFF7E9FD8C406D /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				3CF64450F405ED38D992B1EA /* CaptureView.swift */,
+				30DA7DD97F4292B6A29669E9 /* FriendsView.swift */,
 				66A2DD330775A330362CC32F /* LibraryView.swift */,
 				28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */,
+				E39AA464D28E884209E8B5FC /* ProfileDetailView.swift */,
 				F0B2AEED7D04518F3CABA899 /* SettingsView.swift */,
 			);
 			path = Views;
@@ -177,11 +192,8 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					583A3255D3645A6AFFAFA779 = {
-						DevelopmentTeam = "";
-					};
 					69077CF4B5A16B99DC7162CF = {
-						DevelopmentTeam = "";
+						DevelopmentTeam = 7D7Z6RRL22;
 					};
 				};
 			};
@@ -195,7 +207,6 @@
 			);
 			mainGroup = 6AAD5FE9843C9187B20F5C92;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -222,11 +233,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				DF338EF2592E700C23641DA2 /* AuthService.swift in Sources */,
+				A0E0A4D7F993EF894875E35F /* CaptureView.swift in Sources */,
 				607A5DE7B6E849E163DDB134 /* Constants.swift in Sources */,
+				68A59740940587E98CEDC834 /* FriendsView.swift in Sources */,
+				DD0A738D1F490D9660AE9593 /* Highlight.swift in Sources */,
 				F274ED59A3DDD97D8442E4DB /* Item.swift in Sources */,
 				3010B1D78C06EA23F16AEBB4 /* KeychainHelper.swift in Sources */,
 				2B74B35D0025232453093476 /* LibraryView.swift in Sources */,
 				5121257F0E24399DAF8AB630 /* LoginView.swift in Sources */,
+				53D6F8786C4D6E46AF8345D7 /* Profile.swift in Sources */,
+				CC3F182FC1CACBE9D47B0ADE /* ProfileDetailView.swift in Sources */,
 				45A36E5CF15890FCA55D6BB5 /* SettingsView.swift in Sources */,
 				41E23738FD7C587C85DD818E /* StoaAPI.swift in Sources */,
 				FE82798D6903C00054F712C4 /* StoaApp.swift in Sources */,
@@ -295,7 +311,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 7D7Z6RRL22;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -359,7 +375,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 7D7Z6RRL22;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -387,7 +403,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 255UFAZ5KH;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Stoa uses the camera to capture book quotes for your library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Stoa accesses your photos to import book page images for OCR.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -422,7 +442,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = 255UFAZ5KH;
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Stoa uses the camera to capture book quotes for your library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Stoa accesses your photos to import book page images for OCR.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (

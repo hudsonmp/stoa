@@ -51,6 +51,16 @@ struct ContentView: View {
                     Label("Library", systemImage: "books.vertical")
                 }
 
+            CaptureView()
+                .tabItem {
+                    Label("Capture", systemImage: "text.viewfinder")
+                }
+
+            FriendsView()
+                .tabItem {
+                    Label("Friends", systemImage: "person.2")
+                }
+
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gear")
