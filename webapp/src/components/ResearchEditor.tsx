@@ -19,34 +19,84 @@ import {
   Link as LinkIcon,
   ImageIcon,
 } from "lucide-react";
-import MentionList, { type MentionItem, type MentionListRef } from "./MentionList";
+import MentionList, { type MentionItem, type MentionKind, type MentionListRef } from "./MentionList";
 import ReactDOM from "react-dom/client";
 import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
-// Fast title search — no embeddings, just ILIKE
-async function quickSearch(query: string): Promise<Array<{ id: string; label: string }>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (DEV_USER_ID) headers["X-User-Id"] = DEV_USER_ID;
+function getAuthHeadersRaw(): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
   else {
     const token = localStorage.getItem("stoa_token");
     const userId = localStorage.getItem("stoa_user_id");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    else if (userId) headers["X-User-Id"] = userId;
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    else if (userId) h["X-User-Id"] = userId;
   }
-  const res = await fetch(`${API_URL}/items/quick-search?q=${encodeURIComponent(query)}&limit=8`, { headers });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).map((r: { id: string; title: string }) => ({ id: r.id, label: r.title }));
+  return h;
+}
+
+// Unified mention search — items + people + profiles in one round-trip.
+// Debounced via the suggestion callback (tiptap fires items() on every
+// keystroke; we abort in-flight requests so only the latest query
+// completes). AbortController prevents stale responses from overwriting
+// newer ones when the user types faster than the backend responds.
+let _mentionAbort: AbortController | null = null;
+
+async function searchMentions(query: string): Promise<MentionItem[]> {
+  // Abort previous in-flight request
+  if (_mentionAbort) _mentionAbort.abort();
+  _mentionAbort = new AbortController();
+
+  const start = performance.now();
+  try {
+    const res = await fetch(
+      `${API_URL}/mentions/search?q=${encodeURIComponent(query)}&limit=9`,
+      { headers: getAuthHeadersRaw(), signal: _mentionAbort.signal }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const ms = performance.now() - start;
+    if (ms > 200) console.debug(`[mention] "${query}" ${ms.toFixed(0)}ms`);
+
+    const results: MentionItem[] = [];
+    for (const r of data.items || []) {
+      results.push({ id: r.id, label: r.title, kind: "item", subtitle: r.domain || r.type });
+    }
+    for (const r of data.people || []) {
+      results.push({ id: r.id, label: r.name, kind: "person", subtitle: r.affiliation });
+    }
+    for (const r of data.profiles || []) {
+      results.push({
+        id: r.username,  // use username as ID for routing to /@username
+        label: r.display_name || r.username,
+        kind: "profile",
+        subtitle: `@${r.username}`,
+      });
+    }
+    return results;
+  } catch (e) {
+    if ((e as Error).name === "AbortError") return [];
+    return [];
+  }
+}
+
+/** Build the href for a mention node based on its kind. */
+function mentionHref(kind: MentionKind | undefined, id: string): string {
+  switch (kind) {
+    case "person": return `/people/${id}`;
+    case "profile": return `/@${id}`;
+    default: return `/item/${id}`;
+  }
 }
 
 function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
   return {
     items: async ({ query }) => {
       if (!query || query.length < 1) return [];
-      return quickSearch(query);
+      return searchMentions(query);
     },
     render: () => {
       let root: ReactDOM.Root | null = null;
@@ -295,19 +345,26 @@ export default function ResearchEditor({
         autolink: true,
         HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
       }),
-      Mention.configure({
-        HTMLAttributes: {
-          class: "stoa-mention",
-          onclick: "if(this.dataset.id){window.location.href='/item/'+this.dataset.id}",
+      Mention.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            kind: { default: "item" },
+          };
         },
+      }).configure({
+        HTMLAttributes: { class: "stoa-mention" },
         renderHTML({ options, node }) {
+          const kind = node.attrs.kind as MentionKind | undefined;
+          const href = mentionHref(kind, node.attrs.id);
           return [
             "a",
             {
               ...options.HTMLAttributes,
               "data-type": "mention",
               "data-id": node.attrs.id,
-              href: `/item/${node.attrs.id}`,
+              "data-kind": kind || "item",
+              href,
               class: "stoa-mention",
             },
             `@${node.attrs.label ?? node.attrs.id}`,
