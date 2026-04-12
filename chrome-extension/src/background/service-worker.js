@@ -323,15 +323,10 @@ async function handleSyncEngagement(data) {
 // --- Keyboard Shortcuts ---
 chrome.commands.onCommand.addListener(async (command) => {
   if (command === "toggle-sidebar") {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-
-    // Skip chrome:// and chrome-extension:// pages
-    if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) return;
-
-    // Open Chrome's native side panel
+    const window = await chrome.windows.getCurrent();
+    if (!window?.id) return;
     try {
-      await chrome.sidePanel.open({ tabId: tab.id });
+      await chrome.sidePanel.open({ windowId: window.id });
     } catch (e) {
       console.error("[Stoa] Failed to open side panel:", e);
     }
