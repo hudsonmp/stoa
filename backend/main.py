@@ -1,4 +1,6 @@
+import json
 import os
+from typing import Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -104,30 +106,50 @@ async def test_end_session(request: Request):
     return {"session_id": session_id, "started_at": started_at, "deleted": deleted}
 
 
+_PANDOC_BIN = os.environ.get("PANDOC_BIN", "pandoc")
+
+
 def _html_to_latex(html_content: str) -> str:
-    """Convert HTML to basic LaTeX."""
+    """HTML → LaTeX via pandoc.
+
+    Replaces the previous hand-rolled regex soup, which processed <li>
+    before <p> and so mangled tiptap's <ul><li><p>...</p></li></ul>
+    output, dropping bold/italic inside list items and producing
+    malformed \\item blocks. Pandoc handles nested lists, tiptap's
+    paragraph-wrapped list items, bold-in-italic, code blocks, tables,
+    headings beyond h3, and links — every format the user cares about.
+
+    Falls back to stripping HTML tags if pandoc isn't available or
+    fails, so a pandoc outage doesn't block the whole push.
+    """
     import re
-    text = html_content
-    text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'\\section{\1}', text)
-    text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'\\subsection{\1}', text)
-    text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'\\subsubsection{\1}', text)
-    text = re.sub(r'<strong>(.*?)</strong>', r'\\textbf{\1}', text)
-    text = re.sub(r'<b>(.*?)</b>', r'\\textbf{\1}', text)
-    text = re.sub(r'<em>(.*?)</em>', r'\\textit{\1}', text)
-    text = re.sub(r'<i>(.*?)</i>', r'\\textit{\1}', text)
-    text = re.sub(r'<blockquote[^>]*>(.*?)</blockquote>', r'\\begin{quote}\1\\end{quote}', text, flags=re.DOTALL)
-    text = re.sub(r'<li>(.*?)</li>', r'\\item \1', text)
-    text = re.sub(r'<ul[^>]*>', r'\\begin{itemize}', text)
-    text = re.sub(r'</ul>', r'\\end{itemize}', text)
-    text = re.sub(r'<ol[^>]*>', r'\\begin{enumerate}', text)
-    text = re.sub(r'</ol>', r'\\end{enumerate}', text)
-    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'\\href{\1}{\2}', text)
-    text = re.sub(r'<br\s*/?>', '\n', text)
-    text = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', text, flags=re.DOTALL)
-    text = re.sub(r'<[^>]+>', '', text)
-    text = text.strip()
-    text = text.replace('&', '\\&').replace('%', '\\%')
-    return text
+    import subprocess
+
+    if not html_content or not html_content.strip():
+        return ""
+
+    try:
+        result = subprocess.run(
+            [_PANDOC_BIN, "--from", "html", "--to", "latex", "--wrap=preserve"],
+            input=html_content,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("pandoc unavailable: %s", e)
+        return re.sub(r"<[^>]+>", "", html_content)
+
+    if result.returncode != 0:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "pandoc HTML→LaTeX failed (code %d): %s",
+            result.returncode, (result.stderr or "").strip(),
+        )
+        return re.sub(r"<[^>]+>", "", html_content)
+
+    return result.stdout
 
 
 @app.get("/writings/{note_id}/export-tex")
@@ -178,14 +200,98 @@ async def export_writing_as_tex(note_id: str, request: Request):
     })
 
 
+OVERLEAF_CONFIG_PATH = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
+OVERLEAF_TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
+
+
+def _load_overleaf_config() -> dict:
+    with open(OVERLEAF_CONFIG_PATH) as f:
+        return json.load(f)
+
+
+def _save_overleaf_config(config: dict) -> None:
+    """Write projects.json atomically — rename is POSIX-atomic on the same
+    filesystem so a crash mid-write can't leave a partially-serialized file."""
+    tmp_path = OVERLEAF_CONFIG_PATH + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(config, f, indent=2)
+    os.replace(tmp_path, OVERLEAF_CONFIG_PATH)
+
+
+def _get_overleaf_git_token(config: dict) -> Optional[str]:
+    """Git Bridge token. Historically stored per-project in projects.json;
+    all projects use the same token, so any non-null entry works."""
+    pool_token = (config.get("draft_pool") or {}).get("git_token")
+    if pool_token:
+        return pool_token
+    return next(
+        (p["gitToken"] for p in config.get("projects", {}).values() if p.get("gitToken")),
+        None,
+    )
+
+
+def _claim_pool_project(config: dict) -> Optional[str]:
+    """Pop one project ID from draft_pool.available and append to used.
+    Returns the ID, or None if the pool is empty. Caller is responsible
+    for persisting the mutated config via _save_overleaf_config."""
+    pool = config.setdefault("draft_pool", {})
+    available = pool.setdefault("available", [])
+    used = pool.setdefault("used", [])
+    if not available:
+        return None
+    project_id = available.pop(0)
+    used.append(project_id)
+    return project_id
+
+
+def _ensure_ulem_package(tex: str) -> str:
+    """Pandoc emits \\ul{} for HTML <u>. That command is only defined by
+    the ulem or soul packages. If the template doesn't load one, compile
+    fails on any underlined text. Inject \\usepackage{ulem} before
+    \\begin{document} as a defensive no-op when already present."""
+    if "\\usepackage{ulem}" in tex or "\\usepackage[normalem]{ulem}" in tex:
+        return tex
+    return tex.replace(
+        "\\begin{document}",
+        "\\usepackage[normalem]{ulem}\n\\begin{document}",
+        1,
+    )
+
+
 @app.post("/writings/{note_id}/push-to-overleaf")
 async def push_writing_to_overleaf(note_id: str, request: Request):
-    """Push a writing as a .tex file to the Stoa Drafts project on Overleaf.
+    """Push a writing as its OWN Overleaf project — one writing, one project.
 
-    Template preserved at 69bf8cd0622169b4534b4a21 (never modified).
-    Drafts pushed to 69ce07fa6cda05ae5f8eae42 (has template fonts).
-    Each writing = separate .tex file with the template preamble + Stoa notes as %% comments."""
-    import subprocess, tempfile, os, json, re
+    Why per-writing projects instead of a shared drafts project:
+      Overleaf's web UI decides which file to open on project load via
+      its own "most recently opened" heuristic, independent of git
+      state. Pushing a new file to a shared project and then navigating
+      to that project's URL lands the user on whichever file THEY
+      touched most recently, not the one we just pushed. The only
+      robust fix is to stop sharing a project.
+
+    How the pool works:
+      Overleaf Git Bridge can clone/push EXISTING projects but not
+      create new ones — that endpoint requires a browser session
+      cookie we don't have. Workaround: Hudson pre-creates a pool of
+      empty projects in the Overleaf UI (copies of the template), adds
+      their IDs to projects.json under draft_pool.available. Each push
+      pops one, pushes the writing into it, moves the ID to
+      draft_pool.used. When the pool runs low, the endpoint returns a
+      503 telling Hudson to refill.
+
+    What each push does:
+      1. Load projects.json, pop an available project ID.
+      2. Git-clone that project (already a template copy, has fonts +
+         preamble).
+      3. Read main.tex, substitute title/date/body placeholders with
+         the pandoc-converted writing body.
+      4. Inject \\usepackage{ulem} if missing so pandoc's \\ul{} doesn't
+         break compilation.
+      5. Commit + push.
+      6. Return the URL to the new per-writing project.
+    """
+    import subprocess, tempfile, re
     from fastapi.responses import JSONResponse
     from services.auth import get_user_id, get_supabase_service
     from datetime import datetime
@@ -203,7 +309,7 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     body_latex = _html_to_latex(note.get("content") or "")
     date_str = datetime.now().strftime("%B %d, %Y")
 
-    # Build %% comment block from Stoa notes
+    # Build %% comment block from Stoa notes (raw text, unwrapped, for reader reference)
     stoa_lines = [
         f"%% {'=' * 50}",
         f"%% Stoa Writing: {title}",
@@ -211,7 +317,11 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
         f"%% Note ID: {note_id}",
         f"%% {'=' * 50}",
     ]
-    raw_text = re.sub(r'<[^>]+>', '', (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n")).strip()
+    raw_text = re.sub(
+        r'<[^>]+>',
+        '',
+        (note.get("content") or "").replace("<p>", "").replace("</p>", "\n").replace("<br>", "\n"),
+    ).strip()
     for line in raw_text.split("\n"):
         stripped = line.strip()
         if stripped:
@@ -219,73 +329,112 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     stoa_lines.append(f"%% {'=' * 50}")
     stoa_comment_block = "\n".join(stoa_lines)
 
-    DRAFTS_PROJECT_ID = "69ce07fa6cda05ae5f8eae42"
-    TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
-
-    config_path = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.json")
-    with open(config_path) as f:
-        config = json.load(f)
-    git_token = next((p["gitToken"] for p in config["projects"].values() if p.get("gitToken")), None)
+    # ------------------------------------------------------------------
+    # Claim a pool project
+    # ------------------------------------------------------------------
+    config = _load_overleaf_config()
+    git_token = _get_overleaf_git_token(config)
     if not git_token:
-        return JSONResponse({"error": "No Overleaf git token"}, status_code=500)
+        return JSONResponse({"error": "No Overleaf git token configured"}, status_code=500)
+
+    project_id = _claim_pool_project(config)
+    if project_id is None:
+        return JSONResponse(
+            {
+                "error": "Overleaf draft pool is empty",
+                "how_to_refill": (
+                    "Copy the template project "
+                    f"(https://www.overleaf.com/project/{OVERLEAF_TEMPLATE_PROJECT_ID}) "
+                    "in the Overleaf UI — one copy per expected writing, 10–20 at a time. "
+                    "For each copy, open Menu → Sync → Git and copy the project ID from the URL. "
+                    "Append each ID to draft_pool.available in "
+                    f"{OVERLEAF_CONFIG_PATH}."
+                ),
+            },
+            status_code=503,
+        )
+
+    # Persist the claim BEFORE we try to clone/push. If the clone fails the
+    # project is still marked used — that's intentional (the user can
+    # manually reclaim it). Safer than leaving a claim un-persisted and
+    # racing a concurrent push into the same project.
+    try:
+        _save_overleaf_config(config)
+    except OSError as e:
+        return JSONResponse({"error": f"Failed to persist pool state: {e}"}, status_code=500)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        drafts_path = os.path.join(tmpdir, "drafts")
-        template_path = os.path.join(tmpdir, "template")
+        project_path = os.path.join(tmpdir, "writing")
 
-        # Clone both projects
-        r1 = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{DRAFTS_PROJECT_ID}", drafts_path],
-            capture_output=True, text=True, timeout=30
+        clone = subprocess.run(
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{project_id}", project_path],
+            capture_output=True, text=True, timeout=30,
         )
-        r2 = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{TEMPLATE_PROJECT_ID}", template_path],
-            capture_output=True, text=True, timeout=30
-        )
-        if r1.returncode != 0 or r2.returncode != 0:
-            return JSONResponse({"error": "Git clone failed"}, status_code=500)
+        if clone.returncode != 0:
+            return JSONResponse(
+                {"error": f"Git clone failed: {(clone.stderr or '').strip()}"},
+                status_code=500,
+            )
 
-        # Read template main.tex
-        with open(os.path.join(template_path, "main.tex")) as f:
-            template_tex = f.read()
+        # Load main.tex from the cloned project (it's a copy of the
+        # template, so placeholders are present).
+        main_tex_path = os.path.join(project_path, "main.tex")
+        try:
+            with open(main_tex_path) as f:
+                template_tex = f.read()
+        except FileNotFoundError:
+            return JSONResponse(
+                {"error": f"Pool project {project_id} has no main.tex — is it a template copy?"},
+                status_code=500,
+            )
 
-        # Fill in template: title, date, body, Stoa comments
         filled = template_tex.replace(
             "\\newcommand{\\soptitle}{TITLE}",
-            f"\\newcommand{{\\soptitle}}{{{title}}}"
+            f"\\newcommand{{\\soptitle}}{{{title}}}",
         ).replace(
             "\\newcommand{\\yourdate}{DATE}",
-            f"\\newcommand{{\\yourdate}}{{{date_str}}}"
+            f"\\newcommand{{\\yourdate}}{{{date_str}}}",
         ).replace(
             "\\end{document}",
-            f"\n{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}"
+            f"\n{stoa_comment_block}\n\n{body_latex}\n\n\\end{{document}}",
         )
+        filled = _ensure_ulem_package(filled)
 
-        # Write as new .tex file in drafts project
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', title)[:50] + ".tex"
-        tex_path = os.path.join(drafts_path, safe_name)
-        with open(tex_path, "w") as f:
+        with open(main_tex_path, "w") as f:
             f.write(filled)
 
-        # Git add, commit, push
         git_env = {
             **os.environ,
             "GIT_AUTHOR_NAME": "Stoa", "GIT_AUTHOR_EMAIL": "stoa@stoa.app",
             "GIT_COMMITTER_NAME": "Stoa", "GIT_COMMITTER_EMAIL": "stoa@stoa.app",
         }
-        subprocess.run(["git", "-C", drafts_path, "add", safe_name], capture_output=True)
+        subprocess.run(["git", "-C", project_path, "add", "main.tex"], capture_output=True)
         subprocess.run(
-            ["git", "-C", drafts_path, "commit", "-m", f"Add: {title}"],
-            capture_output=True, text=True, env=git_env
+            ["git", "-C", project_path, "commit", "-m", f"Stoa push: {title}"],
+            capture_output=True, text=True, env=git_env,
         )
         push_result = subprocess.run(
-            ["git", "-C", drafts_path, "push"], capture_output=True, text=True, timeout=30
+            ["git", "-C", project_path, "push"],
+            capture_output=True, text=True, timeout=30,
         )
         if push_result.returncode != 0:
-            return JSONResponse({"error": f"Git push failed: {push_result.stderr}"}, status_code=500)
+            return JSONResponse(
+                {"error": f"Git push failed: {(push_result.stderr or '').strip()}"},
+                status_code=500,
+            )
 
-    overleaf_url = f"https://www.overleaf.com/project/{DRAFTS_PROJECT_ID}"
-    return {"success": True, "overleaf_url": overleaf_url, "filename": safe_name}
+    overleaf_url = f"https://www.overleaf.com/project/{project_id}"
+    pool_remaining = len(config.get("draft_pool", {}).get("available", []))
+    return {
+        "success": True,
+        "overleaf_url": overleaf_url,
+        "project_id": project_id,
+        "filename": "main.tex",
+        "pool_remaining": pool_remaining,
+        "pool_warning": (
+            "Pool running low — refill soon" if pool_remaining <= 3 else None
+        ),
+    }
 
 
 @app.get("/proxy/pdf")

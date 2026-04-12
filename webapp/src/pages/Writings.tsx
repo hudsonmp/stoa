@@ -301,9 +301,11 @@ export default function Writings() {
                         await updateNote(activeNote.id, { tags: [...oldTags, `overleaf:${data.overleaf_url}`] });
                         setOverleafUrl(data.overleaf_url);
                         window.open(data.overleaf_url, "_blank");
-                        if (btn) btn.textContent = "Pushed ✓";
+                        if (btn) btn.textContent = data.pool_warning || "Pushed ✓";
                       } else {
-                        if (btn) btn.textContent = "Failed";
+                        // Show pool-empty instructions if present
+                        if (btn) btn.textContent = data.how_to_refill ? "Pool empty" : "Failed";
+                        if (data.how_to_refill) console.warn("[Stoa] Overleaf pool empty:", data.how_to_refill);
                       }
                     } catch {
                       if (btn) btn.textContent = "Failed";
