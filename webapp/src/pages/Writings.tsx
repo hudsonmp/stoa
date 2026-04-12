@@ -301,11 +301,10 @@ export default function Writings() {
                         await updateNote(activeNote.id, { tags: [...oldTags, `overleaf:${data.overleaf_url}`] });
                         setOverleafUrl(data.overleaf_url);
                         window.open(data.overleaf_url, "_blank");
-                        if (btn) btn.textContent = data.pool_warning || "Pushed ✓";
+                        if (btn) btn.textContent = "Pushed ✓";
                       } else {
-                        // Show pool-empty instructions if present
-                        if (btn) btn.textContent = data.how_to_refill ? "Pool empty" : "Failed";
-                        if (data.how_to_refill) console.warn("[Stoa] Overleaf pool empty:", data.how_to_refill);
+                        if (btn) btn.textContent = "Failed";
+                        if (data.error) console.warn("[Stoa] Overleaf push failed:", data.error);
                       }
                     } catch {
                       if (btn) btn.textContent = "Failed";

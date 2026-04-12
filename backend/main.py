@@ -204,44 +204,17 @@ OVERLEAF_CONFIG_PATH = os.path.expanduser("~/mcp-servers/OverleafMCP/projects.js
 OVERLEAF_TEMPLATE_PROJECT_ID = "69bf8cd0622169b4534b4a21"
 
 
-def _load_overleaf_config() -> dict:
-    with open(OVERLEAF_CONFIG_PATH) as f:
-        return json.load(f)
-
-
-def _save_overleaf_config(config: dict) -> None:
-    """Write projects.json atomically — rename is POSIX-atomic on the same
-    filesystem so a crash mid-write can't leave a partially-serialized file."""
-    tmp_path = OVERLEAF_CONFIG_PATH + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(config, f, indent=2)
-    os.replace(tmp_path, OVERLEAF_CONFIG_PATH)
-
-
-def _get_overleaf_git_token(config: dict) -> Optional[str]:
-    """Git Bridge token. Historically stored per-project in projects.json;
-    all projects use the same token, so any non-null entry works."""
-    pool_token = (config.get("draft_pool") or {}).get("git_token")
-    if pool_token:
-        return pool_token
-    return next(
-        (p["gitToken"] for p in config.get("projects", {}).values() if p.get("gitToken")),
-        None,
-    )
-
-
-def _claim_pool_project(config: dict) -> Optional[str]:
-    """Pop one project ID from draft_pool.available and append to used.
-    Returns the ID, or None if the pool is empty. Caller is responsible
-    for persisting the mutated config via _save_overleaf_config."""
-    pool = config.setdefault("draft_pool", {})
-    available = pool.setdefault("available", [])
-    used = pool.setdefault("used", [])
-    if not available:
+def _get_overleaf_git_token() -> Optional[str]:
+    """Git Bridge token from projects.json."""
+    try:
+        with open(OVERLEAF_CONFIG_PATH) as f:
+            config = json.load(f)
+        return next(
+            (p["gitToken"] for p in config.get("projects", {}).values() if p.get("gitToken")),
+            None,
+        )
+    except (FileNotFoundError, json.JSONDecodeError):
         return None
-    project_id = available.pop(0)
-    used.append(project_id)
-    return project_id
 
 
 def _ensure_ulem_package(tex: str) -> str:
@@ -260,38 +233,27 @@ def _ensure_ulem_package(tex: str) -> str:
 
 @app.post("/writings/{note_id}/push-to-overleaf")
 async def push_writing_to_overleaf(note_id: str, request: Request):
-    """Push a writing as its OWN Overleaf project — one writing, one project.
+    """Push a writing to Overleaf as a new project — zero config required.
 
-    Why per-writing projects instead of a shared drafts project:
-      Overleaf's web UI decides which file to open on project load via
-      its own "most recently opened" heuristic, independent of git
-      state. Pushing a new file to a shared project and then navigating
-      to that project's URL lands the user on whichever file THEY
-      touched most recently, not the one we just pushed. The only
-      robust fix is to stop sharing a project.
+    Uses Overleaf's publisher "Open in Overleaf" feature (snip_uri):
+      1. Clone the template project (has fonts, .cls, preamble).
+      2. Replace main.tex body with pandoc-converted writing.
+      3. Zip the entire project (including fonts/assets).
+      4. Upload the zip to Supabase Storage with a 1-hour signed URL.
+      5. Return an Overleaf import URL that creates a new project from
+         the zip — user clicks and lands in a fresh, fully-compiled
+         project.
 
-    How the pool works:
-      Overleaf Git Bridge can clone/push EXISTING projects but not
-      create new ones — that endpoint requires a browser session
-      cookie we don't have. Workaround: Hudson pre-creates a pool of
-      empty projects in the Overleaf UI (copies of the template), adds
-      their IDs to projects.json under draft_pool.available. Each push
-      pops one, pushes the writing into it, moves the ID to
-      draft_pool.used. When the pool runs low, the endpoint returns a
-      503 telling Hudson to refill.
-
-    What each push does:
-      1. Load projects.json, pop an available project ID.
-      2. Git-clone that project (already a template copy, has fonts +
-         preamble).
-      3. Read main.tex, substitute title/date/body placeholders with
-         the pandoc-converted writing body.
-      4. Inject \\usepackage{ulem} if missing so pandoc's \\ul{} doesn't
-         break compilation.
-      5. Commit + push.
-      6. Return the URL to the new per-writing project.
+    Why this approach:
+      - No pool of pre-created projects to manage.
+      - No session cookies or API keys beyond the existing git token.
+      - No manual Overleaf UI work. Each push creates a new project
+        automatically via Overleaf's snip_uri import.
+      - Template fonts and styling are preserved because the zip
+        includes all project files.
     """
-    import subprocess, tempfile, re
+    import subprocess, tempfile, re, zipfile, uuid
+    from urllib.parse import quote
     from fastapi.responses import JSONResponse
     from services.auth import get_user_id, get_supabase_service
     from datetime import datetime
@@ -309,7 +271,7 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     body_latex = _html_to_latex(note.get("content") or "")
     date_str = datetime.now().strftime("%B %d, %Y")
 
-    # Build %% comment block from Stoa notes (raw text, unwrapped, for reader reference)
+    # Build %% comment block from Stoa notes
     stoa_lines = [
         f"%% {'=' * 50}",
         f"%% Stoa Writing: {title}",
@@ -330,44 +292,16 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
     stoa_comment_block = "\n".join(stoa_lines)
 
     # ------------------------------------------------------------------
-    # Claim a pool project
+    # 1. Clone template project (has fonts, .cls, etc.)
     # ------------------------------------------------------------------
-    config = _load_overleaf_config()
-    git_token = _get_overleaf_git_token(config)
+    git_token = _get_overleaf_git_token()
     if not git_token:
         return JSONResponse({"error": "No Overleaf git token configured"}, status_code=500)
 
-    project_id = _claim_pool_project(config)
-    if project_id is None:
-        return JSONResponse(
-            {
-                "error": "Overleaf draft pool is empty",
-                "how_to_refill": (
-                    "Copy the template project "
-                    f"(https://www.overleaf.com/project/{OVERLEAF_TEMPLATE_PROJECT_ID}) "
-                    "in the Overleaf UI — one copy per expected writing, 10–20 at a time. "
-                    "For each copy, open Menu → Sync → Git and copy the project ID from the URL. "
-                    "Append each ID to draft_pool.available in "
-                    f"{OVERLEAF_CONFIG_PATH}."
-                ),
-            },
-            status_code=503,
-        )
-
-    # Persist the claim BEFORE we try to clone/push. If the clone fails the
-    # project is still marked used — that's intentional (the user can
-    # manually reclaim it). Safer than leaving a claim un-persisted and
-    # racing a concurrent push into the same project.
-    try:
-        _save_overleaf_config(config)
-    except OSError as e:
-        return JSONResponse({"error": f"Failed to persist pool state: {e}"}, status_code=500)
-
     with tempfile.TemporaryDirectory() as tmpdir:
-        project_path = os.path.join(tmpdir, "writing")
-
+        template_path = os.path.join(tmpdir, "template")
         clone = subprocess.run(
-            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{project_id}", project_path],
+            ["git", "clone", f"https://git:{git_token}@git.overleaf.com/{OVERLEAF_TEMPLATE_PROJECT_ID}", template_path],
             capture_output=True, text=True, timeout=30,
         )
         if clone.returncode != 0:
@@ -376,17 +310,15 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
                 status_code=500,
             )
 
-        # Load main.tex from the cloned project (it's a copy of the
-        # template, so placeholders are present).
-        main_tex_path = os.path.join(project_path, "main.tex")
+        # ------------------------------------------------------------------
+        # 2. Replace main.tex body
+        # ------------------------------------------------------------------
+        main_tex_path = os.path.join(template_path, "main.tex")
         try:
             with open(main_tex_path) as f:
                 template_tex = f.read()
         except FileNotFoundError:
-            return JSONResponse(
-                {"error": f"Pool project {project_id} has no main.tex — is it a template copy?"},
-                status_code=500,
-            )
+            return JSONResponse({"error": "Template has no main.tex"}, status_code=500)
 
         filled = template_tex.replace(
             "\\newcommand{\\soptitle}{TITLE}",
@@ -403,37 +335,51 @@ async def push_writing_to_overleaf(note_id: str, request: Request):
         with open(main_tex_path, "w") as f:
             f.write(filled)
 
-        git_env = {
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Stoa", "GIT_AUTHOR_EMAIL": "stoa@stoa.app",
-            "GIT_COMMITTER_NAME": "Stoa", "GIT_COMMITTER_EMAIL": "stoa@stoa.app",
-        }
-        subprocess.run(["git", "-C", project_path, "add", "main.tex"], capture_output=True)
-        subprocess.run(
-            ["git", "-C", project_path, "commit", "-m", f"Stoa push: {title}"],
-            capture_output=True, text=True, env=git_env,
-        )
-        push_result = subprocess.run(
-            ["git", "-C", project_path, "push"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if push_result.returncode != 0:
-            return JSONResponse(
-                {"error": f"Git push failed: {(push_result.stderr or '').strip()}"},
-                status_code=500,
-            )
+        # ------------------------------------------------------------------
+        # 3. Zip the entire project (skip .git directory)
+        # ------------------------------------------------------------------
+        zip_path = os.path.join(tmpdir, "project.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(template_path):
+                dirs[:] = [d for d in dirs if d != ".git"]
+                for file in files:
+                    abs_path = os.path.join(root, file)
+                    arc_name = os.path.relpath(abs_path, template_path)
+                    zf.write(abs_path, arc_name)
 
-    overleaf_url = f"https://www.overleaf.com/project/{project_id}"
-    pool_remaining = len(config.get("draft_pool", {}).get("available", []))
+        # ------------------------------------------------------------------
+        # 4. Upload to Supabase Storage + get signed URL
+        # ------------------------------------------------------------------
+        storage_key = f"{user_id}/overleaf-exports/{uuid.uuid4().hex}.zip"
+        with open(zip_path, "rb") as f:
+            zip_bytes = f.read()
+
+        supabase.storage.from_("documents").upload(
+            storage_key,
+            zip_bytes,
+            file_options={"content-type": "application/zip"},
+        )
+
+        signed = supabase.storage.from_("documents").create_signed_url(
+            storage_key, expires_in=3600,
+        )
+        signed_url = signed.get("signedURL") or signed.get("signedUrl") or ""
+        if not signed_url:
+            return JSONResponse({"error": "Failed to create signed URL"}, status_code=500)
+
+    # ------------------------------------------------------------------
+    # 5. Build Overleaf import URL
+    # ------------------------------------------------------------------
+    safe_title = re.sub(r'[^a-zA-Z0-9 _-]', '', title)[:60].strip() or "Stoa Writing"
+    overleaf_url = (
+        f"https://www.overleaf.com/docs?snip_uri={quote(signed_url, safe='')}"
+        f"&snip_name={quote(safe_title, safe='')}"
+    )
+
     return {
         "success": True,
         "overleaf_url": overleaf_url,
-        "project_id": project_id,
         "filename": "main.tex",
-        "pool_remaining": pool_remaining,
-        "pool_warning": (
-            "Pool running low — refill soon" if pool_remaining <= 3 else None
-        ),
     }
 
 
