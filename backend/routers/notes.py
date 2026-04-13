@@ -12,6 +12,18 @@ router = APIRouter()
 # Valid note types stored as tags
 NOTE_TYPES = {"marginalia", "synthesis", "journal"}
 
+# Knowledge types — encode BEFORE extracting. Maps to different memory systems.
+# declarative → Anki-friendly; procedural → spaced practice; conceptual → schemas/essay;
+# episodic → story retention; stylistic → imitation. See Reading Hamming companion §4.
+KNOWLEDGE_TYPES = {"declarative", "procedural", "conceptual", "episodic", "stylistic"}
+
+# Note types that should enforce dense linking (orphan detection applies).
+# Marginalia is tied to an item already; journals are free-form. Synthesis/evergreen should link.
+EVERGREEN_TYPES = {"synthesis"}
+
+# Minimum links for a synthesis note not to count as an orphan (Matuschak: "orphan = waste").
+MIN_LINKS = 2
+
 
 class CreateNoteRequest(BaseModel):
     item_id: Optional[str] = None
@@ -19,7 +31,9 @@ class CreateNoteRequest(BaseModel):
     content: str
     title: Optional[str] = None
     note_type: str = "marginalia"
+    knowledge_type: Optional[str] = None
     item_ids: list[str] = []
+    note_ids: list[str] = []
     tags: list[str] = []
 
 
@@ -31,18 +45,49 @@ class LinkNoteRequest(BaseModel):
     item_id: str
 
 
-def _build_tags(note_type: str, item_ids: list[str], extra_tags: list[str]) -> list[str]:
-    """Build the tags array: note_type + ref:item_id entries + user tags."""
-    # If user passed a note type in extra_tags, use it instead of the default
+class LinkNoteToNoteRequest(BaseModel):
+    target_note_id: str
+
+
+def _build_tags(
+    note_type: str,
+    item_ids: list[str],
+    extra_tags: list[str],
+    knowledge_type: Optional[str] = None,
+    note_ids: Optional[list[str]] = None,
+) -> list[str]:
+    """Build tags: note_type + kt:<knowledge_type> + ref:<item_id> + link:<note_id> + user tags."""
+    # Allow note type to be overridden via extra_tags
     effective_type = note_type
     for t in extra_tags:
         if t in NOTE_TYPES:
             effective_type = t
             break
     tags = [effective_type] if effective_type in NOTE_TYPES else []
+
+    # Knowledge type: explicit param wins; fall back to any kt:* in extra_tags
+    effective_kt = knowledge_type
+    if effective_kt is None:
+        for t in extra_tags:
+            if t.startswith("kt:") and t[3:] in KNOWLEDGE_TYPES:
+                effective_kt = t[3:]
+                break
+    if effective_kt in KNOWLEDGE_TYPES:
+        tags.append(f"kt:{effective_kt}")
+
     for iid in item_ids:
         tags.append(f"ref:{iid}")
-    tags.extend(t for t in extra_tags if t and t not in NOTE_TYPES and not t.startswith("ref:"))
+    for nid in (note_ids or []):
+        tags.append(f"link:{nid}")
+
+    # Pass through any remaining user tags (filter out anything we already consumed)
+    reserved_prefixes = ("ref:", "link:", "kt:")
+    for t in extra_tags:
+        if not t or t in NOTE_TYPES:
+            continue
+        if t.startswith(reserved_prefixes):
+            continue
+        tags.append(t)
     return tags
 
 
@@ -56,11 +101,38 @@ def _extract_note_type(tags: list[str] | None) -> str:
     return "marginalia"
 
 
+def _extract_knowledge_type(tags: list[str] | None) -> Optional[str]:
+    """Extract knowledge_type from a kt:<type> tag, if present."""
+    if not tags:
+        return None
+    for t in tags:
+        if t.startswith("kt:") and t[3:] in KNOWLEDGE_TYPES:
+            return t[3:]
+    return None
+
+
 def _extract_ref_ids(tags: list[str] | None) -> list[str]:
     """Extract referenced item_ids from ref: tags."""
     if not tags:
         return []
     return [t[4:] for t in tags if t.startswith("ref:")]
+
+
+def _extract_linked_note_ids(tags: list[str] | None) -> list[str]:
+    """Extract linked note ids from link: tags."""
+    if not tags:
+        return []
+    return [t[5:] for t in tags if t.startswith("link:")]
+
+
+def _annotate(note: dict) -> dict:
+    """Attach derived fields (note_type, knowledge_type, refs, links) from tags."""
+    tags = note.get("tags")
+    note["note_type"] = _extract_note_type(tags)
+    note["knowledge_type"] = _extract_knowledge_type(tags)
+    note["ref_item_ids"] = _extract_ref_ids(tags)
+    note["linked_note_ids"] = _extract_linked_note_ids(tags)
+    return note
 
 
 @router.post("")
@@ -72,12 +144,24 @@ async def create_note(req: CreateNoteRequest, request: Request):
     if req.note_type not in NOTE_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid note_type. Must be one of: {', '.join(NOTE_TYPES)}")
 
+    if req.knowledge_type is not None and req.knowledge_type not in KNOWLEDGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid knowledge_type. Must be one of: {', '.join(sorted(KNOWLEDGE_TYPES))}",
+        )
+
     # For synthesis notes, merge item_id into item_ids if provided
     all_item_ids = list(req.item_ids)
     if req.item_id and req.item_id not in all_item_ids:
         all_item_ids.insert(0, req.item_id)
 
-    tags = _build_tags(req.note_type, all_item_ids, req.tags)
+    tags = _build_tags(
+        req.note_type,
+        all_item_ids,
+        req.tags,
+        knowledge_type=req.knowledge_type,
+        note_ids=req.note_ids,
+    )
 
     result = supabase.table("notes").insert({
         "user_id": user_id,
@@ -112,8 +196,7 @@ async def list_standalone_notes(request: Request, limit: int = 50):
     for note in (result.data or []):
         note_type = _extract_note_type(note.get("tags"))
         if note_type != "marginalia":
-            note["note_type"] = note_type
-            note["ref_item_ids"] = _extract_ref_ids(note.get("tags"))
+            _annotate(note)
             notes.append(note)
             if len(notes) >= limit:
                 break
@@ -161,11 +244,73 @@ async def search_notes(request: Request, q: str, limit: int = 20):
     for note in (title_result.data or []) + (content_result.data or []):
         if note["id"] not in seen:
             seen.add(note["id"])
-            note["note_type"] = _extract_note_type(note.get("tags"))
-            note["ref_item_ids"] = _extract_ref_ids(note.get("tags"))
+            _annotate(note)
             notes.append(note)
 
     return {"notes": notes[:limit], "count": len(notes[:limit])}
+
+
+@router.get("/orphans")
+async def list_orphan_notes(request: Request, limit: int = 50):
+    """Return synthesis/evergreen notes with fewer than MIN_LINKS note-to-note links.
+
+    Matuschak: an orphan note (not linked to the rest of the graph) is wasted.
+    This endpoint surfaces them so the user can retrofit links or delete them.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("updated_at", desc=True)
+        .limit(500)
+        .execute()
+    )
+
+    orphans = []
+    for note in (result.data or []):
+        tags = note.get("tags")
+        note_type = _extract_note_type(tags)
+        if note_type not in EVERGREEN_TYPES:
+            continue
+        if len(_extract_linked_note_ids(tags)) < MIN_LINKS:
+            _annotate(note)
+            orphans.append(note)
+            if len(orphans) >= limit:
+                break
+
+    return {"notes": orphans, "count": len(orphans), "min_links": MIN_LINKS}
+
+
+@router.get("/by-knowledge-type/{kt}")
+async def list_notes_by_knowledge_type(kt: str, request: Request, limit: int = 50):
+    """Filter notes by knowledge type. Route each unit to the correct memory system:
+    declarative → Anki; procedural → spaced practice; conceptual → essays; etc.
+    """
+    if kt not in KNOWLEDGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid knowledge_type. Must be one of: {', '.join(sorted(KNOWLEDGE_TYPES))}",
+        )
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # Supabase array containment: tags @> ['kt:<type>'] — contains() wraps this.
+    result = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .contains("tags", [f"kt:{kt}"])
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+
+    notes = [_annotate(n) for n in (result.data or [])]
+    return {"notes": notes, "knowledge_type": kt, "count": len(notes)}
 
 
 @router.get("/{note_id}")
@@ -185,8 +330,7 @@ async def get_note(note_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Note not found")
 
     note = result.data[0]
-    note["note_type"] = _extract_note_type(note.get("tags"))
-    note["ref_item_ids"] = _extract_ref_ids(note.get("tags"))
+    _annotate(note)
 
     # Fetch linked item titles
     linked_items = []
@@ -208,6 +352,26 @@ async def get_note(note_id: str, request: Request):
         linked_items = items_result.data or []
 
     note["linked_items"] = linked_items
+
+    # Hydrate linked-note previews (title + note_type) for the dense-linking UI
+    linked_notes = []
+    if note["linked_note_ids"]:
+        linked_notes_result = (
+            supabase.table("notes")
+            .select("id, title, tags")
+            .in_("id", note["linked_note_ids"])
+            .eq("user_id", user_id)
+            .execute()
+        )
+        for ln in (linked_notes_result.data or []):
+            linked_notes.append({
+                "id": ln["id"],
+                "title": ln.get("title"),
+                "note_type": _extract_note_type(ln.get("tags")),
+                "knowledge_type": _extract_knowledge_type(ln.get("tags")),
+            })
+    note["linked_notes"] = linked_notes
+
     return {"note": note}
 
 
@@ -275,6 +439,54 @@ async def link_note_to_item(note_id: str, req: LinkNoteRequest, request: Request
         return {"note": existing.data[0], "message": "Already linked"}
 
     updated_tags = current_tags + [ref_tag]
+    result = (
+        supabase.table("notes")
+        .update({"tags": updated_tags})
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {"note": result.data[0]}
+
+
+@router.post("/{note_id}/link-note")
+async def link_note_to_note(note_id: str, req: LinkNoteToNoteRequest, request: Request):
+    """Link one note to another via a link:<note_id> tag (Matuschak dense linking).
+
+    Idempotent: duplicate links are a no-op. Rejects self-links and cross-user links.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    if note_id == req.target_note_id:
+        raise HTTPException(status_code=400, detail="Cannot link a note to itself")
+
+    existing = (
+        supabase.table("notes")
+        .select("id, tags")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    target = (
+        supabase.table("notes")
+        .select("id")
+        .eq("id", req.target_note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not target.data:
+        raise HTTPException(status_code=404, detail="Target note not found")
+
+    current_tags = existing.data[0].get("tags") or []
+    link_tag = f"link:{req.target_note_id}"
+    if link_tag in current_tags:
+        return {"note": existing.data[0], "message": "Already linked"}
+
+    updated_tags = current_tags + [link_tag]
     result = (
         supabase.table("notes")
         .update({"tags": updated_tags})

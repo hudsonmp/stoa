@@ -186,17 +186,57 @@ export async function updateItem(itemId: string, updates: Record<string, unknown
   });
 }
 
+export type KnowledgeType =
+  | "declarative"
+  | "procedural"
+  | "conceptual"
+  | "episodic"
+  | "stylistic";
+
+export const KNOWLEDGE_TYPES: KnowledgeType[] = [
+  "declarative",
+  "procedural",
+  "conceptual",
+  "episodic",
+  "stylistic",
+];
+
 export async function createNote(data: {
   item_id?: string;
   person_id?: string;
   content: string;
   title?: string;
+  note_type?: "marginalia" | "synthesis" | "journal";
+  knowledge_type?: KnowledgeType;
+  note_ids?: string[];
   tags?: string[];
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function linkNoteToNote(noteId: string, targetNoteId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/link-note`, {
+    method: "POST",
+    body: JSON.stringify({ target_note_id: targetNoteId }),
+  });
+}
+
+export async function getOrphanNotes(limit = 50) {
+  return apiFetch<{ notes: unknown[]; count: number; min_links: number }>(
+    `/notes/orphans?limit=${limit}`
+  );
+}
+
+export async function getNotesByKnowledgeType(
+  kt: KnowledgeType,
+  limit = 50
+) {
+  return apiFetch<{ notes: unknown[]; knowledge_type: KnowledgeType; count: number }>(
+    `/notes/by-knowledge-type/${kt}?limit=${limit}`
+  );
 }
 
 export async function getNotes(params?: { person_id?: string; item_id?: string }) {

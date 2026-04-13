@@ -68,6 +68,7 @@ class MockQueryBuilder:
     def neq(self, *args, **kwargs): return self
     def ilike(self, *args, **kwargs): return self
     def in_(self, *args, **kwargs): return self
+    def contains(self, *args, **kwargs): return self
     def lte(self, *args, **kwargs): return self
     def gte(self, *args, **kwargs): return self
     def order(self, *args, **kwargs): return self
@@ -159,6 +160,7 @@ def test_client(dev_mode_env, mock_supabase):
         patch("routers.citations.get_supabase_service", return_value=mock_supabase),
         patch("routers.review.get_supabase_service", return_value=mock_supabase),
         patch("routers.highlights.get_supabase_service", return_value=mock_supabase),
+        patch("routers.notes.get_supabase_service", return_value=mock_supabase),
     ]
     for p in patches:
         p.start()

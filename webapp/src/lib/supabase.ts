@@ -65,6 +65,10 @@ export interface Note {
   title?: string;
   content: string;
   tags?: string[];
+  note_type?: "marginalia" | "synthesis" | "journal";
+  knowledge_type?: "declarative" | "procedural" | "conceptual" | "episodic" | "stylistic" | null;
+  ref_item_ids?: string[];
+  linked_note_ids?: string[];
   created_at: string;
   updated_at: string;
 }

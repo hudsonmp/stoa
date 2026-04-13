@@ -3,8 +3,33 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Plus, Search, FileText, Trash2, Check, X, ExternalLink } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
-import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
+import {
+  getNotes,
+  createNote,
+  updateNote,
+  deleteNote,
+  KNOWLEDGE_TYPES,
+  type KnowledgeType,
+} from "@/lib/api";
 import type { Note } from "@/lib/supabase";
+
+// Short, domain-specific hints per knowledge type (Reading Hamming companion §4):
+// each routes to a different memory system, so the chip carries the pedagogy.
+const KT_HINT: Record<KnowledgeType, string> = {
+  declarative: "Fact / attribution → Anki",
+  procedural: "Derivation / how-to → spaced practice",
+  conceptual: "Model / schema → self-explain + essay",
+  episodic: "Story / anecdote → retain the scene",
+  stylistic: "Move / posture → imitate, don't encode",
+};
+
+function getNoteKnowledgeType(note: Note): KnowledgeType | null {
+  if (note.knowledge_type) return note.knowledge_type;
+  const fromTag = (note.tags || []).find((t) => t.startsWith("kt:"));
+  if (!fromTag) return null;
+  const kt = fromTag.slice(3) as KnowledgeType;
+  return (KNOWLEDGE_TYPES as string[]).includes(kt) ? kt : null;
+}
 
 function formatRelativeDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -88,7 +113,7 @@ export default function Notes() {
       const data = await createNote({
         content: "",
         title: "Untitled",
-        tags: ["synthesis"],
+        note_type: "synthesis",
       });
       const newNote = data.note as Note;
       await load();
@@ -97,6 +122,28 @@ export default function Notes() {
       // silent
     }
   }, [load, navigate]);
+
+  const handleSetKnowledgeType = useCallback(
+    async (noteId: string, kt: KnowledgeType | null) => {
+      const note = notes.find((n) => n.id === noteId);
+      if (!note) return;
+      const existing = (note.tags || []).filter((t) => !t.startsWith("kt:"));
+      const nextTags = kt ? [...existing, `kt:${kt}`] : existing;
+      try {
+        await updateNote(noteId, { tags: nextTags });
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === noteId
+              ? { ...n, tags: nextTags, knowledge_type: kt ?? undefined }
+              : n
+          )
+        );
+      } catch {
+        // silent
+      }
+    },
+    [notes]
+  );
 
   const handleSave = useCallback(
     async (content: string) => {
@@ -396,6 +443,35 @@ export default function Notes() {
                   View linked item
                 </Link>
               )}
+              {/* Knowledge-type selector — encoding-before-extraction (§4) */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Encode as:
+                </span>
+                {KNOWLEDGE_TYPES.map((kt) => {
+                  const active = getNoteKnowledgeType(activeNote) === kt;
+                  return (
+                    <button
+                      key={kt}
+                      onClick={() =>
+                        handleSetKnowledgeType(
+                          activeNote.id,
+                          active ? null : kt
+                        )
+                      }
+                      title={KT_HINT[kt]}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wide transition-warm
+                        ${
+                          active
+                            ? "bg-accent text-white"
+                            : "bg-bg-secondary text-text-tertiary hover:text-text-primary hover:bg-bg-secondary/80"
+                        }`}
+                    >
+                      {kt}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <div className="flex-1 notes-editor-fullwidth">
               <ResearchEditor
