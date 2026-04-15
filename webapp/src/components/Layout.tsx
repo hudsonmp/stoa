@@ -50,22 +50,20 @@ export default function Layout() {
     return () => clearInterval(interval);
   }, [loadCounts]);
 
-  // Global "new note" keyboard shortcut.
-  //
-  // Important constraint: Chrome hard-reserves ⌘N (new window) and ⌘⇧N
-  // (incognito) at the browser level. These accelerators fire before any
-  // webpage's keydown handler, so preventDefault() is a no-op. No Chrome
-  // setting or site permission exposes this to remap — the only workarounds
-  // are a browser extension with `commands` permission, or picking a shortcut
-  // Chrome doesn't reserve. We bind a working alternative (⌘⌥N = Cmd+Option+N)
-  // and also attempt ⌘N for users whose OS/Chrome version happens to allow it.
+  // Global "new note" keyboard shortcut — ⌘Y on Mac, Ctrl+Y on Windows/Linux.
+  // Previously tried ⌘N / ⌘⌥N; Hudson asked for ⌘Y. Note: on macOS Chrome,
+  // ⌘Y opens the History tab — it IS a browser-chrome accelerator. Like ⌘N,
+  // webpage preventDefault() is effectively a no-op. If that turns out to
+  // block this shortcut in practice, the working alternatives that Chrome
+  // does NOT reserve are ⌘K, ⌘J (downloads was once here), or unmodified
+  // keys (e.g. `n` when not typing, à la Linear/Gmail).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const cmd = isMac ? e.metaKey : e.ctrlKey;
       if (!cmd) return;
-      const isN = e.key === "n" || e.key === "N";
-      if (!isN) return;
+      const isY = e.key === "y" || e.key === "Y";
+      if (!isY) return;
       // Don't hijack typing inside inputs/textareas/contenteditables.
       const t = e.target as HTMLElement | null;
       if (t) {
@@ -74,9 +72,6 @@ export default function Layout() {
           return;
         }
       }
-      // Prefer the accelerator that's actually reachable: ⌘⌥N. ⌘N (no alt)
-      // will not fire on Chrome but we still preventDefault in case a future
-      // version opens it up.
       e.preventDefault();
       (async () => {
         try {
