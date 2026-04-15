@@ -14,6 +14,7 @@ import {
   FolderPlus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import FlashcardEditor from "@/components/FlashcardEditor";
@@ -143,6 +144,7 @@ export default function Notes() {
   // Link-picker state: opens an inline search over synthesis notes to add a link.
   const [linkPickerOpen, setLinkPickerOpen] = useState(false);
   const [linkPickerQuery, setLinkPickerQuery] = useState("");
+  const linkPickerRef = useRef<HTMLDivElement>(null);
   const [hoveredKt, setHoveredKt] = useState<KnowledgeType | null>(null);
 
   // Collections (folders) — tag-based via col:<id>. Lets you group all notes for a book.
@@ -150,6 +152,9 @@ export default function Notes() {
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const folderPickerRef = useRef<HTMLDivElement>(null);
+  const [folderFilterOpen, setFolderFilterOpen] = useState(false);
+  const folderFilterRef = useRef<HTMLDivElement>(null);
 
   // Collapse the notes-list middle rail (beyond the Library nav collapse in Layout).
   const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
@@ -191,6 +196,26 @@ export default function Notes() {
       .then((res) => setCollections(res.collections as CollectionRef[]))
       .catch(() => setCollections([]));
   }, []);
+
+  // Close dropdowns on any click outside their respective ref.
+  // Pure Fitts-law ergonomics: open-by-click, close-by-click-anywhere-else.
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (linkPickerOpen && linkPickerRef.current && !linkPickerRef.current.contains(target)) {
+        setLinkPickerOpen(false);
+        setLinkPickerQuery("");
+      }
+      if (folderPickerOpen && folderPickerRef.current && !folderPickerRef.current.contains(target)) {
+        setFolderPickerOpen(false);
+      }
+      if (folderFilterOpen && folderFilterRef.current && !folderFilterRef.current.contains(target)) {
+        setFolderFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [linkPickerOpen, folderPickerOpen, folderFilterOpen]);
 
   const handleCreateCollection = useCallback(async () => {
     const name = newFolderName.trim();
@@ -271,6 +296,9 @@ export default function Notes() {
         content: "",
         title: "Untitled",
         note_type: "synthesis",
+        // If the user is currently filtered to a folder, new notes belong there.
+        // Matches the mental model: "I'm inside Hamming, so this note is a Hamming note."
+        collection_ids: activeCollectionId ? [activeCollectionId] : [],
       });
       const newNote = data.note as Note;
       await load();
@@ -278,7 +306,7 @@ export default function Notes() {
     } catch {
       // silent
     }
-  }, [load, navigate]);
+  }, [load, navigate, activeCollectionId]);
 
   // Hydrate linked_notes whenever the active note changes. GET /notes/{id} returns
   // preview objects (id, title, note_type, knowledge_type) for every link:<id> tag.
@@ -467,13 +495,26 @@ export default function Notes() {
       )
     : filteredByType;
 
+  // Search matches title, content, AND folder names. If the query matches a
+  // folder name, every note in that folder is included (so typing "Hamming"
+  // surfaces all notes you filed under Hamming, even ones that don't mention it).
   const filtered = searchQuery
-    ? filteredByCollection.filter((n) => {
+    ? (() => {
         const q = searchQuery.toLowerCase();
-        const title = extractTitle(n).toLowerCase();
-        const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
-        return title.includes(q) || content.includes(q);
-      })
+        const matchingFolderIds = new Set(
+          collections
+            .filter((c) => c.name.toLowerCase().includes(q))
+            .map((c) => c.id)
+        );
+        return filteredByCollection.filter((n) => {
+          const title = extractTitle(n).toLowerCase();
+          const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
+          if (title.includes(q) || content.includes(q)) return true;
+          // folder-name match: include notes in any matching folder
+          const noteFolderIds = getNoteCollectionIds(n);
+          return noteFolderIds.some((cid) => matchingFolderIds.has(cid));
+        });
+      })()
     : filteredByCollection;
 
   const activeNote = notes.find((n) => n.id === activeId);
@@ -524,36 +565,61 @@ export default function Notes() {
           </button>
         </div>
 
-        {/* Collection (folder) filter */}
+        {/* Collection (folder) filter — compact dropdown */}
         {collections.length > 0 && (
-          <div className="px-3 pb-2">
-            <div className="flex flex-wrap gap-1">
-              <button
-                onClick={() => setActiveCollectionId(null)}
-                className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded transition-warm
-                  ${activeCollectionId === null
-                    ? "text-accent bg-accent/10"
-                    : "text-text-tertiary hover:text-text-primary"}`}
+          <div ref={folderFilterRef} className="px-3 pb-2 relative">
+            <button
+              onClick={() => setFolderFilterOpen((o) => !o)}
+              className="w-full flex items-center justify-between text-[11px] font-mono
+                         text-text-tertiary hover:text-text-primary px-2 py-1 rounded
+                         hover:bg-bg-primary/60 transition-warm"
+            >
+              <span className="flex items-center gap-1.5 truncate">
+                <Folder size={11} />
+                <span className="truncate">
+                  {activeCollectionId
+                    ? collections.find((c) => c.id === activeCollectionId)?.name ||
+                      "All notes"
+                    : "All notes"}
+                </span>
+              </span>
+              <ChevronDown size={11} />
+            </button>
+            {folderFilterOpen && (
+              <div
+                className="absolute top-full left-2 right-2 z-30 mt-1
+                           bg-bg-primary border border-border rounded-card shadow-lg
+                           max-h-[260px] overflow-y-auto"
               >
-                All
-              </button>
-              {collections.map((c) => (
                 <button
-                  key={c.id}
-                  onClick={() =>
-                    setActiveCollectionId(activeCollectionId === c.id ? null : c.id)
-                  }
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded transition-warm truncate max-w-[140px]
-                    ${activeCollectionId === c.id
-                      ? "text-accent bg-accent/10"
-                      : "text-text-tertiary hover:text-text-primary"}`}
-                  title={c.name}
+                  onClick={() => {
+                    setActiveCollectionId(null);
+                    setFolderFilterOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-[12px] hover:bg-bg-secondary
+                              transition-warm border-b border-border/40
+                              ${activeCollectionId === null ? "text-accent" : "text-text-primary"}`}
                 >
-                  <Folder size={9} className="inline mr-0.5" />
-                  {c.name}
+                  All notes
                 </button>
-              ))}
-            </div>
+                {collections.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      setActiveCollectionId(c.id);
+                      setFolderFilterOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[12px] hover:bg-bg-secondary
+                                transition-warm border-b border-border/40 last:border-b-0 truncate
+                                ${activeCollectionId === c.id ? "text-accent" : "text-text-primary"}`}
+                    title={c.name}
+                  >
+                    <Folder size={10} className="inline mr-1.5 text-text-tertiary" />
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -795,7 +861,7 @@ export default function Notes() {
 
               {/* Dense-linking UI (Matuschak): evergreen notes earn their keep by
                   linking to ≥2 other notes. Orphans are surfaced via /notes/orphans. */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+              <div ref={linkPickerRef} className="mt-2 flex flex-wrap items-center gap-1.5 relative">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
                   Links ({linkedNotes.length}):
                 </span>
@@ -897,7 +963,7 @@ export default function Notes() {
               )}
 
               {/* Folder/collection membership */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+              <div ref={folderPickerRef} className="mt-2 flex flex-wrap items-center gap-1.5 relative">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
                   Folders:
                 </span>

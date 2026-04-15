@@ -209,6 +209,7 @@ export async function createNote(data: {
   note_type?: "marginalia" | "synthesis" | "journal";
   knowledge_type?: KnowledgeType;
   note_ids?: string[];
+  collection_ids?: string[];
   tags?: string[];
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
