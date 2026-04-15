@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import FlashcardReview from "@/components/FlashcardReview";
+import FlashcardEditor from "@/components/FlashcardEditor";
 import {
   getNotes,
   getNoteById,
@@ -1010,11 +1011,29 @@ export default function Notes() {
               </div>
             </div>
             <div className="flex-1 notes-editor-fullwidth">
-              <ResearchEditor
-                content={activeNote.content}
-                onSave={handleSave}
-                placeholder="Start writing your research notes..."
-              />
+              {getNoteKnowledgeType(activeNote) === "declarative" ? (
+                <FlashcardEditor
+                  note={activeNote}
+                  collectionNames={getNoteCollectionIds(activeNote)
+                    .map((cid) => collections.find((c) => c.id === cid)?.name)
+                    .filter((n): n is string => !!n)}
+                  onNoteUpdated={(patch) =>
+                    setNotes((prev) =>
+                      prev.map((n) =>
+                        n.id === patch.id
+                          ? { ...n, ...patch, updated_at: new Date().toISOString() }
+                          : n
+                      )
+                    )
+                  }
+                />
+              ) : (
+                <ResearchEditor
+                  content={activeNote.content}
+                  onSave={handleSave}
+                  placeholder="Start writing your research notes..."
+                />
+              )}
             </div>
           </motion.div>
         ) : (

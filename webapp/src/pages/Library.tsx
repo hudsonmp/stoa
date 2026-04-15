@@ -62,10 +62,15 @@ export default function Library({ status, type }: LibraryProps) {
     () => items.filter((i) => i.type === "podcast"),
     [items]
   );
+  const videos = useMemo(() => items.filter((i) => i.type === "video"), [items]);
+  const grants = useMemo(() => items.filter((i) => i.type === "grant"), [items]);
   const other = useMemo(
     () =>
       items.filter(
-        (i) => !["book", "blog", "paper", "podcast", "writing"].includes(i.type)
+        (i) =>
+          !["book", "blog", "paper", "podcast", "writing", "video", "grant"].includes(
+            i.type
+          )
       ),
     [items]
   );
@@ -74,9 +79,11 @@ export default function Library({ status, type }: LibraryProps) {
 
   const listSections = [
     { label: "Writings", items: writings },
+    { label: "Grants", items: grants },
     { label: "Blogs", items: blogs },
     { label: "Papers", items: papers },
     { label: "Podcasts", items: podcasts },
+    { label: "Videos", items: videos },
     { label: "Other", items: other },
   ].filter((s) => s.items.length > 0);
 
