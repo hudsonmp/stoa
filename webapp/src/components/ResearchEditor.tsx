@@ -27,14 +27,17 @@ import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
-// Fast title search — no embeddings, just ILIKE.
-// Queries BOTH items and notes in parallel so @mentions can reference either.
-// Mirrors the link-picker semantics (notes search by title/content) while
-// keeping items reachable. The id is prefixed with kind so renderHTML can
-// construct the right href (/notes/<id> vs /item/<id>).
-async function quickSearch(
-  query: string
-): Promise<Array<{ id: string; label: string; kind: "item" | "note" }>> {
+// Module-level notes cache. Matches the link-picker pattern: pull the user's
+// notes once into memory, filter client-side on every keystroke (instant),
+// refresh after a short TTL. Item search stays network-bound but runs in
+// parallel so it never blocks the notes response.
+type CachedNote = { id: string; title?: string; content?: string };
+let notesCache: { notes: CachedNote[]; fetchedAt: number } | null = null;
+let notesFetchInFlight: Promise<CachedNote[]> | null = null;
+const NOTES_CACHE_TTL_MS = 30_000;
+const NOTES_CACHE_LIMIT = 500;
+
+function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (DEV_USER_ID) headers["X-User-Id"] = DEV_USER_ID;
   else {
@@ -43,45 +46,93 @@ async function quickSearch(
     if (token) headers["Authorization"] = `Bearer ${token}`;
     else if (userId) headers["X-User-Id"] = userId;
   }
-  const q = encodeURIComponent(query);
-  // /notes/search backend rejects <2 chars with 400; gate it.
-  const canSearchNotes = query.trim().length >= 2;
-  const [itemsRes, notesRes] = await Promise.all([
-    fetch(`${API_URL}/items/quick-search?q=${q}&limit=5`, { headers }).catch(() => null),
-    canSearchNotes
-      ? fetch(`${API_URL}/notes/search?q=${q}&limit=5`, { headers }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  return headers;
+}
 
-  const items =
-    itemsRes && itemsRes.ok
-      ? ((await itemsRes.json()).results || []).map(
-          (r: { id: string; title: string }) => ({
+async function fetchNotesForCache(): Promise<CachedNote[]> {
+  if (notesFetchInFlight) return notesFetchInFlight;
+  notesFetchInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_URL}/notes?limit=${NOTES_CACHE_LIMIT}`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.notes || []) as CachedNote[];
+    } catch {
+      return [];
+    } finally {
+      notesFetchInFlight = null;
+    }
+  })();
+  return notesFetchInFlight;
+}
+
+async function getCachedNotes(): Promise<CachedNote[]> {
+  const now = Date.now();
+  if (notesCache && now - notesCache.fetchedAt < NOTES_CACHE_TTL_MS) {
+    return notesCache.notes;
+  }
+  const notes = await fetchNotesForCache();
+  notesCache = { notes, fetchedAt: now };
+  return notes;
+}
+
+function labelForNote(n: CachedNote): string {
+  const fromTitle = n.title && n.title !== "Untitled" ? n.title : null;
+  const fallback = (n.content || "")
+    .replace(/<[^>]*>/g, "")
+    .trim()
+    .split("\n")[0]
+    .slice(0, 60);
+  return fromTitle || fallback || "Untitled";
+}
+
+// Fast title search — items via the network endpoint, notes via in-memory
+// cache (same responsiveness as the link picker). The id is prefixed with
+// kind so renderHTML can route /notes/<id> vs /item/<id>.
+async function quickSearch(
+  query: string
+): Promise<Array<{ id: string; label: string; kind: "item" | "note" }>> {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  // Notes: filter the in-memory cache by title or content substring. Instant.
+  const notesPromise = getCachedNotes().then((notes) =>
+    notes
+      .filter((n) => {
+        const title = (n.title || "").toLowerCase();
+        const content = (n.content || "").replace(/<[^>]*>/g, "").toLowerCase();
+        return title.includes(q) || content.includes(q);
+      })
+      .slice(0, 5)
+      .map((n) => ({
+        id: `note:${n.id}`,
+        label: labelForNote(n),
+        kind: "note" as const,
+      }))
+  );
+
+  // Items: network-bound, parallel. Rarely the bottleneck since /quick-search
+  // is ILIKE on title only. Falls back to [] on error.
+  const itemsPromise = fetch(
+    `${API_URL}/items/quick-search?q=${encodeURIComponent(q)}&limit=5`,
+    { headers: authHeaders() }
+  )
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) =>
+      data
+        ? (data.results || []).map((r: { id: string; title: string }) => ({
             id: `item:${r.id}`,
             label: r.title,
             kind: "item" as const,
-          })
-        )
-      : [];
-  const notes =
-    notesRes && notesRes.ok
-      ? ((await notesRes.json()).notes || []).map(
-          (n: { id: string; title?: string; content?: string }) => {
-            const fromTitle = n.title && n.title !== "Untitled" ? n.title : null;
-            const fallback = (n.content || "")
-              .replace(/<[^>]*>/g, "")
-              .trim()
-              .split("\n")[0]
-              .slice(0, 60);
-            return {
-              id: `note:${n.id}`,
-              label: fromTitle || fallback || "Untitled",
-              kind: "note" as const,
-            };
-          }
-        )
-      : [];
-  // Notes first — they're the thing Hudson most often @-references mid-note.
+          }))
+        : []
+    )
+    .catch(() => []);
+
+  const [notes, items] = await Promise.all([notesPromise, itemsPromise]);
+  // Notes first — most common mid-note @-reference.
   return [...notes, ...items];
 }
 
