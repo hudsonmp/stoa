@@ -69,6 +69,10 @@ export default function Layout() {
       if (!isK) return;
       e.preventDefault();
       e.stopPropagation();
+      // Diagnostic so we can confirm in devtools whether the handler fired.
+      // Remove once ⌘K is verified in the wild.
+      // eslint-disable-next-line no-console
+      console.log("[stoa] ⌘K captured — creating note");
       (async () => {
         try {
           // Inherit the active folder filter from Notes.tsx if one is set.
@@ -81,8 +85,14 @@ export default function Layout() {
             collection_ids: activeFolder ? [activeFolder] : [],
           });
           const id = (res.note as { id: string }).id;
+          // Broadcast so Notes.tsx re-loads its list. Without this the new
+          // note exists server-side but activeNote=notes.find(...) returns
+          // undefined and the editor panel shows "Select a note to edit".
+          window.dispatchEvent(new CustomEvent("stoa:notes-changed"));
           navigate(`/notes/${id}`);
-        } catch {
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("[stoa] ⌘K create failed:", err);
           navigate("/notes");
         }
       })();

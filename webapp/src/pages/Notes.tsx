@@ -223,6 +223,27 @@ export default function Notes() {
     load();
   }, [load]);
 
+  // Listen for external note creation (⌘K in Layout.tsx, Chrome extension, etc.)
+  // so the sidebar list refreshes and the URL-selected note shows up.
+  useEffect(() => {
+    function onExternalChange() {
+      load();
+    }
+    window.addEventListener("stoa:notes-changed", onExternalChange);
+    return () =>
+      window.removeEventListener("stoa:notes-changed", onExternalChange);
+  }, [load]);
+
+  // Safety net: if the URL references a note id we don't have in state, fetch.
+  // Covers the "⌘K created a note, navigated to it, but list is stale" race.
+  useEffect(() => {
+    if (!activeId) return;
+    if (notes.some((n) => n.id === activeId)) return;
+    if (loading) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, notes, loading]);
+
   // Load collections (shared with items, reused here to group notes by folder).
   useEffect(() => {
     listCollections()
