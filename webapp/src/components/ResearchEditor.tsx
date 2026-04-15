@@ -6,6 +6,7 @@ import Image from "@tiptap/extension-image";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Mention from "@tiptap/extension-mention";
+import { lift } from "prosemirror-commands";
 import {
   Bold,
   Italic,
@@ -328,6 +329,33 @@ export default function ResearchEditor({
       }, 5000);
     },
     editorProps: {
+      // Exit blockquote on Enter when the current paragraph is empty
+      // (i.e., the user hit Enter twice at the end of a quote).
+      handleKeyDown: (view, event) => {
+        if (
+          event.key !== "Enter" ||
+          event.shiftKey ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
+          return false;
+        }
+        const { $from } = view.state.selection;
+        // Only act when the current paragraph is empty.
+        if ($from.parent.content.size !== 0) return false;
+        // Walk up the node stack to see if we're inside a blockquote.
+        let inBlockquote = false;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === "blockquote") {
+            inBlockquote = true;
+            break;
+          }
+        }
+        if (!inBlockquote) return false;
+        event.preventDefault();
+        return lift(view.state, view.dispatch);
+      },
       handleDrop: (view, event) => {
         const files = event.dataTransfer?.files;
         if (files && files.length > 0) {
