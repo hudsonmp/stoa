@@ -242,14 +242,30 @@ function SyncBadge({
     );
   }
   if (state.kind === "stoa-only") {
+    const looksLikeCors =
+      /failed to fetch|cors|network/i.test(state.reason) ||
+      /unreachable/i.test(state.reason);
     return (
-      <button
-        onClick={onManualSave}
-        className="inline-flex items-center gap-1 text-[11px] text-amber-600 hover:text-amber-700"
-        title={state.reason}
-      >
-        <AlertCircle size={12} /> Stoa saved · Anki failed · retry
-      </button>
+      <div className="flex flex-col items-end gap-0.5 max-w-[340px]">
+        <button
+          onClick={onManualSave}
+          className="inline-flex items-center gap-1 text-[11px] text-amber-600 hover:text-amber-700"
+        >
+          <AlertCircle size={12} /> Anki sync failed · retry
+        </button>
+        <div className="text-[10px] text-text-tertiary leading-snug text-right">
+          {state.reason}
+        </div>
+        {looksLikeCors && (
+          <div className="text-[10px] text-text-tertiary leading-snug text-right max-w-[320px]">
+            Likely CORS: Anki → Tools → Add-ons → AnkiConnect → Config. Add{" "}
+            <span className="font-mono text-text-secondary">
+              "http://localhost:3000"
+            </span>{" "}
+            to <span className="font-mono">webCorsOriginList</span> and restart Anki.
+          </div>
+        )}
+      </div>
     );
   }
   return (
