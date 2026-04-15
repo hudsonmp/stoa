@@ -1706,9 +1706,17 @@ mark.stoa-hl-active {
 
 .pdf-page-wrapper canvas { display: block; }
 
-.pdf-page-wrapper .react-pdf__Page__textContent { opacity: 0.2; }
+/* Text layer must be visually invisible (PDF.js renders a transparent
+   text-span layer for selection only) but NOT set via `opacity`. CSS
+   opacity cascades to descendants — including ::selection — so setting
+   the layer to opacity: 0.2 multiplied the highlight alpha down to ~0.06
+   and made it unreadable. `color: transparent` preserves the invisible-
+   text-layer effect without dimming the selection background.
+   See: PDF.js text layer invariants + MDN on `opacity` vs `color`. */
+.pdf-page-wrapper .react-pdf__Page__textContent { color: transparent; }
 .pdf-page-wrapper .react-pdf__Page__textContent ::selection {
-  background: rgba(194, 65, 12, 0.3);
+  background: rgba(194, 65, 12, 0.45);
+  color: transparent;
 }
 
 .pdf-page-num {
