@@ -449,6 +449,38 @@ async def link_note_to_item(note_id: str, req: LinkNoteRequest, request: Request
     return {"note": result.data[0]}
 
 
+@router.delete("/{note_id}/link-note/{target_note_id}")
+async def unlink_note_from_note(note_id: str, target_note_id: str, request: Request):
+    """Remove a link:<target> tag from the source note. Inverse of link_note_to_note."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    existing = (
+        supabase.table("notes")
+        .select("id, tags")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    current_tags = existing.data[0].get("tags") or []
+    link_tag = f"link:{target_note_id}"
+    if link_tag not in current_tags:
+        return {"note": existing.data[0], "message": "Not linked"}
+
+    updated_tags = [t for t in current_tags if t != link_tag]
+    result = (
+        supabase.table("notes")
+        .update({"tags": updated_tags})
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {"note": result.data[0]}
+
+
 @router.post("/{note_id}/link-note")
 async def link_note_to_note(note_id: str, req: LinkNoteToNoteRequest, request: Request):
     """Link one note to another via a link:<note_id> tag (Matuschak dense linking).

@@ -217,3 +217,37 @@ class TestLinkNoteToNote:
         r = test_client.post("/notes/missing/link-note", headers=HEADERS, json={"target_note_id": "other"},
         )
         assert r.status_code == 404
+
+    def test_unlink_note_from_note(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "source",
+                    "user_id": "test-user-123",
+                    "tags": ["synthesis", "link:target-1", "link:target-2"],
+                },
+            ],
+        )
+        r = test_client.delete(
+            "/notes/source/link-note/target-1", headers=HEADERS
+        )
+        assert r.status_code == 200
+
+    def test_unlink_missing_link_is_noop(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [{"id": "source", "user_id": "test-user-123", "tags": ["synthesis"]}],
+        )
+        r = test_client.delete(
+            "/notes/source/link-note/never-linked", headers=HEADERS
+        )
+        assert r.status_code == 200
+        assert r.json().get("message") == "Not linked"
+
+    def test_unlink_source_missing_returns_404(self, test_client, mock_supabase):
+        mock_supabase.set_table_data("notes", [])
+        r = test_client.delete(
+            "/notes/missing/link-note/anything", headers=HEADERS
+        )
+        assert r.status_code == 404

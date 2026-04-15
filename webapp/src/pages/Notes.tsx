@@ -1,27 +1,61 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, Check, X, ExternalLink } from "lucide-react";
+import { Plus, Search, FileText, Trash2, Check, X, ExternalLink, Link2 } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import {
   getNotes,
+  getNoteById,
   createNote,
   updateNote,
   deleteNote,
+  linkNoteToNote,
+  unlinkNoteFromNote,
   KNOWLEDGE_TYPES,
   type KnowledgeType,
 } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
 
-// Short, domain-specific hints per knowledge type (Reading Hamming companion §4):
-// each routes to a different memory system, so the chip carries the pedagogy.
-const KT_HINT: Record<KnowledgeType, string> = {
-  declarative: "Fact / attribution → Anki",
-  procedural: "Derivation / how-to → spaced practice",
-  conceptual: "Model / schema → self-explain + essay",
-  episodic: "Story / anecdote → retain the scene",
-  stylistic: "Move / posture → imitate, don't encode",
+type LinkedNotePreview = {
+  id: string;
+  title?: string | null;
+  note_type?: string;
+  knowledge_type?: KnowledgeType | null;
 };
+
+// Per-type pedagogy (Reading Hamming companion §4: different knowledge, different memory).
+// Each knowledge type routes to a different memory system — the chip is the routing decision.
+const KT_HINT: Record<KnowledgeType, { label: string; body: string }> = {
+  declarative: {
+    label: "Fact, claim, attribution",
+    body: "Encode via Anki with Nielsen's 5 properties. Example: \"Hamming claimed ambiguity-tolerance predicts scientific greatness.\"",
+  },
+  procedural: {
+    label: "Derivation, how-to",
+    body: "Spaced practice on paper, not flashcards. Redo the derivation at 1d/1w/1mo. Card the trick, not the formula.",
+  },
+  conceptual: {
+    label: "Schema, model, mental structure",
+    body: "Self-explanation (Chi 1989) + concept note + essay. Cards flatten schemas — don't Ankify.",
+  },
+  episodic: {
+    label: "Story, anecdote, scene",
+    body: "Retain the scene, not the moral. Moral reconstructs on retrieval (Tulving 1972). Shannon hallway, open-door thesis.",
+  },
+  stylistic: {
+    label: "Move, posture, taste",
+    body: "Imitation, not encoding. Annotate the move; reuse in your writing. Cannot be Ankified.",
+  },
+};
+
+function getNoteType(note: Note): "marginalia" | "synthesis" | "journal" {
+  if (note.note_type) return note.note_type;
+  const types = ["marginalia", "synthesis", "journal"] as const;
+  for (const t of note.tags || []) {
+    if ((types as readonly string[]).includes(t)) return t as (typeof types)[number];
+  }
+  return "marginalia";
+}
 
 function getNoteKnowledgeType(note: Note): KnowledgeType | null {
   if (note.knowledge_type) return note.knowledge_type;
@@ -78,6 +112,14 @@ export default function Notes() {
   const [titleDraft, setTitleDraft] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
 
+  // Hydrated linked-note previews for the active note (fetched via GET /notes/{id}).
+  const [linkedNotes, setLinkedNotes] = useState<LinkedNotePreview[]>([]);
+
+  // Link-picker state: opens an inline search over synthesis notes to add a link.
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkPickerQuery, setLinkPickerQuery] = useState("");
+  const [hoveredKt, setHoveredKt] = useState<KnowledgeType | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -122,6 +164,87 @@ export default function Notes() {
       // silent
     }
   }, [load, navigate]);
+
+  // Hydrate linked_notes whenever the active note changes. GET /notes/{id} returns
+  // preview objects (id, title, note_type, knowledge_type) for every link:<id> tag.
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeId) {
+      setLinkedNotes([]);
+      setLinkPickerOpen(false);
+      setLinkPickerQuery("");
+      return;
+    }
+    getNoteById(activeId)
+      .then((data) => {
+        if (cancelled) return;
+        const note = data.note as Note & { linked_notes?: LinkedNotePreview[] };
+        setLinkedNotes(note.linked_notes || []);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedNotes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
+
+  const handleLinkNote = useCallback(
+    async (targetId: string) => {
+      if (!activeId || targetId === activeId) return;
+      try {
+        await linkNoteToNote(activeId, targetId);
+        // Optimistically append a preview from the full notes list.
+        const target = notes.find((n) => n.id === targetId);
+        if (target && !linkedNotes.some((ln) => ln.id === targetId)) {
+          setLinkedNotes((prev) => [
+            ...prev,
+            {
+              id: target.id,
+              title: target.title,
+              note_type: target.note_type,
+              knowledge_type: target.knowledge_type ?? null,
+            },
+          ]);
+        }
+        setLinkPickerQuery("");
+        setLinkPickerOpen(false);
+      } catch {
+        // silent
+      }
+    },
+    [activeId, notes, linkedNotes]
+  );
+
+  const handleUnlinkNote = useCallback(
+    async (targetId: string) => {
+      if (!activeId) return;
+      try {
+        await unlinkNoteFromNote(activeId, targetId);
+        setLinkedNotes((prev) => prev.filter((ln) => ln.id !== targetId));
+      } catch {
+        // silent
+      }
+    },
+    [activeId]
+  );
+
+  // Candidate set for the link picker: all other notes, filtered by query.
+  // Matuschak's dense-linking rule applies to synthesis notes, but we allow
+  // linking to any note type — the user judges what's a meaningful connection.
+  const linkCandidates = useMemo(() => {
+    if (!activeId) return [];
+    const existingLinks = new Set(linkedNotes.map((ln) => ln.id));
+    const q = linkPickerQuery.trim().toLowerCase();
+    return notes
+      .filter((n) => n.id !== activeId && !existingLinks.has(n.id))
+      .filter((n) => {
+        if (!q) return true;
+        const title = extractTitle(n).toLowerCase();
+        return title.includes(q);
+      })
+      .slice(0, 10);
+  }, [activeId, notes, linkedNotes, linkPickerQuery]);
 
   const handleSetKnowledgeType = useCallback(
     async (noteId: string, kt: KnowledgeType | null) => {
@@ -443,8 +566,9 @@ export default function Notes() {
                   View linked item
                 </Link>
               )}
-              {/* Knowledge-type selector — encoding-before-extraction (§4) */}
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {/* Knowledge-type selector — encoding-before-extraction (§4).
+                  Hover each chip for the per-type pedagogy (different memory systems). */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
                   Encode as:
                 </span>
@@ -459,7 +583,10 @@ export default function Notes() {
                           active ? null : kt
                         )
                       }
-                      title={KT_HINT[kt]}
+                      onMouseEnter={() => setHoveredKt(kt)}
+                      onMouseLeave={() =>
+                        setHoveredKt((cur) => (cur === kt ? null : cur))
+                      }
                       className={`px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wide transition-warm
                         ${
                           active
@@ -471,7 +598,127 @@ export default function Notes() {
                     </button>
                   );
                 })}
+                {hoveredKt && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-20 w-[320px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               px-3 py-2 pointer-events-none"
+                  >
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-accent mb-0.5">
+                      {hoveredKt}
+                    </div>
+                    <div className="text-[11px] text-text-primary font-medium mb-0.5">
+                      {KT_HINT[hoveredKt].label}
+                    </div>
+                    <div className="text-[11px] text-text-secondary leading-snug">
+                      {KT_HINT[hoveredKt].body}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Dense-linking UI (Matuschak): evergreen notes earn their keep by
+                  linking to ≥2 other notes. Orphans are surfaced via /notes/orphans. */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Links ({linkedNotes.length}):
+                </span>
+                {linkedNotes.map((ln) => (
+                  <div
+                    key={ln.id}
+                    className="group/linkchip inline-flex items-center gap-1 pl-2 pr-1 py-0.5
+                               rounded-full text-[10px] bg-bg-secondary border border-border
+                               hover:border-accent/40 transition-warm"
+                  >
+                    <Link
+                      to={`/notes/${ln.id}`}
+                      className="text-text-primary hover:text-accent truncate max-w-[180px]"
+                      title={ln.title || "Untitled"}
+                    >
+                      <Link2 size={10} className="inline mr-1 text-text-tertiary" />
+                      {ln.title || "Untitled"}
+                    </Link>
+                    <button
+                      onClick={() => handleUnlinkNote(ln.id)}
+                      className="p-0.5 rounded-full text-text-tertiary opacity-0
+                                 group-hover/linkchip:opacity-100 hover:text-red-500 transition-warm"
+                      title="Unlink"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setLinkPickerOpen((o) => !o)}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Link to another note"
+                >
+                  <Plus size={10} />
+                  link
+                </button>
+                {linkPickerOpen && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-30 w-[340px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               overflow-hidden"
+                  >
+                    <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border">
+                      <Search size={12} className="text-text-tertiary flex-shrink-0" />
+                      <input
+                        autoFocus
+                        value={linkPickerQuery}
+                        onChange={(e) => setLinkPickerQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setLinkPickerOpen(false);
+                            setLinkPickerQuery("");
+                          }
+                        }}
+                        placeholder="Search notes to link..."
+                        className="flex-1 bg-transparent border-none outline-none
+                                   text-[12px] text-text-primary placeholder:text-text-tertiary"
+                      />
+                    </div>
+                    <div className="max-h-[240px] overflow-y-auto">
+                      {linkCandidates.length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-text-tertiary">
+                          {linkPickerQuery ? "No matches" : "No other notes yet"}
+                        </div>
+                      )}
+                      {linkCandidates.map((cand) => (
+                        <button
+                          key={cand.id}
+                          onClick={() => handleLinkNote(cand.id)}
+                          className="w-full text-left px-3 py-2 hover:bg-bg-secondary
+                                     transition-warm border-b border-border/40 last:border-b-0"
+                        >
+                          <div className="text-[12px] text-text-primary truncate">
+                            {extractTitle(cand)}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {cand.knowledge_type && (
+                              <span className="text-[9px] font-mono uppercase text-accent">
+                                {cand.knowledge_type}
+                              </span>
+                            )}
+                            <span className="text-[9px] text-text-tertiary">
+                              {formatRelativeDate(cand.updated_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {linkedNotes.length < 2 && getNoteType(activeNote) === "synthesis" && (
+                <div className="mt-1 text-[10px] text-text-tertiary italic">
+                  Orphan warning — synthesis notes earn their keep at ≥2 links (Matuschak).
+                </div>
+              )}
             </div>
             <div className="flex-1 notes-editor-fullwidth">
               <ResearchEditor

@@ -217,11 +217,22 @@ export async function createNote(data: {
   });
 }
 
+export async function getNoteById(noteId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}`);
+}
+
 export async function linkNoteToNote(noteId: string, targetNoteId: string) {
   return apiFetch<{ note: unknown }>(`/notes/${noteId}/link-note`, {
     method: "POST",
     body: JSON.stringify({ target_note_id: targetNoteId }),
   });
+}
+
+export async function unlinkNoteFromNote(noteId: string, targetNoteId: string) {
+  return apiFetch<{ note: unknown }>(
+    `/notes/${noteId}/link-note/${targetNoteId}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function getOrphanNotes(limit = 50) {
