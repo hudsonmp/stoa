@@ -12,12 +12,10 @@ import {
   Link2,
   Folder,
   FolderPlus,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
-import FlashcardReview from "@/components/FlashcardReview";
 import FlashcardEditor from "@/components/FlashcardEditor";
 import {
   getNotes,
@@ -152,9 +150,6 @@ export default function Notes() {
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-
-  // Flashcard review modal. v1 = linear deck of kt:declarative notes.
-  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Collapse the notes-list middle rail (beyond the Library nav collapse in Layout).
   const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
@@ -498,7 +493,7 @@ export default function Notes() {
         <button
           onClick={toggleListCollapsed}
           title="Show notes list"
-          className="flex-shrink-0 w-7 border-r border-border flex flex-col items-center pt-3
+          className="flex-shrink-0 w-6 flex flex-col items-center pt-4
                      text-text-tertiary hover:text-accent transition-warm"
         >
           <ChevronRight size={14} />
@@ -511,32 +506,21 @@ export default function Notes() {
         <button
           onClick={toggleListCollapsed}
           title="Collapse list"
-          className="absolute top-3 -right-3 z-20 w-6 h-6 rounded-full
-                     bg-bg-primary border border-border shadow-sm
-                     flex items-center justify-center text-text-tertiary
-                     hover:text-accent hover:border-accent/40 transition-warm"
+          className="absolute top-4 right-2 z-20 p-1 text-text-tertiary
+                     hover:text-accent transition-warm"
         >
-          <ChevronLeft size={12} />
+          <ChevronLeft size={14} />
         </button>
-        {/* New Note + Review row */}
-        <div className="p-3 flex items-center gap-2">
+        {/* New Note */}
+        <div className="p-3">
           <button
             onClick={handleCreateNote}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
                        bg-accent text-white text-sm font-medium
                        hover:bg-accent-hover transition-warm"
           >
             <Plus size={14} />
             New Note
-          </button>
-          <button
-            onClick={() => setReviewOpen(true)}
-            title="Review declarative flashcards"
-            className="flex items-center justify-center p-2 rounded-card
-                       bg-bg-primary border border-border text-text-secondary
-                       hover:text-accent hover:border-accent/40 transition-warm"
-          >
-            <Sparkles size={14} />
           </button>
         </div>
 
@@ -1060,17 +1044,6 @@ export default function Notes() {
         )}
       </div>
 
-      {reviewOpen && (
-        <FlashcardReview
-          collectionId={activeCollectionId || undefined}
-          collectionName={
-            activeCollectionId
-              ? collections.find((c) => c.id === activeCollectionId)?.name
-              : undefined
-          }
-          onClose={() => setReviewOpen(false)}
-        />
-      )}
     </div>
   );
 }

@@ -61,12 +61,10 @@ export default function Layout() {
           <button
             onClick={toggleSidebar}
             title="Collapse sidebar"
-            className="absolute top-3 -right-3 z-20 w-6 h-6 rounded-full
-                       bg-bg-primary border border-border shadow-sm
-                       flex items-center justify-center text-text-tertiary
-                       hover:text-accent hover:border-accent/40 transition-warm"
+            className="absolute top-4 right-2 z-20 p-1 text-text-tertiary
+                       hover:text-accent transition-warm"
           >
-            <ChevronLeft size={12} />
+            <ChevronLeft size={14} />
           </button>
         </motion.div>
       )}
@@ -74,7 +72,7 @@ export default function Layout() {
         <button
           onClick={toggleSidebar}
           title="Expand sidebar"
-          className="flex-shrink-0 w-7 border-r border-border flex flex-col items-center pt-3
+          className="flex-shrink-0 w-6 flex flex-col items-center pt-4
                      text-text-tertiary hover:text-accent transition-warm"
         >
           <ChevronRight size={14} />
