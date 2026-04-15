@@ -1,5 +1,6 @@
 """Notes CRUD endpoints."""
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -135,6 +136,31 @@ def _extract_linked_note_ids(tags: list[str] | None) -> list[str]:
     return [t[5:] for t in tags if t.startswith("link:")]
 
 
+# Body-link parser: find note references embedded in the note's HTML content.
+# The editor writes @mentions to notes as:
+#   <a data-type="mention" data-id="note:<uuid>" data-kind="note" href="/notes/<uuid>">
+# Users may also paste plain links: <a href="/notes/<uuid>">.
+# Either shape counts as a link — dense-linking should reflect intent expressed
+# in prose, not only tag-based bookkeeping.
+_NOTE_REF_PATTERNS = [
+    re.compile(r'data-id=["\']note:([^"\']+)["\']'),
+    re.compile(r'href=["\']/notes/([^"\'#?]+)'),
+]
+
+
+def _extract_body_note_links(content: str | None) -> list[str]:
+    if not content:
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for pat in _NOTE_REF_PATTERNS:
+        for match in pat.findall(content):
+            if match and match not in seen:
+                seen.add(match)
+                ids.append(match)
+    return ids
+
+
 def _extract_collection_ids(tags: list[str] | None) -> list[str]:
     """Extract collection ids from col: tags."""
     if not tags:
@@ -143,12 +169,25 @@ def _extract_collection_ids(tags: list[str] | None) -> list[str]:
 
 
 def _annotate(note: dict) -> dict:
-    """Attach derived fields (note_type, knowledge_type, refs, links, collections) from tags."""
+    """Attach derived fields (note_type, knowledge_type, refs, links, collections) from tags.
+
+    linked_note_ids is the UNION of explicit link:<id> tags and note refs
+    parsed out of the body content (so @mentions and /notes/<id> hrefs count).
+    """
     tags = note.get("tags")
     note["note_type"] = _extract_note_type(tags)
     note["knowledge_type"] = _extract_knowledge_type(tags)
     note["ref_item_ids"] = _extract_ref_ids(tags)
-    note["linked_note_ids"] = _extract_linked_note_ids(tags)
+    tag_links = _extract_linked_note_ids(tags)
+    body_links = _extract_body_note_links(note.get("content"))
+    # Preserve order (tag links first), dedupe.
+    seen: set[str] = set()
+    merged: list[str] = []
+    for nid in [*tag_links, *body_links]:
+        if nid and nid not in seen and nid != note.get("id"):
+            seen.add(nid)
+            merged.append(nid)
+    note["linked_note_ids"] = merged
     note["collection_ids"] = _extract_collection_ids(tags)
     return note
 

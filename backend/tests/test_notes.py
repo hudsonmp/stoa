@@ -10,7 +10,9 @@ import pytest
 HEADERS = {"X-User-Id": "test-user-123"}
 
 from routers.notes import (
+    _annotate,
     _build_tags,
+    _extract_body_note_links,
     _extract_knowledge_type,
     _extract_linked_note_ids,
     _extract_note_type,
@@ -251,6 +253,53 @@ class TestLinkNoteToNote:
             "/notes/missing/link-note/anything", headers=HEADERS
         )
         assert r.status_code == 404
+
+
+class TestBodyLinkExtraction:
+    def test_extracts_mention_ids(self):
+        content = (
+            '<p>See <a data-type="mention" data-id="note:abc-123" '
+            'data-kind="note" href="/notes/abc-123" class="stoa-mention">@Some note</a></p>'
+        )
+        assert _extract_body_note_links(content) == ["abc-123"]
+
+    def test_extracts_plain_href_ids(self):
+        content = '<p>Related: <a href="/notes/xyz-789">see here</a></p>'
+        assert _extract_body_note_links(content) == ["xyz-789"]
+
+    def test_mention_and_href_are_deduped(self):
+        content = (
+            '<a data-id="note:shared-id" href="/notes/shared-id">one</a>'
+            '<a href="/notes/shared-id">two</a>'
+        )
+        assert _extract_body_note_links(content) == ["shared-id"]
+
+    def test_empty_or_missing_content(self):
+        assert _extract_body_note_links(None) == []
+        assert _extract_body_note_links("") == []
+        assert _extract_body_note_links("<p>no links here</p>") == []
+
+    def test_annotate_unions_tag_and_body_links(self):
+        note = {
+            "id": "self",
+            "tags": ["synthesis", "link:tagged-1", "link:tagged-2"],
+            "content": (
+                '<a data-id="note:body-1" href="/notes/body-1">@x</a>'
+                '<a href="/notes/tagged-1">already tagged</a>'  # dedupe against tag list
+            ),
+        }
+        _annotate(note)
+        # Tag links first, then body-only links, deduped.
+        assert note["linked_note_ids"] == ["tagged-1", "tagged-2", "body-1"]
+
+    def test_annotate_self_link_is_dropped(self):
+        note = {
+            "id": "me",
+            "tags": ["synthesis"],
+            "content": '<a href="/notes/me">self-ref</a>',
+        }
+        _annotate(note)
+        assert note["linked_note_ids"] == []
 
 
 class TestCollectionsForNotes:
