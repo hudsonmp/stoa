@@ -268,13 +268,27 @@ export default function PdfAnnotationView({
   // No Send button — the act of typing is the commit, matching the FlashcardEditor
   // and main Notes editor. User clicks away / navigates / closes with no ceremony.
   const [draftNoteId, setDraftNoteId] = useState<string | null>(null);
-  const [noteSync, setNoteSync] = useState<"idle" | "saving" | "saved">("idle");
+  const [noteSync, setNoteSync] = useState<
+    { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string }
+  >({ kind: "idle" });
   const lastSavedContentRef = useRef<string>("");
+  const latestContentRef = useRef<string>("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
+  // Track create/patch target via ref too — React state updates are async
+  // and a second save fire can read a stale draftNoteId from closure.
+  const draftIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Skip if nothing changed, or content is meaningfully empty
+    draftIdRef.current = draftNoteId;
+  }, [draftNoteId]);
+
+  useEffect(() => {
+    latestContentRef.current = noteContent;
+  }, [noteContent]);
+
+  useEffect(() => {
+    // Skip meaningfully empty content
     const normalized = noteContent.replace(/<br\s*\/?>(\s*)?/gi, "").trim();
     const meaningful =
       normalized.length > 0 && normalized !== "<p></p>" && normalized !== "<p><br></p>";
@@ -282,34 +296,57 @@ export default function PdfAnnotationView({
     if (noteContent === lastSavedContentRef.current) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      if (inFlightRef.current) return;
-      inFlightRef.current = true;
-      setNoteSync("saving");
-      try {
-        if (draftNoteId) {
-          await updateNote(draftNoteId, { content: noteContent });
-        } else {
-          const created = await onCreateNote(noteContent, [
-            "synthesis",
-            `ref:${itemId}`,
-          ]);
-          if (created?.id) setDraftNoteId(created.id);
+
+    const scheduleSave = (delay: number) => {
+      saveTimerRef.current = setTimeout(async () => {
+        // If another save is in flight, wait and retry; don't drop.
+        if (inFlightRef.current) {
+          scheduleSave(250);
+          return;
         }
-        lastSavedContentRef.current = noteContent;
-        setNoteSync("saved");
-      } catch {
-        // leave sync state as-is; next keystroke retries
-      } finally {
-        inFlightRef.current = false;
-      }
-    }, 900);
+        const payload = latestContentRef.current;
+        if (payload === lastSavedContentRef.current) return;
+        inFlightRef.current = true;
+        setNoteSync({ kind: "saving" });
+        try {
+          const existingId = draftIdRef.current;
+          if (existingId) {
+            await updateNote(existingId, { content: payload });
+          } else {
+            const created = await onCreateNote(payload, [
+              "synthesis",
+              `ref:${itemId}`,
+            ]);
+            if (created?.id) {
+              draftIdRef.current = created.id;
+              setDraftNoteId(created.id);
+            }
+          }
+          lastSavedContentRef.current = payload;
+          setNoteSync({ kind: "saved" });
+        } catch (err) {
+          const message =
+            err instanceof Error ? err.message : "Save failed";
+          // eslint-disable-next-line no-console
+          console.error("[pdf-note autosave]", err);
+          setNoteSync({ kind: "error", message });
+        } finally {
+          inFlightRef.current = false;
+          // If the user typed more during the in-flight save, re-fire.
+          if (latestContentRef.current !== lastSavedContentRef.current) {
+            scheduleSave(300);
+          }
+        }
+      }, delay);
+    };
+
+    scheduleSave(900);
 
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noteContent, draftNoteId, itemId]);
+  }, [noteContent, itemId]);
 
   const activeCollectionSet = new Set(activeCollectionIds);
 
@@ -427,17 +464,22 @@ export default function PdfAnnotationView({
             placeholder="Add a note about this paper… (autosaves)"
           />
           <div className="pdf-sidebar-sync" aria-live="polite">
-            {noteSync === "saving" && (
+            {noteSync.kind === "saving" && (
               <span>
                 <Loader2 size={11} className="pdf-sidebar-sync-spin" /> Saving…
               </span>
             )}
-            {noteSync === "saved" && (
+            {noteSync.kind === "saved" && (
               <span className="pdf-sidebar-sync-ok">
                 <CheckCircle2 size={11} /> Saved
               </span>
             )}
-            {noteSync === "idle" && <span>&nbsp;</span>}
+            {noteSync.kind === "error" && (
+              <span className="pdf-sidebar-sync-err" title={noteSync.message}>
+                ⚠ {noteSync.message}
+              </span>
+            )}
+            {noteSync.kind === "idle" && <span>&nbsp;</span>}
           </div>
         </div>
 

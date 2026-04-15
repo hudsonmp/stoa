@@ -1830,6 +1830,7 @@ mark.stoa-hl-active {
   gap: 4px;
 }
 .pdf-sidebar-sync-ok { color: #059669; display: inline-flex; align-items: center; gap: 3px; }
+.pdf-sidebar-sync-err { color: #b45309; font-size: 10px; }
 .pdf-sidebar-sync span { display: inline-flex; align-items: center; gap: 3px; }
 .pdf-sidebar-sync-spin { animation: pdf-spin 0.9s linear infinite; }
 @keyframes pdf-spin { to { transform: rotate(360deg); } }
