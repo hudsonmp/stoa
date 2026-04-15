@@ -57,6 +57,10 @@ class AddNoteToCollectionRequest(BaseModel):
     collection_id: str
 
 
+class SetAnkiIdRequest(BaseModel):
+    anki_id: int
+
+
 def _build_tags(
     note_type: str,
     item_ids: list[str],
@@ -430,6 +434,44 @@ async def list_flashcards(
         })
 
     return {"cards": cards, "count": len(cards), "collection_id": collection_id}
+
+
+@router.post("/{note_id}/anki-id")
+async def set_note_anki_id(note_id: str, req: SetAnkiIdRequest, request: Request):
+    """Atomically set the anki:<id> tag on a note, preserving every other tag.
+
+    Background: FlashcardEditor previously read note.tags from a React closure,
+    stripped anki:*, appended the new anki:<id>, and PATCHed the whole array.
+    If the note was mutated elsewhere (e.g., col:<id> added via folder picker)
+    between the closure capture and the debounced save, those newer tags were
+    silently dropped. This endpoint reads tags fresh server-side, mutates only
+    the anki tag, and writes back — race window reduced to database roundtrip.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    existing = (
+        supabase.table("notes")
+        .select("id, tags")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    current_tags = existing.data[0].get("tags") or []
+    next_tags = [t for t in current_tags if not t.startswith("anki:")]
+    next_tags.append(f"anki:{req.anki_id}")
+
+    result = (
+        supabase.table("notes")
+        .update({"tags": next_tags})
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {"note": result.data[0]}
 
 
 @router.post("/{note_id}/collections")

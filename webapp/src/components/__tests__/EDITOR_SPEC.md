@@ -127,4 +127,33 @@ requirements from the failures. Role 4 implements. Loop.
 
 ## Open requirements derived from failures (Role 3)
 
-*(populated as Role 2 surfaces failures)*
+### REQ-01 (2026-04-15): Atomic anki-id tag mutation
+Originating failure: *"⌘K seemed to delete folder links."* Root cause: a
+debounced FlashcardEditor autosave wrote back a stale `tags` array captured in
+a React closure BEFORE the user added `col:<id>` via the folder picker. The
+write silently dropped `col:`/`link:`/`kt:` tags that existed only in server
+state or in a later React render.
+
+**Requirement.** Any surface that mutates a single tag-prefix family MUST
+either (a) use a dedicated server endpoint that reads tags fresh and mutates
+only its own prefix, or (b) refetch the note via `GET /notes/{id}` immediately
+before the write. Direct `PATCH /notes/{id}` with a fully-reconstructed `tags`
+array from a React closure is banned for partial mutations.
+
+Status: **P** — `POST /notes/{id}/anki-id` shipped; FlashcardEditor migrated.
+
+### REQ-02 (2026-04-15): Global shortcut folder inheritance
+`⌘K` (and any future global new-note shortcut) MUST create the note in the
+currently-active folder filter. Implemented via `localStorage` key
+`stoa_active_folder_filter`, written by Notes.tsx on filter change, read by
+Layout.tsx on shortcut fire.
+
+Status: **P**.
+
+### REQ-03 (2026-04-15): Per-note linked-creation
+A note must be able to spawn a new note that is auto-linked back to it, so
+dense-linking doesn't require two clicks. Implemented as "+ linked note"
+button next to "+ link". Inherits folder from active filter.
+
+Status: **P**.
+

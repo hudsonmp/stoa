@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, AlertCircle, Loader2, Send } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import MathContent from "./MathContent";
 import { syncCardToAnki } from "@/lib/anki";
-import { updateNote } from "@/lib/api";
+import { updateNote, setNoteAnkiId } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
 
 /**
@@ -39,10 +39,6 @@ function extractAnkiId(tags: string[] | undefined): number | null {
   return null;
 }
 
-function stripAnkiTag(tags: string[]): string[] {
-  return tags.filter((t) => !t.startsWith("anki:"));
-}
-
 interface FlashcardEditorProps {
   note: Note;
   collectionNames: string[];
@@ -65,6 +61,26 @@ export default function FlashcardEditor({
     setFront(note.title || "");
     setBack(stripHtml(note.content || ""));
     setSync({ kind: "idle" });
+  }, [note.id]);
+
+  // Auto-push to Anki on mount if the note has content but no anki:<id> yet.
+  // This covers notes that existed before Anki sync shipped, and notes
+  // created without edits that never triggered the debounced save path.
+  const didAutoPushRef = useRef(false);
+  useEffect(() => {
+    if (didAutoPushRef.current) return;
+    const hasAnki = extractAnkiId(note.tags) != null;
+    const hasContent =
+      (note.title || "").trim().length > 0 ||
+      stripHtml(note.content || "").trim().length > 0;
+    if (!hasAnki && hasContent) {
+      didAutoPushRef.current = true;
+      // Defer so the first render completes and state/refs are stable.
+      const t = setTimeout(() => doSave(), 50);
+      return () => clearTimeout(t);
+    }
+    didAutoPushRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.id]);
 
   useEffect(() => {
@@ -104,13 +120,19 @@ export default function FlashcardEditor({
     }
 
     const ankiId = result.value;
-    const nextTags = [...stripAnkiTag(note.tags || []), `anki:${ankiId}`];
+    // Atomic server-side tag mutation — reads current tags, replaces anki:*
+    // only. Previously we built the full tags array from a stale React closure
+    // and PATCHed it, which clobbered col:/link:/kt: tags added in between
+    // debounce start and save. That bug is now eliminated at the endpoint.
+    let updatedTags = note.tags || [];
     try {
-      await updateNote(note.id, { tags: nextTags });
+      const resp = await setNoteAnkiId(note.id, ankiId);
+      const returned = resp.note as { tags?: string[] } | undefined;
+      if (returned?.tags) updatedTags = returned.tags;
     } catch {
       // non-fatal — card is in Anki, Stoa just didn't record the id
     }
-    onNoteUpdated({ id: note.id, title: f, content: b, tags: nextTags });
+    onNoteUpdated({ id: note.id, title: f, content: b, tags: updatedTags });
     setSync({ kind: "synced", ankiId });
   }, [note.id, note.tags, collectionNames, onNoteUpdated]);
 
@@ -241,6 +263,15 @@ function SyncBadge({
       </span>
     );
   }
+  // Idle state is informational only — no manual button. Autosave + auto-push
+  // on mount handle the sync; the user never needs to trigger it explicitly.
+  if (state.kind === "idle") {
+    return (
+      <span className="text-[11px] text-text-tertiary">
+        {hasExistingAnki ? `Anki #${extractAnkiId([]) ?? "—"}` : "—"}
+      </span>
+    );
+  }
   if (state.kind === "stoa-only") {
     const looksLikeCors =
       /failed to fetch|cors|network/i.test(state.reason) ||
@@ -268,15 +299,10 @@ function SyncBadge({
       </div>
     );
   }
-  return (
-    <button
-      onClick={onManualSave}
-      className="inline-flex items-center gap-1 text-[11px] text-text-tertiary hover:text-accent"
-      title={hasExistingAnki ? "Push update to Anki" : "Create in Anki deck 42"}
-    >
-      <Send size={12} /> {hasExistingAnki ? "Update Anki" : "Push to Anki"}
-    </button>
-  );
+  // Exhaustive fallthrough (shouldn't hit, but keep a silent placeholder).
+  void onManualSave;
+  void hasExistingAnki;
+  return <span className="text-[11px] text-text-tertiary">—</span>;
 }
 
 function stripHtml(html: string): string {

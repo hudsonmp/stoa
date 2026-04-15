@@ -71,10 +71,14 @@ export default function Layout() {
       e.stopPropagation();
       (async () => {
         try {
+          // Inherit the active folder filter from Notes.tsx if one is set.
+          // Notes.tsx writes this to localStorage whenever the filter changes.
+          const activeFolder = localStorage.getItem("stoa_active_folder_filter");
           const res = await createNote({
             content: "",
             title: "Untitled",
             note_type: "synthesis",
+            collection_ids: activeFolder ? [activeFolder] : [],
           });
           const id = (res.note as { id: string }).id;
           navigate(`/notes/${id}`);

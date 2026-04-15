@@ -168,7 +168,21 @@ export default function Notes() {
 
   // Collections (folders) — tag-based via col:<id>. Lets you group all notes for a book.
   const [collections, setCollections] = useState<CollectionRef[]>([]);
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+  // Persist the active folder filter so global shortcuts (⌘K in Layout.tsx)
+  // can inherit it when creating a new note.
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
+    () => {
+      const v = localStorage.getItem("stoa_active_folder_filter");
+      return v && v.length > 0 ? v : null;
+    }
+  );
+  useEffect(() => {
+    if (activeCollectionId) {
+      localStorage.setItem("stoa_active_folder_filter", activeCollectionId);
+    } else {
+      localStorage.removeItem("stoa_active_folder_filter");
+    }
+  }, [activeCollectionId]);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const folderPickerRef = useRef<HTMLDivElement>(null);
@@ -377,6 +391,35 @@ export default function Notes() {
     },
     [activeId, notes, linkedNotes]
   );
+
+  // Create a new synthesis note and auto-link the current note to it.
+  // Inherits the active folder filter so the new note lands in the same folder.
+  // Bidirectional link: A ↔ B, so navigating to B shows A in its Links row
+  // (matches the mental model — "I spawned B from A, they belong together").
+  const handleCreateLinkedNote = useCallback(async () => {
+    if (!activeId) return;
+    try {
+      const data = await createNote({
+        content: "",
+        title: "Untitled",
+        note_type: "synthesis",
+        collection_ids: activeCollectionId ? [activeCollectionId] : [],
+      });
+      const newNote = data.note as Note;
+      // Link both directions in parallel (Promise.all). Failures are caught
+      // at the outer level; partial success (one direction only) is still
+      // better than nothing and the user will see the link from the side
+      // whose tag write succeeded.
+      await Promise.all([
+        linkNoteToNote(activeId, newNote.id),
+        linkNoteToNote(newNote.id, activeId),
+      ]);
+      await load();
+      navigate(`/notes/${newNote.id}`);
+    } catch {
+      // silent
+    }
+  }, [activeId, activeCollectionId, load, navigate]);
 
   const handleUnlinkNote = useCallback(
     async (targetId: string) => {
@@ -926,6 +969,17 @@ export default function Notes() {
                 >
                   <Plus size={10} />
                   link
+                </button>
+                <button
+                  onClick={handleCreateLinkedNote}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Create a new note and link this one to it"
+                >
+                  <Plus size={10} />
+                  linked note
                 </button>
                 {linkPickerOpen && (
                   <div

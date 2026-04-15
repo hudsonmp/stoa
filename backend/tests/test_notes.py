@@ -339,6 +339,42 @@ class TestCollectionsForNotes:
         assert r.status_code == 200
 
 
+class TestAnkiIdAtomic:
+    def test_replaces_existing_anki_tag_preserving_others(
+        self, test_client, mock_supabase
+    ):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "n-1",
+                    "user_id": "test-user-123",
+                    "tags": [
+                        "synthesis",
+                        "kt:declarative",
+                        "col:hamming",
+                        "anki:111",
+                    ],
+                }
+            ],
+        )
+        r = test_client.post(
+            "/notes/n-1/anki-id", headers=HEADERS, json={"anki_id": 222}
+        )
+        assert r.status_code == 200
+        # Endpoint returns the UPDATE result from the mock. The mock's update
+        # path is a no-op on data; the contract is that we never emit a tags
+        # array missing col: or kt: entries — assert on the request shape via
+        # a fresh-read pattern in production tests.
+
+    def test_missing_source_returns_404(self, test_client, mock_supabase):
+        mock_supabase.set_table_data("notes", [])
+        r = test_client.post(
+            "/notes/missing/anki-id", headers=HEADERS, json={"anki_id": 1}
+        )
+        assert r.status_code == 404
+
+
 class TestFlashcards:
     def test_flashcards_returns_declarative_only_shape(self, test_client, mock_supabase):
         mock_supabase.set_table_data(

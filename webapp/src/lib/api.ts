@@ -247,6 +247,13 @@ export async function addNoteToCollection(noteId: string, collectionId: string) 
   });
 }
 
+export async function setNoteAnkiId(noteId: string, ankiId: number) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/anki-id`, {
+    method: "POST",
+    body: JSON.stringify({ anki_id: ankiId }),
+  });
+}
+
 export async function removeNoteFromCollection(
   noteId: string,
   collectionId: string
