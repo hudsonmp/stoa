@@ -1,10 +1,109 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, Check, X, ExternalLink } from "lucide-react";
+import {
+  Plus,
+  Search,
+  FileText,
+  Trash2,
+  Check,
+  X,
+  ExternalLink,
+  Link2,
+  Folder,
+  FolderPlus,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
-import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
+import FlashcardEditor from "@/components/FlashcardEditor";
+import {
+  getNotes,
+  getNoteById,
+  createNote,
+  updateNote,
+  deleteNote,
+  linkNoteToNote,
+  unlinkNoteFromNote,
+  addNoteToCollection,
+  removeNoteFromCollection,
+  listCollections,
+  createCollection,
+  KNOWLEDGE_TYPES,
+  type KnowledgeType,
+} from "@/lib/api";
 import type { Note } from "@/lib/supabase";
+
+const NOTES_LIST_COLLAPSED_KEY = "stoa_notes_list_collapsed";
+
+interface CollectionRef {
+  id: string;
+  name: string;
+}
+
+type LinkedNotePreview = {
+  id: string;
+  title?: string | null;
+  note_type?: string;
+  knowledge_type?: KnowledgeType | null;
+};
+
+// Per-type pedagogy (Reading Hamming companion §4: different knowledge, different memory).
+// Each knowledge type routes to a different memory system — the chip is the routing decision.
+// `pill` is the display label when the raw id contains non-display characters (mytake → "my take").
+const KT_HINT: Record<KnowledgeType, { label: string; body: string; pill?: string }> = {
+  declarative: {
+    label: "Fact, claim, attribution",
+    body: "Encode via Anki with Nielsen's 5 properties. Example: \"Hamming claimed ambiguity-tolerance predicts scientific greatness.\"",
+  },
+  procedural: {
+    label: "Derivation, how-to",
+    body: "Spaced practice on paper, not flashcards. Redo the derivation at 1d/1w/1mo. Card the trick, not the formula.",
+  },
+  conceptual: {
+    label: "Schema, model, mental structure",
+    body: "Self-explanation (Chi 1989) + concept note + essay. Cards flatten schemas — don't Ankify.",
+  },
+  episodic: {
+    label: "Story, anecdote, scene",
+    body: "Retain the scene, not the moral. Moral reconstructs on retrieval (Tulving 1972). Shannon hallway, open-door thesis.",
+  },
+  stylistic: {
+    label: "Move, posture, taste",
+    body: "Imitation, not encoding. Annotate the move; reuse in your writing. Cannot be Ankified.",
+  },
+  idea: {
+    label: "Hypothesis, open question, half-formed thought",
+    body: "Pre-encoding seed. Not yet a memory system routing — hold for elaboration. Link densely to related notes so it doesn't orphan, promote to conceptual/declarative once it crystallizes (Sio & Ormerod 2009 on incubation).",
+  },
+  mytake: {
+    pill: "my take",
+    label: "Your position, interpretation, or evaluation",
+    body: "Self-referential encoding — your own synthesis, not someone else's claim. Rogers, Kuiper & Kirker (1977) self-reference effect: material encoded in relation to self is retained better than any other frame. Don't Ankify (positions evolve); link it to the declarative/conceptual notes it responds to.",
+  },
+};
+
+function ktPill(kt: KnowledgeType): string {
+  return KT_HINT[kt]?.pill ?? kt;
+}
+
+function getNoteType(note: Note): "marginalia" | "synthesis" | "journal" {
+  if (note.note_type) return note.note_type;
+  const types = ["marginalia", "synthesis", "journal"] as const;
+  for (const t of note.tags || []) {
+    if ((types as readonly string[]).includes(t)) return t as (typeof types)[number];
+  }
+  return "marginalia";
+}
+
+function getNoteKnowledgeType(note: Note): KnowledgeType | null {
+  if (note.knowledge_type) return note.knowledge_type;
+  const fromTag = (note.tags || []).find((t) => t.startsWith("kt:"));
+  if (!fromTag) return null;
+  const kt = fromTag.slice(3) as KnowledgeType;
+  return (KNOWLEDGE_TYPES as string[]).includes(kt) ? kt : null;
+}
 
 function formatRelativeDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -31,7 +130,12 @@ function extractTitle(note: Note): string {
   return firstLine.length > 50 ? firstLine.slice(0, 50) + "..." : firstLine;
 }
 
+// Sidebar badge prefers encoding type (declarative / procedural / …) because
+// that's the salient organizing principle post-pipeline. Falls back to the old
+// note_type discriminators (annotation / person) when no encoding is set.
 function noteTypeBadge(note: Note): string | null {
+  const kt = getNoteKnowledgeType(note);
+  if (kt) return kt;
   if (note.item_id) return "annotation";
   if (note.person_id) return "person";
   if (note.tags?.includes("synthesis")) return "synthesis";
@@ -52,6 +156,50 @@ export default function Notes() {
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Hydrated linked-note previews for the active note (fetched via GET /notes/{id}).
+  const [linkedNotes, setLinkedNotes] = useState<LinkedNotePreview[]>([]);
+
+  // Link-picker state: opens an inline search over synthesis notes to add a link.
+  const [linkPickerOpen, setLinkPickerOpen] = useState(false);
+  const [linkPickerQuery, setLinkPickerQuery] = useState("");
+  const linkPickerRef = useRef<HTMLDivElement>(null);
+  const [hoveredKt, setHoveredKt] = useState<KnowledgeType | null>(null);
+
+  // Collections (folders) — tag-based via col:<id>. Lets you group all notes for a book.
+  const [collections, setCollections] = useState<CollectionRef[]>([]);
+  // Persist the active folder filter so global shortcuts (⌘K in Layout.tsx)
+  // can inherit it when creating a new note.
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
+    () => {
+      const v = localStorage.getItem("stoa_active_folder_filter");
+      return v && v.length > 0 ? v : null;
+    }
+  );
+  useEffect(() => {
+    if (activeCollectionId) {
+      localStorage.setItem("stoa_active_folder_filter", activeCollectionId);
+    } else {
+      localStorage.removeItem("stoa_active_folder_filter");
+    }
+  }, [activeCollectionId]);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const folderPickerRef = useRef<HTMLDivElement>(null);
+  const [folderFilterOpen, setFolderFilterOpen] = useState(false);
+  const folderFilterRef = useRef<HTMLDivElement>(null);
+
+  // Collapse the notes-list middle rail (beyond the Library nav collapse in Layout).
+  const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem(NOTES_LIST_COLLAPSED_KEY) === "1";
+  });
+  const toggleListCollapsed = useCallback(() => {
+    setListCollapsed((cur) => {
+      const next = !cur;
+      localStorage.setItem(NOTES_LIST_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +223,119 @@ export default function Notes() {
     load();
   }, [load]);
 
+  // Listen for external note creation (⌘K in Layout.tsx, Chrome extension, etc.)
+  // so the sidebar list refreshes and the URL-selected note shows up.
+  useEffect(() => {
+    function onExternalChange() {
+      load();
+    }
+    window.addEventListener("stoa:notes-changed", onExternalChange);
+    return () =>
+      window.removeEventListener("stoa:notes-changed", onExternalChange);
+  }, [load]);
+
+  // Safety net: if the URL references a note id we don't have in state, fetch.
+  // Covers the "⌘K created a note, navigated to it, but list is stale" race.
+  useEffect(() => {
+    if (!activeId) return;
+    if (notes.some((n) => n.id === activeId)) return;
+    if (loading) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, notes, loading]);
+
+  // Load collections (shared with items, reused here to group notes by folder).
+  useEffect(() => {
+    listCollections()
+      .then((res) => setCollections(res.collections as CollectionRef[]))
+      .catch(() => setCollections([]));
+  }, []);
+
+  // Close dropdowns on any click outside their respective ref.
+  // Pure Fitts-law ergonomics: open-by-click, close-by-click-anywhere-else.
+  useEffect(() => {
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (linkPickerOpen && linkPickerRef.current && !linkPickerRef.current.contains(target)) {
+        setLinkPickerOpen(false);
+        setLinkPickerQuery("");
+      }
+      if (folderPickerOpen && folderPickerRef.current && !folderPickerRef.current.contains(target)) {
+        setFolderPickerOpen(false);
+      }
+      if (folderFilterOpen && folderFilterRef.current && !folderFilterRef.current.contains(target)) {
+        setFolderFilterOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [linkPickerOpen, folderPickerOpen, folderFilterOpen]);
+
+  const handleCreateCollection = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      const res = await createCollection({ name });
+      const col = res.collection as CollectionRef;
+      setCollections((prev) => [...prev, col]);
+      setNewFolderName("");
+      if (activeId) {
+        await addNoteToCollection(activeId, col.id);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === activeId
+              ? { ...n, tags: [...(n.tags || []), `col:${col.id}`] }
+              : n
+          )
+        );
+      }
+    } catch {
+      // silent
+    }
+  }, [newFolderName, activeId]);
+
+  const handleToggleNoteCollection = useCallback(
+    async (collectionId: string, currentlyIn: boolean) => {
+      if (!activeId) return;
+      try {
+        if (currentlyIn) {
+          await removeNoteFromCollection(activeId, collectionId);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === activeId
+                ? {
+                    ...n,
+                    tags: (n.tags || []).filter(
+                      (t) => t !== `col:${collectionId}`
+                    ),
+                  }
+                : n
+            )
+          );
+        } else {
+          await addNoteToCollection(activeId, collectionId);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === activeId
+                ? { ...n, tags: [...(n.tags || []), `col:${collectionId}`] }
+                : n
+            )
+          );
+        }
+      } catch {
+        // silent
+      }
+    },
+    [activeId]
+  );
+
+  const getNoteCollectionIds = useCallback((note: Note): string[] => {
+    if (note.collection_ids) return note.collection_ids;
+    return (note.tags || [])
+      .filter((t) => t.startsWith("col:"))
+      .map((t) => t.slice(4));
+  }, []);
+
   // Focus title input when editing starts
   useEffect(() => {
     if (editingTitleId && titleInputRef.current) {
@@ -88,7 +349,10 @@ export default function Notes() {
       const data = await createNote({
         content: "",
         title: "Untitled",
-        tags: ["synthesis"],
+        note_type: "synthesis",
+        // If the user is currently filtered to a folder, new notes belong there.
+        // Matches the mental model: "I'm inside Hamming, so this note is a Hamming note."
+        collection_ids: activeCollectionId ? [activeCollectionId] : [],
       });
       const newNote = data.note as Note;
       await load();
@@ -96,7 +360,147 @@ export default function Notes() {
     } catch {
       // silent
     }
-  }, [load, navigate]);
+  }, [load, navigate, activeCollectionId]);
+
+  // Hydrate linked_notes whenever the active note changes. GET /notes/{id} returns
+  // preview objects (id, title, note_type, knowledge_type) for every link:<id> tag.
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeId) {
+      setLinkedNotes([]);
+      setLinkPickerOpen(false);
+      setLinkPickerQuery("");
+      return;
+    }
+    getNoteById(activeId)
+      .then((data) => {
+        if (cancelled) return;
+        const note = data.note as Note & { linked_notes?: LinkedNotePreview[] };
+        setLinkedNotes(note.linked_notes || []);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedNotes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
+
+  const handleLinkNote = useCallback(
+    async (targetId: string) => {
+      if (!activeId || targetId === activeId) return;
+      try {
+        await linkNoteToNote(activeId, targetId);
+        // Optimistically append a preview from the full notes list.
+        const target = notes.find((n) => n.id === targetId);
+        if (target && !linkedNotes.some((ln) => ln.id === targetId)) {
+          setLinkedNotes((prev) => [
+            ...prev,
+            {
+              id: target.id,
+              title: target.title,
+              note_type: target.note_type,
+              knowledge_type: target.knowledge_type ?? null,
+            },
+          ]);
+        }
+        setLinkPickerQuery("");
+        setLinkPickerOpen(false);
+      } catch {
+        // silent
+      }
+    },
+    [activeId, notes, linkedNotes]
+  );
+
+  // Create a new synthesis note and auto-link it into the source's neighborhood.
+  //
+  // Inheritance model:
+  //   1. Folder: new note lands in the active folder filter (if any).
+  //   2. Bidirectional link A↔B: source and new reference each other.
+  //   3. Outgoing-link inheritance: every note the source links TO becomes
+  //      a link from the new note too. Mental model: "B is a sibling of A
+  //      in the same concept neighborhood, so it starts with the same
+  //      referents." Does NOT inject backrefs FROM inherited notes to B —
+  //      that would pollute their graphs without consent.
+  const handleCreateLinkedNote = useCallback(async () => {
+    if (!activeId) return;
+    try {
+      const data = await createNote({
+        content: "",
+        title: "Untitled",
+        note_type: "synthesis",
+        collection_ids: activeCollectionId ? [activeCollectionId] : [],
+      });
+      const newNote = data.note as Note;
+      const inheritedIds = linkedNotes
+        .map((ln) => ln.id)
+        .filter((id) => id !== newNote.id && id !== activeId);
+      // All link writes fire in parallel. Backend /link-note is idempotent
+      // and cheap; partial failures just mean B has a smaller neighborhood.
+      await Promise.all([
+        linkNoteToNote(activeId, newNote.id),
+        linkNoteToNote(newNote.id, activeId),
+        ...inheritedIds.map((id) => linkNoteToNote(newNote.id, id)),
+      ]);
+      await load();
+      navigate(`/notes/${newNote.id}`);
+    } catch {
+      // silent
+    }
+  }, [activeId, activeCollectionId, linkedNotes, load, navigate]);
+
+  const handleUnlinkNote = useCallback(
+    async (targetId: string) => {
+      if (!activeId) return;
+      try {
+        await unlinkNoteFromNote(activeId, targetId);
+        setLinkedNotes((prev) => prev.filter((ln) => ln.id !== targetId));
+      } catch {
+        // silent
+      }
+    },
+    [activeId]
+  );
+
+  // Candidate set for the link picker: all other notes, filtered by query.
+  // Matuschak's dense-linking rule applies to synthesis notes, but we allow
+  // linking to any note type — the user judges what's a meaningful connection.
+  const linkCandidates = useMemo(() => {
+    if (!activeId) return [];
+    const existingLinks = new Set(linkedNotes.map((ln) => ln.id));
+    const q = linkPickerQuery.trim().toLowerCase();
+    return notes
+      .filter((n) => n.id !== activeId && !existingLinks.has(n.id))
+      .filter((n) => {
+        if (!q) return true;
+        const title = extractTitle(n).toLowerCase();
+        return title.includes(q);
+      })
+      .slice(0, 10);
+  }, [activeId, notes, linkedNotes, linkPickerQuery]);
+
+  const handleSetKnowledgeType = useCallback(
+    async (noteId: string, kt: KnowledgeType | null) => {
+      const note = notes.find((n) => n.id === noteId);
+      if (!note) return;
+      const existing = (note.tags || []).filter((t) => !t.startsWith("kt:"));
+      const nextTags = kt ? [...existing, `kt:${kt}`] : existing;
+      try {
+        await updateNote(noteId, { tags: nextTags });
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === noteId
+              ? { ...n, tags: nextTags, knowledge_type: kt ?? undefined }
+              : n
+          )
+        );
+      } catch {
+        // silent
+      }
+    },
+    [notes]
+  );
 
   const handleSave = useCallback(
     async (content: string) => {
@@ -176,14 +580,33 @@ export default function Notes() {
     ? notes
     : notes.filter((n) => !n.item_id && !n.person_id);
 
-  const filtered = searchQuery
-    ? filteredByType.filter((n) => {
-        const q = searchQuery.toLowerCase();
-        const title = extractTitle(n).toLowerCase();
-        const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
-        return title.includes(q) || content.includes(q);
-      })
+  const filteredByCollection = activeCollectionId
+    ? filteredByType.filter((n) =>
+        getNoteCollectionIds(n).includes(activeCollectionId)
+      )
     : filteredByType;
+
+  // Search matches title, content, AND folder names. If the query matches a
+  // folder name, every note in that folder is included (so typing "Hamming"
+  // surfaces all notes you filed under Hamming, even ones that don't mention it).
+  const filtered = searchQuery
+    ? (() => {
+        const q = searchQuery.toLowerCase();
+        const matchingFolderIds = new Set(
+          collections
+            .filter((c) => c.name.toLowerCase().includes(q))
+            .map((c) => c.id)
+        );
+        return filteredByCollection.filter((n) => {
+          const title = extractTitle(n).toLowerCase();
+          const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
+          if (title.includes(q) || content.includes(q)) return true;
+          // folder-name match: include notes in any matching folder
+          const noteFolderIds = getNoteCollectionIds(n);
+          return noteFolderIds.some((cid) => matchingFolderIds.has(cid));
+        });
+      })()
+    : filteredByCollection;
 
   const activeNote = notes.find((n) => n.id === activeId);
 
@@ -197,20 +620,98 @@ export default function Notes() {
 
   return (
     <div className="flex h-full">
+      {/* Collapsed rail */}
+      {listCollapsed && (
+        <button
+          onClick={toggleListCollapsed}
+          title="Show notes list"
+          className="flex-shrink-0 w-6 flex flex-col items-center pt-4
+                     text-text-tertiary hover:text-accent transition-warm"
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
+
       {/* Left sidebar */}
-      <div className="w-[240px] flex-shrink-0 border-r border-border bg-bg-secondary/30 flex flex-col h-full">
-        {/* New Note button */}
-        <div className="p-3">
+      {!listCollapsed && (
+      <div className="w-[240px] flex-shrink-0 border-r border-border bg-bg-secondary/30 flex flex-col h-full relative">
+        {/* New Note + inline collapse chevron (chevron lives outside the button) */}
+        <div className="p-3 flex items-center gap-2">
           <button
             onClick={handleCreateNote}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
                        bg-accent text-white text-sm font-medium
                        hover:bg-accent-hover transition-warm"
           >
             <Plus size={14} />
             New Note
           </button>
+          <button
+            onClick={toggleListCollapsed}
+            title="Collapse list"
+            className="p-2 text-text-tertiary hover:text-accent transition-warm flex-shrink-0"
+          >
+            <ChevronLeft size={14} />
+          </button>
         </div>
+
+        {/* Collection (folder) filter — compact dropdown */}
+        {collections.length > 0 && (
+          <div ref={folderFilterRef} className="px-3 pb-2 relative">
+            <button
+              onClick={() => setFolderFilterOpen((o) => !o)}
+              className="w-full flex items-center justify-between text-[11px] font-mono
+                         text-text-tertiary hover:text-text-primary px-2 py-1 rounded
+                         hover:bg-bg-primary/60 transition-warm"
+            >
+              <span className="flex items-center gap-1.5 truncate">
+                <Folder size={11} />
+                <span className="truncate">
+                  {activeCollectionId
+                    ? collections.find((c) => c.id === activeCollectionId)?.name ||
+                      "All notes"
+                    : "All notes"}
+                </span>
+              </span>
+              <ChevronDown size={11} />
+            </button>
+            {folderFilterOpen && (
+              <div
+                className="absolute top-full left-2 right-2 z-30 mt-1
+                           bg-bg-primary border border-border rounded-card shadow-lg
+                           max-h-[260px] overflow-y-auto"
+              >
+                <button
+                  onClick={() => {
+                    setActiveCollectionId(null);
+                    setFolderFilterOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-1.5 text-[12px] hover:bg-bg-secondary
+                              transition-warm border-b border-border/40
+                              ${activeCollectionId === null ? "text-accent" : "text-text-primary"}`}
+                >
+                  All notes
+                </button>
+                {collections.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      setActiveCollectionId(c.id);
+                      setFolderFilterOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[12px] hover:bg-bg-secondary
+                                transition-warm border-b border-border/40 last:border-b-0 truncate
+                                ${activeCollectionId === c.id ? "text-accent" : "text-text-primary"}`}
+                    title={c.name}
+                  >
+                    <Folder size={10} className="inline mr-1.5 text-text-tertiary" />
+                    {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Filter toggle */}
         <div className="flex px-3 pb-1">
@@ -321,8 +822,16 @@ export default function Notes() {
                     {formatRelativeDate(note.updated_at)}
                   </span>
                   {badge && badge !== "standalone" && (
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary bg-bg-secondary px-1.5 py-0.5 rounded">
-                      {badge}
+                    <span
+                      className={`text-[9px] font-mono tracking-wider px-1.5 py-0.5 rounded ${
+                        getNoteKnowledgeType(note)
+                          ? "text-accent bg-accent/10 lowercase"
+                          : "text-text-tertiary bg-bg-secondary uppercase"
+                      }`}
+                    >
+                      {(KNOWLEDGE_TYPES as readonly string[]).includes(badge)
+                        ? ktPill(badge as KnowledgeType)
+                        : badge}
                     </span>
                   )}
                 </div>
@@ -353,6 +862,7 @@ export default function Notes() {
           })}
         </div>
       </div>
+      )}
 
       {/* Main editor area */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
@@ -396,13 +906,293 @@ export default function Notes() {
                   View linked item
                 </Link>
               )}
+              {/* Knowledge-type selector — encoding-before-extraction (§4).
+                  Hover each chip for the per-type pedagogy (different memory systems). */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Encode as:
+                </span>
+                {KNOWLEDGE_TYPES.map((kt) => {
+                  const active = getNoteKnowledgeType(activeNote) === kt;
+                  return (
+                    <button
+                      key={kt}
+                      onClick={() =>
+                        handleSetKnowledgeType(
+                          activeNote.id,
+                          active ? null : kt
+                        )
+                      }
+                      onMouseEnter={() => setHoveredKt(kt)}
+                      onMouseLeave={() =>
+                        setHoveredKt((cur) => (cur === kt ? null : cur))
+                      }
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wide transition-warm
+                        ${
+                          active
+                            ? "bg-accent text-white"
+                            : "bg-bg-secondary text-text-tertiary hover:text-text-primary hover:bg-bg-secondary/80"
+                        }`}
+                    >
+                      {ktPill(kt)}
+                    </button>
+                  );
+                })}
+                {hoveredKt && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-20 w-[320px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               px-3 py-2 pointer-events-none"
+                  >
+                    <div className="text-[10px] font-mono uppercase tracking-wider text-accent mb-0.5">
+                      {ktPill(hoveredKt)}
+                    </div>
+                    <div className="text-[11px] text-text-primary font-medium mb-0.5">
+                      {KT_HINT[hoveredKt].label}
+                    </div>
+                    <div className="text-[11px] text-text-secondary leading-snug">
+                      {KT_HINT[hoveredKt].body}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Dense-linking UI (Matuschak): evergreen notes earn their keep by
+                  linking to ≥2 other notes. Orphans are surfaced via /notes/orphans. */}
+              <div ref={linkPickerRef} className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Links ({linkedNotes.length}):
+                </span>
+                {linkedNotes.map((ln) => (
+                  <div
+                    key={ln.id}
+                    className="group/linkchip inline-flex items-center gap-1 pl-2 pr-1 py-0.5
+                               rounded-full text-[10px] bg-bg-secondary border border-border
+                               hover:border-accent/40 transition-warm"
+                  >
+                    <Link
+                      to={`/notes/${ln.id}`}
+                      className="text-text-primary hover:text-accent truncate max-w-[180px]"
+                      title={ln.title || "Untitled"}
+                    >
+                      <Link2 size={10} className="inline mr-1 text-text-tertiary" />
+                      {ln.title || "Untitled"}
+                    </Link>
+                    <button
+                      onClick={() => handleUnlinkNote(ln.id)}
+                      className="p-0.5 rounded-full text-text-tertiary opacity-0
+                                 group-hover/linkchip:opacity-100 hover:text-red-500 transition-warm"
+                      title="Unlink"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setLinkPickerOpen((o) => !o)}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Link to another note"
+                >
+                  <Plus size={10} />
+                  link
+                </button>
+                <button
+                  onClick={handleCreateLinkedNote}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Create a new note and link this one to it"
+                >
+                  <Plus size={10} />
+                  linked note
+                </button>
+                {linkPickerOpen && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-30 w-[340px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               overflow-hidden"
+                  >
+                    <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-border">
+                      <Search size={12} className="text-text-tertiary flex-shrink-0" />
+                      <input
+                        autoFocus
+                        value={linkPickerQuery}
+                        onChange={(e) => setLinkPickerQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") {
+                            setLinkPickerOpen(false);
+                            setLinkPickerQuery("");
+                          }
+                        }}
+                        placeholder="Search notes to link..."
+                        className="flex-1 bg-transparent border-none outline-none
+                                   text-[12px] text-text-primary placeholder:text-text-tertiary"
+                      />
+                    </div>
+                    <div className="max-h-[240px] overflow-y-auto">
+                      {linkCandidates.length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-text-tertiary">
+                          {linkPickerQuery ? "No matches" : "No other notes yet"}
+                        </div>
+                      )}
+                      {linkCandidates.map((cand) => (
+                        <button
+                          key={cand.id}
+                          onClick={() => handleLinkNote(cand.id)}
+                          className="w-full text-left px-3 py-2 hover:bg-bg-secondary
+                                     transition-warm border-b border-border/40 last:border-b-0"
+                        >
+                          <div className="text-[12px] text-text-primary truncate">
+                            {extractTitle(cand)}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {cand.knowledge_type && (
+                              <span className="text-[9px] font-mono uppercase text-accent">
+                                {cand.knowledge_type}
+                              </span>
+                            )}
+                            <span className="text-[9px] text-text-tertiary">
+                              {formatRelativeDate(cand.updated_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {linkedNotes.length < 2 && getNoteType(activeNote) === "synthesis" && (
+                <div className="mt-1 text-[10px] text-text-tertiary italic">
+                  Orphan warning — synthesis notes earn their keep at ≥2 links (Matuschak).
+                </div>
+              )}
+
+              {/* Folder/collection membership */}
+              <div ref={folderPickerRef} className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Folders:
+                </span>
+                {getNoteCollectionIds(activeNote).map((cid) => {
+                  const col = collections.find((c) => c.id === cid);
+                  if (!col) return null;
+                  return (
+                    <div
+                      key={cid}
+                      className="group/colchip inline-flex items-center gap-1 pl-2 pr-1 py-0.5
+                                 rounded-full text-[10px] bg-bg-secondary border border-border
+                                 hover:border-accent/40 transition-warm"
+                    >
+                      <span className="text-text-primary">
+                        <Folder size={10} className="inline mr-1 text-text-tertiary" />
+                        {col.name}
+                      </span>
+                      <button
+                        onClick={() => handleToggleNoteCollection(cid, true)}
+                        className="p-0.5 rounded-full text-text-tertiary opacity-0
+                                   group-hover/colchip:opacity-100 hover:text-red-500 transition-warm"
+                        title="Remove from folder"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={() => setFolderPickerOpen((o) => !o)}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Add to folder"
+                >
+                  <FolderPlus size={10} />
+                  folder
+                </button>
+                {folderPickerOpen && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-30 w-[280px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               overflow-hidden"
+                  >
+                    <div className="max-h-[200px] overflow-y-auto">
+                      {collections.length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-text-tertiary">
+                          No folders yet — create one below.
+                        </div>
+                      )}
+                      {collections.map((c) => {
+                        const inCol = getNoteCollectionIds(activeNote).includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => handleToggleNoteCollection(c.id, inCol)}
+                            className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary
+                                       transition-warm border-b border-border/40 last:border-b-0
+                                       flex items-center justify-between"
+                          >
+                            <span className="text-[12px] text-text-primary truncate">
+                              <Folder size={11} className="inline mr-1.5 text-text-tertiary" />
+                              {c.name}
+                            </span>
+                            {inCol && <Check size={12} className="text-accent" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1.5 border-t border-border">
+                      <FolderPlus size={12} className="text-text-tertiary flex-shrink-0" />
+                      <input
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateCollection();
+                          if (e.key === "Escape") setFolderPickerOpen(false);
+                        }}
+                        placeholder="New folder (e.g. Hamming)"
+                        className="flex-1 bg-transparent border-none outline-none
+                                   text-[12px] text-text-primary placeholder:text-text-tertiary"
+                      />
+                      <button
+                        onClick={handleCreateCollection}
+                        disabled={!newFolderName.trim()}
+                        className="text-[11px] font-mono text-accent hover:text-accent-hover
+                                   disabled:opacity-40 transition-warm"
+                      >
+                        create
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex-1 notes-editor-fullwidth">
-              <ResearchEditor
-                content={activeNote.content}
-                onSave={handleSave}
-                placeholder="Start writing your research notes..."
-              />
+              {getNoteKnowledgeType(activeNote) === "declarative" ? (
+                <FlashcardEditor
+                  note={activeNote}
+                  collectionNames={getNoteCollectionIds(activeNote)
+                    .map((cid) => collections.find((c) => c.id === cid)?.name)
+                    .filter((n): n is string => !!n)}
+                  onNoteUpdated={(patch) =>
+                    setNotes((prev) =>
+                      prev.map((n) =>
+                        n.id === patch.id
+                          ? { ...n, ...patch, updated_at: new Date().toISOString() }
+                          : n
+                      )
+                    )
+                  }
+                />
+              ) : (
+                <ResearchEditor
+                  content={activeNote.content}
+                  onSave={handleSave}
+                  placeholder="Start writing your research notes..."
+                />
+              )}
             </div>
           </motion.div>
         ) : (
@@ -428,6 +1218,7 @@ export default function Notes() {
           </div>
         )}
       </div>
+
     </div>
   );
 }

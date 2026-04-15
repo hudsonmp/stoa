@@ -32,7 +32,16 @@ export interface Item {
   user_id: string;
   url?: string;
   title: string;
-  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing";
+  type:
+    | "book"
+    | "blog"
+    | "paper"
+    | "podcast"
+    | "page"
+    | "tweet"
+    | "video"
+    | "writing"
+    | "grant";
   favicon_url?: string;
   cover_image_url?: string;
   spine_color?: string;
@@ -54,6 +63,7 @@ export interface Highlight {
   context?: string;
   color: string;
   note?: string;
+  page_number?: number | null;
   created_at: string;
 }
 
@@ -65,6 +75,11 @@ export interface Note {
   title?: string;
   content: string;
   tags?: string[];
+  note_type?: "marginalia" | "synthesis" | "journal";
+  knowledge_type?: "declarative" | "procedural" | "conceptual" | "episodic" | "stylistic" | "idea" | "mytake" | null;
+  ref_item_ids?: string[];
+  linked_note_ids?: string[];
+  collection_ids?: string[];
   created_at: string;
   updated_at: string;
 }
