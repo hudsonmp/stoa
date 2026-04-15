@@ -50,29 +50,32 @@ export default function Layout() {
     return () => clearInterval(interval);
   }, [loadCounts]);
 
-  // Global "new note" keyboard shortcut — ⌘K on Mac, Ctrl+K on Windows/Linux.
-  // This accelerator is NOT reserved by Chrome, so preventDefault() actually
-  // blocks the browser's default behavior (which is to focus the address bar
-  // on some platforms; webapps routinely hijack it for command-palette UIs).
+  // Global "new note" shortcut — ⌘K on Mac, Ctrl+K elsewhere.
+  // Two bug fixes over the first cut:
+  //   1) Register on capture phase. ProseMirror/TipTap's keymap plugin runs
+  //      in the bubble phase on the editor element; without capture, a
+  //      nested editor can swallow the event before window receives it.
+  //   2) Do NOT bail out when focus is in a contenteditable/input. The
+  //      modifier (⌘ or Ctrl) makes this an intentional shortcut regardless
+  //      of context — Hudson's canonical usage is ⌘K mid-note to start a
+  //      new one. The earlier guard over-defended and blocked the common case.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const cmd = isMac ? e.metaKey : e.ctrlKey;
       if (!cmd) return;
+      if (e.altKey || e.shiftKey) return; // reserve ⌘⇧K / ⌘⌥K for future
       const isK = e.key === "k" || e.key === "K";
       if (!isK) return;
-      // Don't hijack typing inside inputs/textareas/contenteditables.
-      const t = e.target as HTMLElement | null;
-      if (t) {
-        const tag = t.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) {
-          return;
-        }
-      }
       e.preventDefault();
+      e.stopPropagation();
       (async () => {
         try {
-          const res = await createNote({ content: "", title: "Untitled", note_type: "synthesis" });
+          const res = await createNote({
+            content: "",
+            title: "Untitled",
+            note_type: "synthesis",
+          });
           const id = (res.note as { id: string }).id;
           navigate(`/notes/${id}`);
         } catch {
@@ -80,8 +83,9 @@ export default function Layout() {
         }
       })();
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [navigate]);
 
   return (
