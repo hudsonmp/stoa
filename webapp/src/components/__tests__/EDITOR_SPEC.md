@@ -173,3 +173,13 @@ button next to "+ link". Inherits folder from active filter.
 
 Status: **P**.
 
+### REQ-04 (2026-04-15): Outgoing-link inheritance for linked-note spawn
+When "+ linked note" creates B from A, B inherits every note A currently
+links to (A's outgoing link set). Mental model: B is a sibling/child in
+A's concept neighborhood and starts with the same referents. Does NOT
+inject backrefs FROM inherited notes to B (that would pollute their graphs
+without consent). Implemented in handleCreateLinkedNote via parallel
+linkNoteToNote calls over linkedNotes[].id.
+
+Status: **P**.
+

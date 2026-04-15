@@ -413,10 +413,16 @@ export default function Notes() {
     [activeId, notes, linkedNotes]
   );
 
-  // Create a new synthesis note and auto-link the current note to it.
-  // Inherits the active folder filter so the new note lands in the same folder.
-  // Bidirectional link: A ↔ B, so navigating to B shows A in its Links row
-  // (matches the mental model — "I spawned B from A, they belong together").
+  // Create a new synthesis note and auto-link it into the source's neighborhood.
+  //
+  // Inheritance model:
+  //   1. Folder: new note lands in the active folder filter (if any).
+  //   2. Bidirectional link A↔B: source and new reference each other.
+  //   3. Outgoing-link inheritance: every note the source links TO becomes
+  //      a link from the new note too. Mental model: "B is a sibling of A
+  //      in the same concept neighborhood, so it starts with the same
+  //      referents." Does NOT inject backrefs FROM inherited notes to B —
+  //      that would pollute their graphs without consent.
   const handleCreateLinkedNote = useCallback(async () => {
     if (!activeId) return;
     try {
@@ -427,20 +433,22 @@ export default function Notes() {
         collection_ids: activeCollectionId ? [activeCollectionId] : [],
       });
       const newNote = data.note as Note;
-      // Link both directions in parallel (Promise.all). Failures are caught
-      // at the outer level; partial success (one direction only) is still
-      // better than nothing and the user will see the link from the side
-      // whose tag write succeeded.
+      const inheritedIds = linkedNotes
+        .map((ln) => ln.id)
+        .filter((id) => id !== newNote.id && id !== activeId);
+      // All link writes fire in parallel. Backend /link-note is idempotent
+      // and cheap; partial failures just mean B has a smaller neighborhood.
       await Promise.all([
         linkNoteToNote(activeId, newNote.id),
         linkNoteToNote(newNote.id, activeId),
+        ...inheritedIds.map((id) => linkNoteToNote(newNote.id, id)),
       ]);
       await load();
       navigate(`/notes/${newNote.id}`);
     } catch {
       // silent
     }
-  }, [activeId, activeCollectionId, load, navigate]);
+  }, [activeId, activeCollectionId, linkedNotes, load, navigate]);
 
   const handleUnlinkNote = useCallback(
     async (targetId: string) => {
