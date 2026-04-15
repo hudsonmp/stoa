@@ -100,6 +100,22 @@ requirements from the failures. Role 4 implements. Loop.
 | H2  | Typing in editor      | ⌘K              | No-op (don't hijack typing)                                   | U      |
 | H3  | ⌘N / ⌘Y               | —               | Browser-reserved accelerators; unusable from webpage          | D      |
 
+## K. Graph view (/graph)
+
+| id  | precondition                         | action                      | expected                                                       | status |
+| --- | ------------------------------------ | --------------------------- | -------------------------------------------------------------- | ------ |
+| K1  | Graph page open                      | —                           | Force-directed layout settles within ~3s                       | U      |
+| K2  | Note with ≥2 links                   | —                           | Node rendered larger than single-link nodes (log scale)        | U      |
+| K3  | Synthesis note with <2 links         | —                           | Red ring halo visible (orphan signal)                          | U      |
+| K4  | Notes in same folder                 | —                           | Soft hull polygon drawn behind them (hash-derived tint)        | U      |
+| K5  | Hover a node                         | —                           | Non-neighbors fade to 0.15 opacity, label shows on hovered     | U      |
+| K6  | Click a node                         | —                           | Navigate to /notes/<id>                                        | U      |
+| K7  | Declarative note                     | —                           | Rendered in #3b82f6 (blue)                                     | U      |
+| K8  | Note with no knowledge_type          | —                           | Rendered in slate grey (unencoded fallback)                    | U      |
+| K9  | Edge backed by `link:<id>` tag       | —                           | Drawn solid with arrow (directed)                              | U      |
+| K10 | Edge from body-parsed @mention only  | —                           | Drawn dashed, no arrow                                         | U      |
+| K11 | No notes yet                         | —                           | Empty-state message prompts ⌘K                                 | U      |
+
 ## I. Math rendering
 
 | id  | precondition                        | action | expected                                                 | status |

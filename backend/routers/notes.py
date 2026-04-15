@@ -394,6 +394,71 @@ async def list_notes_by_collection(collection_id: str, request: Request, limit: 
     return {"notes": notes, "collection_id": collection_id, "count": len(notes)}
 
 
+@router.get("/graph")
+async def get_notes_graph(request: Request):
+    """Return the full note-link graph for visualization.
+
+    Nodes: one per note with title, knowledge_type, note_type, collection_ids,
+    and degree (total link count, undirected).
+
+    Edges: the UNION of explicit link:<id> tags and body-parsed @mention /
+    /notes/<id> refs. `kind` = "link" | "body" | "both" so the frontend can
+    style them distinctly. Self-links and dangling links are skipped.
+
+    See ~/.claude/plans/partitioned-nibbling-perlis.md for the design rationale
+    (Matuschak dense-linking, Shneiderman overview/zoom/details, Ware color).
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .limit(2000)
+        .execute()
+    )
+    raw = result.data or []
+    by_id = {n["id"]: n for n in raw}
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    for n in raw:
+        tag_links = set(_extract_linked_note_ids(n.get("tags")))
+        body_links = set(_extract_body_note_links(n.get("content")))
+        out_ids = (tag_links | body_links) - {n["id"]}
+        nodes.append(
+            {
+                "id": n["id"],
+                "title": n.get("title") or "Untitled",
+                "knowledge_type": _extract_knowledge_type(n.get("tags")),
+                "note_type": _extract_note_type(n.get("tags")),
+                "collection_ids": _extract_collection_ids(n.get("tags")),
+                "degree": 0,  # filled below
+            }
+        )
+        for tgt in out_ids:
+            if tgt not in by_id:
+                continue  # dangling target — skip
+            if tgt in tag_links and tgt in body_links:
+                kind = "both"
+            elif tgt in tag_links:
+                kind = "link"
+            else:
+                kind = "body"
+            edges.append({"source": n["id"], "target": tgt, "kind": kind})
+
+    # Undirected degree — so hubs render larger regardless of link direction.
+    deg: dict[str, int] = {}
+    for e in edges:
+        deg[e["source"]] = deg.get(e["source"], 0) + 1
+        deg[e["target"]] = deg.get(e["target"], 0) + 1
+    for node in nodes:
+        node["degree"] = deg.get(node["id"], 0)
+
+    return {"nodes": nodes, "edges": edges}
+
+
 @router.get("/flashcards")
 async def list_flashcards(
     request: Request,

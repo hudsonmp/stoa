@@ -280,6 +280,28 @@ export interface Flashcard {
   updated_at?: string;
 }
 
+export interface GraphNode {
+  id: string;
+  title: string;
+  knowledge_type: KnowledgeType | null;
+  note_type: "marginalia" | "synthesis" | "journal";
+  collection_ids: string[];
+  degree: number;
+  // populated by the force simulation at runtime
+  x?: number;
+  y?: number;
+}
+
+export interface GraphEdge {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  kind: "link" | "body" | "both";
+}
+
+export async function getNotesGraph() {
+  return apiFetch<{ nodes: GraphNode[]; edges: GraphEdge[] }>("/notes/graph");
+}
+
 export async function getFlashcards(collectionId?: string, limit = 200) {
   const qs = new URLSearchParams();
   if (collectionId) qs.set("collection_id", collectionId);

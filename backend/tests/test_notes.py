@@ -375,6 +375,107 @@ class TestAnkiIdAtomic:
         assert r.status_code == 404
 
 
+class TestNotesGraph:
+    def test_emits_nodes_and_edges(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "a",
+                    "user_id": "test-user-123",
+                    "title": "A",
+                    "tags": ["synthesis", "kt:declarative", "col:folder1", "link:b"],
+                    "content": "",
+                },
+                {
+                    "id": "b",
+                    "user_id": "test-user-123",
+                    "title": "B",
+                    "tags": ["synthesis", "kt:conceptual", "col:folder1"],
+                    "content": "",
+                },
+            ],
+        )
+        r = test_client.get("/notes/graph", headers=HEADERS)
+        assert r.status_code == 200
+        body = r.json()
+        ids = {n["id"] for n in body["nodes"]}
+        assert ids == {"a", "b"}
+        edges = body["edges"]
+        assert len(edges) == 1
+        assert edges[0]["source"] == "a"
+        assert edges[0]["target"] == "b"
+        assert edges[0]["kind"] == "link"
+        # degree is undirected so both endpoints count
+        deg_by_id = {n["id"]: n["degree"] for n in body["nodes"]}
+        assert deg_by_id == {"a": 1, "b": 1}
+
+    def test_body_link_kind_and_dangling_skipped(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "a",
+                    "user_id": "test-user-123",
+                    "title": "A",
+                    "tags": ["synthesis"],
+                    "content": (
+                        '<a data-id="note:b" href="/notes/b">@b</a>'
+                        '<a href="/notes/ghost">dangling</a>'
+                    ),
+                },
+                {
+                    "id": "b",
+                    "user_id": "test-user-123",
+                    "title": "B",
+                    "tags": ["synthesis"],
+                    "content": "",
+                },
+            ],
+        )
+        r = test_client.get("/notes/graph", headers=HEADERS)
+        assert r.status_code == 200
+        edges = r.json()["edges"]
+        # One edge a→b via body; dangling /notes/ghost dropped.
+        assert len(edges) == 1
+        assert edges[0]["kind"] == "body"
+
+    def test_both_kind_when_tag_and_body_agree(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "a",
+                    "user_id": "test-user-123",
+                    "title": "A",
+                    "tags": ["synthesis", "link:b"],
+                    "content": '<a href="/notes/b">same target</a>',
+                },
+                {"id": "b", "user_id": "test-user-123", "title": "B", "tags": ["synthesis"], "content": ""},
+            ],
+        )
+        r = test_client.get("/notes/graph", headers=HEADERS)
+        edges = r.json()["edges"]
+        assert len(edges) == 1
+        assert edges[0]["kind"] == "both"
+
+    def test_self_links_are_skipped(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "a",
+                    "user_id": "test-user-123",
+                    "title": "Self-ref",
+                    "tags": ["synthesis", "link:a"],
+                    "content": '<a href="/notes/a">also self</a>',
+                },
+            ],
+        )
+        r = test_client.get("/notes/graph", headers=HEADERS)
+        assert r.json()["edges"] == []
+
+
 class TestFlashcards:
     def test_flashcards_returns_declarative_only_shape(self, test_client, mock_supabase):
         mock_supabase.set_table_data(
