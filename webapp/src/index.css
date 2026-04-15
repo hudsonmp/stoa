@@ -1715,15 +1715,26 @@ mark.stoa-hl-active {
    See: PDF.js text layer invariants + MDN on `opacity` vs `color`. */
 .pdf-page-wrapper .react-pdf__Page__textContent { color: transparent; }
 .pdf-page-wrapper .react-pdf__Page__textContent ::selection {
-  background: rgba(194, 65, 12, 0.45);
+  /* Bright background + multiply blend = selection shows through letters
+     instead of covering them. ::selection support for mix-blend-mode is
+     browser-uneven (Chromium honors it; Safari mostly does); worst-case
+     fallback is a solid 0.45 alpha tint which remains visible. */
+  background: rgba(194, 65, 12, 0.85);
   color: transparent;
+  mix-blend-mode: multiply;
 }
 
 /* Persisted highlight overlays — applied to text-layer spans whose
-   concatenated content matched a stored highlight.text. Use background
-   (not color) so the tint stacks over transparent PDF.js text. */
+   concatenated content matched a stored highlight.text.
+   `mix-blend-mode: multiply` is the load-bearing property: the text layer
+   sits DOM-above the canvas, so a plain background color paints over the
+   rendered letters and obscures them. multiply blends the yellow with the
+   canvas pixels beneath — black text × yellow = still dark (legible);
+   white paper × yellow = yellow (the highlight you want). Same technique
+   Hypothesis and PDF.js native highlights use. */
 .pdf-page-wrapper .react-pdf__Page__textContent span.pdf-highlight-mark {
-  background: rgba(250, 204, 21, 0.42); /* amber ~yellow highlighter */
+  background: rgba(250, 204, 21, 0.95); /* high alpha OK under multiply */
+  mix-blend-mode: multiply;
   border-radius: 1px;
 }
 
