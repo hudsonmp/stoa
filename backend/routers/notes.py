@@ -18,7 +18,7 @@ NOTE_TYPES = {"marginalia", "synthesis", "journal"}
 # episodic → story retention; stylistic → imitation; idea → pre-encoding seed / open
 # hypothesis held for elaboration (not yet a memory representation). See Reading
 # Hamming companion §4.
-KNOWLEDGE_TYPES = {"declarative", "procedural", "conceptual", "episodic", "stylistic", "idea"}
+KNOWLEDGE_TYPES = {"declarative", "procedural", "conceptual", "episodic", "stylistic", "idea", "mytake"}
 
 # Note types that should enforce dense linking (orphan detection applies).
 # Marginalia is tied to an item already; journals are free-form. Synthesis/evergreen should link.

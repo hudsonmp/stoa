@@ -50,20 +50,17 @@ export default function Layout() {
     return () => clearInterval(interval);
   }, [loadCounts]);
 
-  // Global "new note" keyboard shortcut — ⌘Y on Mac, Ctrl+Y on Windows/Linux.
-  // Previously tried ⌘N / ⌘⌥N; Hudson asked for ⌘Y. Note: on macOS Chrome,
-  // ⌘Y opens the History tab — it IS a browser-chrome accelerator. Like ⌘N,
-  // webpage preventDefault() is effectively a no-op. If that turns out to
-  // block this shortcut in practice, the working alternatives that Chrome
-  // does NOT reserve are ⌘K, ⌘J (downloads was once here), or unmodified
-  // keys (e.g. `n` when not typing, à la Linear/Gmail).
+  // Global "new note" keyboard shortcut — ⌘K on Mac, Ctrl+K on Windows/Linux.
+  // This accelerator is NOT reserved by Chrome, so preventDefault() actually
+  // blocks the browser's default behavior (which is to focus the address bar
+  // on some platforms; webapps routinely hijack it for command-palette UIs).
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const cmd = isMac ? e.metaKey : e.ctrlKey;
       if (!cmd) return;
-      const isY = e.key === "y" || e.key === "Y";
-      if (!isY) return;
+      const isK = e.key === "k" || e.key === "K";
+      if (!isK) return;
       // Don't hijack typing inside inputs/textareas/contenteditables.
       const t = e.target as HTMLElement | null;
       if (t) {

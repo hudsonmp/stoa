@@ -51,7 +51,8 @@ type LinkedNotePreview = {
 
 // Per-type pedagogy (Reading Hamming companion §4: different knowledge, different memory).
 // Each knowledge type routes to a different memory system — the chip is the routing decision.
-const KT_HINT: Record<KnowledgeType, { label: string; body: string }> = {
+// `pill` is the display label when the raw id contains non-display characters (mytake → "my take").
+const KT_HINT: Record<KnowledgeType, { label: string; body: string; pill?: string }> = {
   declarative: {
     label: "Fact, claim, attribution",
     body: "Encode via Anki with Nielsen's 5 properties. Example: \"Hamming claimed ambiguity-tolerance predicts scientific greatness.\"",
@@ -76,7 +77,16 @@ const KT_HINT: Record<KnowledgeType, { label: string; body: string }> = {
     label: "Hypothesis, open question, half-formed thought",
     body: "Pre-encoding seed. Not yet a memory system routing — hold for elaboration. Link densely to related notes so it doesn't orphan, promote to conceptual/declarative once it crystallizes (Sio & Ormerod 2009 on incubation).",
   },
+  mytake: {
+    pill: "my take",
+    label: "Your position, interpretation, or evaluation",
+    body: "Self-referential encoding — your own synthesis, not someone else's claim. Rogers, Kuiper & Kirker (1977) self-reference effect: material encoded in relation to self is retained better than any other frame. Don't Ankify (positions evolve); link it to the declarative/conceptual notes it responds to.",
+  },
 };
+
+function ktPill(kt: KnowledgeType): string {
+  return KT_HINT[kt]?.pill ?? kt;
+}
 
 function getNoteType(note: Note): "marginalia" | "synthesis" | "journal" {
   if (note.note_type) return note.note_type;
@@ -747,7 +757,9 @@ export default function Notes() {
                           : "text-text-tertiary bg-bg-secondary uppercase"
                       }`}
                     >
-                      {badge}
+                      {(KNOWLEDGE_TYPES as readonly string[]).includes(badge)
+                        ? ktPill(badge as KnowledgeType)
+                        : badge}
                     </span>
                   )}
                 </div>
@@ -850,7 +862,7 @@ export default function Notes() {
                             : "bg-bg-secondary text-text-tertiary hover:text-text-primary hover:bg-bg-secondary/80"
                         }`}
                     >
-                      {kt}
+                      {ktPill(kt)}
                     </button>
                   );
                 })}
@@ -861,7 +873,7 @@ export default function Notes() {
                                px-3 py-2 pointer-events-none"
                   >
                     <div className="text-[10px] font-mono uppercase tracking-wider text-accent mb-0.5">
-                      {hoveredKt}
+                      {ktPill(hoveredKt)}
                     </div>
                     <div className="text-[11px] text-text-primary font-medium mb-0.5">
                       {KT_HINT[hoveredKt].label}

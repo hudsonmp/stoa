@@ -192,7 +192,8 @@ export type KnowledgeType =
   | "conceptual"
   | "episodic"
   | "stylistic"
-  | "idea";
+  | "idea"
+  | "mytake";
 
 export const KNOWLEDGE_TYPES: KnowledgeType[] = [
   "declarative",
@@ -201,6 +202,7 @@ export const KNOWLEDGE_TYPES: KnowledgeType[] = [
   "episodic",
   "stylistic",
   "idea",
+  "mytake",
 ];
 
 export async function createNote(data: {

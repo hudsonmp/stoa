@@ -53,6 +53,8 @@ requirements from the failures. Role 4 implements. Loop.
 | D4  | Pill = declarative                  | Editor swaps         | Shows FlashcardEditor (front/back) not TipTap    | U      |
 | D5  | Pill = idea                         | —                     | Shows normal TipTap editor (not flashcard)       | U      |
 | D6  | Hover pill                          | —                     | 320px tooltip with label + body                  | U      |
+| D7  | Pill = mytake                       | —                     | Shows TipTap editor (not flashcard)              | U      |
+| D8  | Pill display label                  | —                     | "mytake" id renders as "my take" in pill + badge | U      |
 
 ## E. Links (note→note) UI
 
@@ -94,10 +96,9 @@ requirements from the failures. Role 4 implements. Loop.
 
 | id  | precondition          | action          | expected                                                      | status |
 | --- | --------------------- | --------------- | ------------------------------------------------------------- | ------ |
-| H1  | Any page, not typing  | ⌘Y              | New note created, navigate to /notes/<id>                     | U      |
-| H2  | Typing in editor      | ⌘Y              | No-op (don't hijack typing)                                   | U      |
-| H3  | Chrome-typical        | ⌘Y              | Chrome opens History tab instead — Chrome accelerator         | D      |
-| H4  | Any page, not typing  | ⌘K              | (Not bound) — candidate if ⌘Y gets intercepted by Chrome      | D      |
+| H1  | Any page, not typing  | ⌘K              | New note created, navigate to /notes/<id>                     | U      |
+| H2  | Typing in editor      | ⌘K              | No-op (don't hijack typing)                                   | U      |
+| H3  | ⌘N / ⌘Y               | —               | Browser-reserved accelerators; unusable from webpage          | D      |
 
 ## I. Math rendering
 

@@ -75,7 +75,7 @@ export interface Note {
   content: string;
   tags?: string[];
   note_type?: "marginalia" | "synthesis" | "journal";
-  knowledge_type?: "declarative" | "procedural" | "conceptual" | "episodic" | "stylistic" | "idea" | null;
+  knowledge_type?: "declarative" | "procedural" | "conceptual" | "episodic" | "stylistic" | "idea" | "mytake" | null;
   ref_item_ids?: string[];
   linked_note_ids?: string[];
   collection_ids?: string[];
