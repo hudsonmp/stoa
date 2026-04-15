@@ -120,7 +120,12 @@ function extractTitle(note: Note): string {
   return firstLine.length > 50 ? firstLine.slice(0, 50) + "..." : firstLine;
 }
 
+// Sidebar badge prefers encoding type (declarative / procedural / …) because
+// that's the salient organizing principle post-pipeline. Falls back to the old
+// note_type discriminators (annotation / person) when no encoding is set.
 function noteTypeBadge(note: Note): string | null {
+  const kt = getNoteKnowledgeType(note);
+  if (kt) return kt;
   if (note.item_id) return "annotation";
   if (note.person_id) return "person";
   if (note.tags?.includes("synthesis")) return "synthesis";
@@ -735,7 +740,13 @@ export default function Notes() {
                     {formatRelativeDate(note.updated_at)}
                   </span>
                   {badge && badge !== "standalone" && (
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary bg-bg-secondary px-1.5 py-0.5 rounded">
+                    <span
+                      className={`text-[9px] font-mono tracking-wider px-1.5 py-0.5 rounded ${
+                        getNoteKnowledgeType(note)
+                          ? "text-accent bg-accent/10 lowercase"
+                          : "text-text-tertiary bg-bg-secondary uppercase"
+                      }`}
+                    >
                       {badge}
                     </span>
                   )}
