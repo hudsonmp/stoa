@@ -1,8 +1,23 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, Check, X, ExternalLink, Link2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  FileText,
+  Trash2,
+  Check,
+  X,
+  ExternalLink,
+  Link2,
+  Folder,
+  FolderPlus,
+  Sparkles,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
+import FlashcardReview from "@/components/FlashcardReview";
 import {
   getNotes,
   getNoteById,
@@ -11,10 +26,21 @@ import {
   deleteNote,
   linkNoteToNote,
   unlinkNoteFromNote,
+  addNoteToCollection,
+  removeNoteFromCollection,
+  listCollections,
+  createCollection,
   KNOWLEDGE_TYPES,
   type KnowledgeType,
 } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
+
+const NOTES_LIST_COLLAPSED_KEY = "stoa_notes_list_collapsed";
+
+interface CollectionRef {
+  id: string;
+  name: string;
+}
 
 type LinkedNotePreview = {
   id: string;
@@ -120,6 +146,27 @@ export default function Notes() {
   const [linkPickerQuery, setLinkPickerQuery] = useState("");
   const [hoveredKt, setHoveredKt] = useState<KnowledgeType | null>(null);
 
+  // Collections (folders) — tag-based via col:<id>. Lets you group all notes for a book.
+  const [collections, setCollections] = useState<CollectionRef[]>([]);
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(null);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+
+  // Flashcard review modal. v1 = linear deck of kt:declarative notes.
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  // Collapse the notes-list middle rail (beyond the Library nav collapse in Layout).
+  const [listCollapsed, setListCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem(NOTES_LIST_COLLAPSED_KEY) === "1";
+  });
+  const toggleListCollapsed = useCallback(() => {
+    setListCollapsed((cur) => {
+      const next = !cur;
+      localStorage.setItem(NOTES_LIST_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -141,6 +188,78 @@ export default function Notes() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Load collections (shared with items, reused here to group notes by folder).
+  useEffect(() => {
+    listCollections()
+      .then((res) => setCollections(res.collections as CollectionRef[]))
+      .catch(() => setCollections([]));
+  }, []);
+
+  const handleCreateCollection = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      const res = await createCollection({ name });
+      const col = res.collection as CollectionRef;
+      setCollections((prev) => [...prev, col]);
+      setNewFolderName("");
+      if (activeId) {
+        await addNoteToCollection(activeId, col.id);
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === activeId
+              ? { ...n, tags: [...(n.tags || []), `col:${col.id}`] }
+              : n
+          )
+        );
+      }
+    } catch {
+      // silent
+    }
+  }, [newFolderName, activeId]);
+
+  const handleToggleNoteCollection = useCallback(
+    async (collectionId: string, currentlyIn: boolean) => {
+      if (!activeId) return;
+      try {
+        if (currentlyIn) {
+          await removeNoteFromCollection(activeId, collectionId);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === activeId
+                ? {
+                    ...n,
+                    tags: (n.tags || []).filter(
+                      (t) => t !== `col:${collectionId}`
+                    ),
+                  }
+                : n
+            )
+          );
+        } else {
+          await addNoteToCollection(activeId, collectionId);
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === activeId
+                ? { ...n, tags: [...(n.tags || []), `col:${collectionId}`] }
+                : n
+            )
+          );
+        }
+      } catch {
+        // silent
+      }
+    },
+    [activeId]
+  );
+
+  const getNoteCollectionIds = useCallback((note: Note): string[] => {
+    if (note.collection_ids) return note.collection_ids;
+    return (note.tags || [])
+      .filter((t) => t.startsWith("col:"))
+      .map((t) => t.slice(4));
+  }, []);
 
   // Focus title input when editing starts
   useEffect(() => {
@@ -346,14 +465,20 @@ export default function Notes() {
     ? notes
     : notes.filter((n) => !n.item_id && !n.person_id);
 
+  const filteredByCollection = activeCollectionId
+    ? filteredByType.filter((n) =>
+        getNoteCollectionIds(n).includes(activeCollectionId)
+      )
+    : filteredByType;
+
   const filtered = searchQuery
-    ? filteredByType.filter((n) => {
+    ? filteredByCollection.filter((n) => {
         const q = searchQuery.toLowerCase();
         const title = extractTitle(n).toLowerCase();
         const content = n.content.replace(/<[^>]*>/g, "").toLowerCase();
         return title.includes(q) || content.includes(q);
       })
-    : filteredByType;
+    : filteredByCollection;
 
   const activeNote = notes.find((n) => n.id === activeId);
 
@@ -367,20 +492,85 @@ export default function Notes() {
 
   return (
     <div className="flex h-full">
+      {/* Collapsed rail */}
+      {listCollapsed && (
+        <button
+          onClick={toggleListCollapsed}
+          title="Show notes list"
+          className="flex-shrink-0 w-7 border-r border-border flex flex-col items-center pt-3
+                     text-text-tertiary hover:text-accent transition-warm"
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
+
       {/* Left sidebar */}
-      <div className="w-[240px] flex-shrink-0 border-r border-border bg-bg-secondary/30 flex flex-col h-full">
-        {/* New Note button */}
-        <div className="p-3">
+      {!listCollapsed && (
+      <div className="w-[240px] flex-shrink-0 border-r border-border bg-bg-secondary/30 flex flex-col h-full relative">
+        <button
+          onClick={toggleListCollapsed}
+          title="Collapse list"
+          className="absolute top-3 -right-3 z-20 w-6 h-6 rounded-full
+                     bg-bg-primary border border-border shadow-sm
+                     flex items-center justify-center text-text-tertiary
+                     hover:text-accent hover:border-accent/40 transition-warm"
+        >
+          <ChevronLeft size={12} />
+        </button>
+        {/* New Note + Review row */}
+        <div className="p-3 flex items-center gap-2">
           <button
             onClick={handleCreateNote}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
                        bg-accent text-white text-sm font-medium
                        hover:bg-accent-hover transition-warm"
           >
             <Plus size={14} />
             New Note
           </button>
+          <button
+            onClick={() => setReviewOpen(true)}
+            title="Review declarative flashcards"
+            className="flex items-center justify-center p-2 rounded-card
+                       bg-bg-primary border border-border text-text-secondary
+                       hover:text-accent hover:border-accent/40 transition-warm"
+          >
+            <Sparkles size={14} />
+          </button>
         </div>
+
+        {/* Collection (folder) filter */}
+        {collections.length > 0 && (
+          <div className="px-3 pb-2">
+            <div className="flex flex-wrap gap-1">
+              <button
+                onClick={() => setActiveCollectionId(null)}
+                className={`text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded transition-warm
+                  ${activeCollectionId === null
+                    ? "text-accent bg-accent/10"
+                    : "text-text-tertiary hover:text-text-primary"}`}
+              >
+                All
+              </button>
+              {collections.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() =>
+                    setActiveCollectionId(activeCollectionId === c.id ? null : c.id)
+                  }
+                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded transition-warm truncate max-w-[140px]
+                    ${activeCollectionId === c.id
+                      ? "text-accent bg-accent/10"
+                      : "text-text-tertiary hover:text-text-primary"}`}
+                  title={c.name}
+                >
+                  <Folder size={9} className="inline mr-0.5" />
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Filter toggle */}
         <div className="flex px-3 pb-1">
@@ -523,6 +713,7 @@ export default function Notes() {
           })}
         </div>
       </div>
+      )}
 
       {/* Main editor area */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
@@ -719,6 +910,104 @@ export default function Notes() {
                   Orphan warning — synthesis notes earn their keep at ≥2 links (Matuschak).
                 </div>
               )}
+
+              {/* Folder/collection membership */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 relative">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary">
+                  Folders:
+                </span>
+                {getNoteCollectionIds(activeNote).map((cid) => {
+                  const col = collections.find((c) => c.id === cid);
+                  if (!col) return null;
+                  return (
+                    <div
+                      key={cid}
+                      className="group/colchip inline-flex items-center gap-1 pl-2 pr-1 py-0.5
+                                 rounded-full text-[10px] bg-bg-secondary border border-border
+                                 hover:border-accent/40 transition-warm"
+                    >
+                      <span className="text-text-primary">
+                        <Folder size={10} className="inline mr-1 text-text-tertiary" />
+                        {col.name}
+                      </span>
+                      <button
+                        onClick={() => handleToggleNoteCollection(cid, true)}
+                        className="p-0.5 rounded-full text-text-tertiary opacity-0
+                                   group-hover/colchip:opacity-100 hover:text-red-500 transition-warm"
+                        title="Remove from folder"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={() => setFolderPickerOpen((o) => !o)}
+                  className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full
+                             text-[10px] font-mono border border-dashed border-border
+                             text-text-tertiary hover:text-accent hover:border-accent/40
+                             transition-warm"
+                  title="Add to folder"
+                >
+                  <FolderPlus size={10} />
+                  folder
+                </button>
+                {folderPickerOpen && (
+                  <div
+                    className="absolute top-full left-0 mt-1.5 z-30 w-[280px]
+                               bg-bg-primary border border-border rounded-card shadow-lg
+                               overflow-hidden"
+                  >
+                    <div className="max-h-[200px] overflow-y-auto">
+                      {collections.length === 0 && (
+                        <div className="px-3 py-2 text-[11px] text-text-tertiary">
+                          No folders yet — create one below.
+                        </div>
+                      )}
+                      {collections.map((c) => {
+                        const inCol = getNoteCollectionIds(activeNote).includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => handleToggleNoteCollection(c.id, inCol)}
+                            className="w-full text-left px-3 py-1.5 hover:bg-bg-secondary
+                                       transition-warm border-b border-border/40 last:border-b-0
+                                       flex items-center justify-between"
+                          >
+                            <span className="text-[12px] text-text-primary truncate">
+                              <Folder size={11} className="inline mr-1.5 text-text-tertiary" />
+                              {c.name}
+                            </span>
+                            {inCol && <Check size={12} className="text-accent" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center gap-1 px-2 py-1.5 border-t border-border">
+                      <FolderPlus size={12} className="text-text-tertiary flex-shrink-0" />
+                      <input
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateCollection();
+                          if (e.key === "Escape") setFolderPickerOpen(false);
+                        }}
+                        placeholder="New folder (e.g. Hamming)"
+                        className="flex-1 bg-transparent border-none outline-none
+                                   text-[12px] text-text-primary placeholder:text-text-tertiary"
+                      />
+                      <button
+                        onClick={handleCreateCollection}
+                        disabled={!newFolderName.trim()}
+                        className="text-[11px] font-mono text-accent hover:text-accent-hover
+                                   disabled:opacity-40 transition-warm"
+                      >
+                        create
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex-1 notes-editor-fullwidth">
               <ResearchEditor
@@ -751,6 +1040,18 @@ export default function Notes() {
           </div>
         )}
       </div>
+
+      {reviewOpen && (
+        <FlashcardReview
+          collectionId={activeCollectionId || undefined}
+          collectionName={
+            activeCollectionId
+              ? collections.find((c) => c.id === activeCollectionId)?.name
+              : undefined
+          }
+          onClose={() => setReviewOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -69,6 +69,7 @@ export interface Note {
   knowledge_type?: "declarative" | "procedural" | "conceptual" | "episodic" | "stylistic" | null;
   ref_item_ids?: string[];
   linked_note_ids?: string[];
+  collection_ids?: string[];
   created_at: string;
   updated_at: string;
 }

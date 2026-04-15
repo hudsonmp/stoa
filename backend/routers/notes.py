@@ -34,6 +34,7 @@ class CreateNoteRequest(BaseModel):
     knowledge_type: Optional[str] = None
     item_ids: list[str] = []
     note_ids: list[str] = []
+    collection_ids: list[str] = []
     tags: list[str] = []
 
 
@@ -49,14 +50,19 @@ class LinkNoteToNoteRequest(BaseModel):
     target_note_id: str
 
 
+class AddNoteToCollectionRequest(BaseModel):
+    collection_id: str
+
+
 def _build_tags(
     note_type: str,
     item_ids: list[str],
     extra_tags: list[str],
     knowledge_type: Optional[str] = None,
     note_ids: Optional[list[str]] = None,
+    collection_ids: Optional[list[str]] = None,
 ) -> list[str]:
-    """Build tags: note_type + kt:<knowledge_type> + ref:<item_id> + link:<note_id> + user tags."""
+    """Build tags: note_type + kt:<knowledge_type> + ref:<item_id> + link:<note_id> + col:<collection_id> + user tags."""
     # Allow note type to be overridden via extra_tags
     effective_type = note_type
     for t in extra_tags:
@@ -79,9 +85,11 @@ def _build_tags(
         tags.append(f"ref:{iid}")
     for nid in (note_ids or []):
         tags.append(f"link:{nid}")
+    for cid in (collection_ids or []):
+        tags.append(f"col:{cid}")
 
     # Pass through any remaining user tags (filter out anything we already consumed)
-    reserved_prefixes = ("ref:", "link:", "kt:")
+    reserved_prefixes = ("ref:", "link:", "kt:", "col:")
     for t in extra_tags:
         if not t or t in NOTE_TYPES:
             continue
@@ -125,13 +133,21 @@ def _extract_linked_note_ids(tags: list[str] | None) -> list[str]:
     return [t[5:] for t in tags if t.startswith("link:")]
 
 
+def _extract_collection_ids(tags: list[str] | None) -> list[str]:
+    """Extract collection ids from col: tags."""
+    if not tags:
+        return []
+    return [t[4:] for t in tags if t.startswith("col:")]
+
+
 def _annotate(note: dict) -> dict:
-    """Attach derived fields (note_type, knowledge_type, refs, links) from tags."""
+    """Attach derived fields (note_type, knowledge_type, refs, links, collections) from tags."""
     tags = note.get("tags")
     note["note_type"] = _extract_note_type(tags)
     note["knowledge_type"] = _extract_knowledge_type(tags)
     note["ref_item_ids"] = _extract_ref_ids(tags)
     note["linked_note_ids"] = _extract_linked_note_ids(tags)
+    note["collection_ids"] = _extract_collection_ids(tags)
     return note
 
 
@@ -161,6 +177,7 @@ async def create_note(req: CreateNoteRequest, request: Request):
         req.tags,
         knowledge_type=req.knowledge_type,
         note_ids=req.note_ids,
+        collection_ids=req.collection_ids,
     )
 
     result = supabase.table("notes").insert({
@@ -311,6 +328,131 @@ async def list_notes_by_knowledge_type(kt: str, request: Request, limit: int = 5
 
     notes = [_annotate(n) for n in (result.data or [])]
     return {"notes": notes, "knowledge_type": kt, "count": len(notes)}
+
+
+@router.get("/by-collection/{collection_id}")
+async def list_notes_by_collection(collection_id: str, request: Request, limit: int = 200):
+    """Return notes tagged into a collection (folder). Uses col:<id> tag filter."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .contains("tags", [f"col:{collection_id}"])
+        .order("updated_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    notes = [_annotate(n) for n in (result.data or [])]
+    return {"notes": notes, "collection_id": collection_id, "count": len(notes)}
+
+
+@router.get("/flashcards")
+async def list_flashcards(
+    request: Request,
+    collection_id: Optional[str] = None,
+    limit: int = 200,
+):
+    """Return declarative notes as a flashcard deck (front = title, back = content).
+
+    Only kt:declarative notes are returned — Anki handles declarative cleanly; other
+    knowledge types belong in different memory systems (Reading Hamming companion §4).
+    Optionally filter to a collection to study one book at a time.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    query = (
+        supabase.table("notes")
+        .select("*")
+        .eq("user_id", user_id)
+        .contains("tags", ["kt:declarative"])
+    )
+    if collection_id:
+        query = query.contains("tags", [f"col:{collection_id}"])
+
+    result = query.order("updated_at", desc=True).limit(limit).execute()
+
+    cards = []
+    for n in (result.data or []):
+        _annotate(n)
+        cards.append({
+            "id": n["id"],
+            "front": n.get("title") or "Untitled",
+            "back": n.get("content") or "",
+            "knowledge_type": n["knowledge_type"],
+            "collection_ids": n["collection_ids"],
+            "linked_note_ids": n["linked_note_ids"],
+            "updated_at": n.get("updated_at"),
+        })
+
+    return {"cards": cards, "count": len(cards), "collection_id": collection_id}
+
+
+@router.post("/{note_id}/collections")
+async def add_note_to_collection(
+    note_id: str, req: AddNoteToCollectionRequest, request: Request
+):
+    """Add a note to a collection (folder). Idempotent."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    existing = (
+        supabase.table("notes")
+        .select("id, tags")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    current_tags = existing.data[0].get("tags") or []
+    col_tag = f"col:{req.collection_id}"
+    if col_tag in current_tags:
+        return {"note": existing.data[0], "message": "Already in collection"}
+
+    updated_tags = current_tags + [col_tag]
+    result = (
+        supabase.table("notes")
+        .update({"tags": updated_tags})
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {"note": result.data[0]}
+
+
+@router.delete("/{note_id}/collections/{collection_id}")
+async def remove_note_from_collection(
+    note_id: str, collection_id: str, request: Request
+):
+    """Remove a note from a collection."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    existing = (
+        supabase.table("notes")
+        .select("id, tags")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    col_tag = f"col:{collection_id}"
+    updated_tags = [t for t in (existing.data[0].get("tags") or []) if t != col_tag]
+    result = (
+        supabase.table("notes")
+        .update({"tags": updated_tags})
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return {"note": result.data[0]}
 
 
 @router.get("/{note_id}")

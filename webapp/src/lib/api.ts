@@ -235,6 +235,48 @@ export async function unlinkNoteFromNote(noteId: string, targetNoteId: string) {
   );
 }
 
+export async function addNoteToCollection(noteId: string, collectionId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/collections`, {
+    method: "POST",
+    body: JSON.stringify({ collection_id: collectionId }),
+  });
+}
+
+export async function removeNoteFromCollection(
+  noteId: string,
+  collectionId: string
+) {
+  return apiFetch<{ note: unknown }>(
+    `/notes/${noteId}/collections/${collectionId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function getNotesByCollection(collectionId: string, limit = 200) {
+  return apiFetch<{ notes: unknown[]; collection_id: string; count: number }>(
+    `/notes/by-collection/${collectionId}?limit=${limit}`
+  );
+}
+
+export interface Flashcard {
+  id: string;
+  front: string;
+  back: string;
+  knowledge_type: "declarative";
+  collection_ids: string[];
+  linked_note_ids: string[];
+  updated_at?: string;
+}
+
+export async function getFlashcards(collectionId?: string, limit = 200) {
+  const qs = new URLSearchParams();
+  if (collectionId) qs.set("collection_id", collectionId);
+  qs.set("limit", String(limit));
+  return apiFetch<{ cards: Flashcard[]; count: number; collection_id: string | null }>(
+    `/notes/flashcards?${qs.toString()}`
+  );
+}
+
 export async function getOrphanNotes(limit = 50) {
   return apiFetch<{ notes: unknown[]; count: number; min_links: number }>(
     `/notes/orphans?limit=${limit}`

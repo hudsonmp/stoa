@@ -21,6 +21,7 @@
     "@tiptap/starter-kit": "^3.20.4",
     "@tiptap/suggestion": "^3.20.4",
     "framer-motion": "^11.18.0",
+    "katex": "^0.16.45",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -30,6 +31,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@types/katex": "^0.16.8",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",

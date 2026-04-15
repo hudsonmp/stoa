@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Outlet } from "react-router-dom";
 import { motion } from "framer-motion";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "./Sidebar";
+
+const LIBRARY_COLLAPSED_KEY = "stoa_library_sidebar_collapsed";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
@@ -18,6 +21,17 @@ function authHeaders(): Record<string, string> {
 
 export default function Layout() {
   const [counts, setCounts] = useState({ to_read: 0, read: 0, writing: 0, total: 0 });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem(LIBRARY_COLLAPSED_KEY) === "1";
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((cur) => {
+      const next = !cur;
+      localStorage.setItem(LIBRARY_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -36,14 +50,36 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg-primary">
-      <motion.div
-        initial={{ x: -240, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-        className="flex-shrink-0"
-      >
-        <Sidebar counts={counts} />
-      </motion.div>
+      {!sidebarCollapsed && (
+        <motion.div
+          initial={{ x: -240, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+          className="flex-shrink-0 relative"
+        >
+          <Sidebar counts={counts} />
+          <button
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+            className="absolute top-3 -right-3 z-20 w-6 h-6 rounded-full
+                       bg-bg-primary border border-border shadow-sm
+                       flex items-center justify-center text-text-tertiary
+                       hover:text-accent hover:border-accent/40 transition-warm"
+          >
+            <ChevronLeft size={12} />
+          </button>
+        </motion.div>
+      )}
+      {sidebarCollapsed && (
+        <button
+          onClick={toggleSidebar}
+          title="Expand sidebar"
+          className="flex-shrink-0 w-7 border-r border-border flex flex-col items-center pt-3
+                     text-text-tertiary hover:text-accent transition-warm"
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
 
       <main className="flex-1 overflow-y-auto">
         <motion.div

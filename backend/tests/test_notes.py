@@ -251,3 +251,73 @@ class TestLinkNoteToNote:
             "/notes/missing/link-note/anything", headers=HEADERS
         )
         assert r.status_code == 404
+
+
+class TestCollectionsForNotes:
+    def test_create_with_collection_ids_emits_col_tags(self, test_client, mock_supabase):
+        r = test_client.post(
+            "/notes",
+            headers=HEADERS,
+            json={
+                "note_type": "synthesis",
+                "content": "...",
+                "collection_ids": ["col-hamming"],
+            },
+        )
+        assert r.status_code == 200
+        assert "col:col-hamming" in r.json()["note"]["tags"]
+
+    def test_add_note_to_collection(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [{"id": "note-1", "user_id": "test-user-123", "tags": ["synthesis"]}],
+        )
+        r = test_client.post(
+            "/notes/note-1/collections",
+            headers=HEADERS,
+            json={"collection_id": "col-hamming"},
+        )
+        assert r.status_code == 200
+
+    def test_remove_note_from_collection(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [{"id": "note-1", "user_id": "test-user-123", "tags": ["synthesis", "col:col-hamming"]}],
+        )
+        r = test_client.delete(
+            "/notes/note-1/collections/col-hamming", headers=HEADERS
+        )
+        assert r.status_code == 200
+
+
+class TestFlashcards:
+    def test_flashcards_returns_declarative_only_shape(self, test_client, mock_supabase):
+        mock_supabase.set_table_data(
+            "notes",
+            [
+                {
+                    "id": "card-1",
+                    "user_id": "test-user-123",
+                    "title": "Hamming claim",
+                    "content": "<p>Ambiguity-tolerance predicts greatness.</p>",
+                    "tags": ["synthesis", "kt:declarative"],
+                    "updated_at": "2026-04-15T00:00:00Z",
+                }
+            ],
+        )
+        r = test_client.get("/notes/flashcards", headers=HEADERS)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["count"] == 1
+        card = body["cards"][0]
+        assert card["front"] == "Hamming claim"
+        assert "<p>" in card["back"]
+        assert card["knowledge_type"] == "declarative"
+
+    def test_flashcards_filter_by_collection(self, test_client, mock_supabase):
+        mock_supabase.set_table_data("notes", [])
+        r = test_client.get(
+            "/notes/flashcards?collection_id=col-hamming", headers=HEADERS
+        )
+        assert r.status_code == 200
+        assert r.json()["collection_id"] == "col-hamming"
