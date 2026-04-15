@@ -544,24 +544,23 @@ export default function Notes() {
       {/* Left sidebar */}
       {!listCollapsed && (
       <div className="w-[240px] flex-shrink-0 border-r border-border bg-bg-secondary/30 flex flex-col h-full relative">
-        <button
-          onClick={toggleListCollapsed}
-          title="Collapse list"
-          className="absolute top-4 right-2 z-20 p-1 text-text-tertiary
-                     hover:text-accent transition-warm"
-        >
-          <ChevronLeft size={14} />
-        </button>
-        {/* New Note */}
-        <div className="p-3">
+        {/* New Note + inline collapse chevron (chevron lives outside the button) */}
+        <div className="p-3 flex items-center gap-2">
           <button
             onClick={handleCreateNote}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-card
                        bg-accent text-white text-sm font-medium
                        hover:bg-accent-hover transition-warm"
           >
             <Plus size={14} />
             New Note
+          </button>
+          <button
+            onClick={toggleListCollapsed}
+            title="Collapse list"
+            className="p-2 text-text-tertiary hover:text-accent transition-warm flex-shrink-0"
+          >
+            <ChevronLeft size={14} />
           </button>
         </div>
 
