@@ -72,6 +72,10 @@ const KT_HINT: Record<KnowledgeType, { label: string; body: string }> = {
     label: "Move, posture, taste",
     body: "Imitation, not encoding. Annotate the move; reuse in your writing. Cannot be Ankified.",
   },
+  idea: {
+    label: "Hypothesis, open question, half-formed thought",
+    body: "Pre-encoding seed. Not yet a memory system routing — hold for elaboration. Link densely to related notes so it doesn't orphan, promote to conceptual/declarative once it crystallizes (Sio & Ormerod 2009 on incubation).",
+  },
 };
 
 function getNoteType(note: Note): "marginalia" | "synthesis" | "journal" {
