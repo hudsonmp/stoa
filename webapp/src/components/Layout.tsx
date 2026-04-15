@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "./Sidebar";
+import { createNote } from "@/lib/api";
 
 const LIBRARY_COLLAPSED_KEY = "stoa_library_sidebar_collapsed";
 
@@ -20,6 +21,7 @@ function authHeaders(): Record<string, string> {
 }
 
 export default function Layout() {
+  const navigate = useNavigate();
   const [counts, setCounts] = useState({ to_read: 0, read: 0, writing: 0, total: 0 });
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem(LIBRARY_COLLAPSED_KEY) === "1";
@@ -47,6 +49,48 @@ export default function Layout() {
     const interval = setInterval(loadCounts, 5000);
     return () => clearInterval(interval);
   }, [loadCounts]);
+
+  // Global "new note" keyboard shortcut.
+  //
+  // Important constraint: Chrome hard-reserves ⌘N (new window) and ⌘⇧N
+  // (incognito) at the browser level. These accelerators fire before any
+  // webpage's keydown handler, so preventDefault() is a no-op. No Chrome
+  // setting or site permission exposes this to remap — the only workarounds
+  // are a browser extension with `commands` permission, or picking a shortcut
+  // Chrome doesn't reserve. We bind a working alternative (⌘⌥N = Cmd+Option+N)
+  // and also attempt ⌘N for users whose OS/Chrome version happens to allow it.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const cmd = isMac ? e.metaKey : e.ctrlKey;
+      if (!cmd) return;
+      const isN = e.key === "n" || e.key === "N";
+      if (!isN) return;
+      // Don't hijack typing inside inputs/textareas/contenteditables.
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || t.isContentEditable) {
+          return;
+        }
+      }
+      // Prefer the accelerator that's actually reachable: ⌘⌥N. ⌘N (no alt)
+      // will not fire on Chrome but we still preventDefault in case a future
+      // version opens it up.
+      e.preventDefault();
+      (async () => {
+        try {
+          const res = await createNote({ content: "", title: "Untitled", note_type: "synthesis" });
+          const id = (res.note as { id: string }).id;
+          navigate(`/notes/${id}`);
+        } catch {
+          navigate("/notes");
+        }
+      })();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigate]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg-primary">
