@@ -6,8 +6,10 @@ import {
 } from "react";
 
 export interface MentionItem {
+  /** Prefixed id: "item:<uuid>" or "note:<uuid>". renderHTML parses the prefix to route. */
   id: string;
   label: string;
+  kind?: "item" | "note";
 }
 
 interface MentionListProps {
@@ -64,14 +66,19 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
           <button
             key={item.id}
             onClick={() => command(item)}
-            className={`w-full text-left px-3 py-1.5 rounded-[6px] text-sm transition-warm
+            className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-[6px] text-sm transition-warm
               ${
                 index === selectedIndex
                   ? "bg-bg-secondary text-text-primary"
                   : "text-text-secondary hover:bg-bg-secondary/60"
               }`}
           >
-            {item.label}
+            <span className="truncate">{item.label}</span>
+            {item.kind && (
+              <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary flex-shrink-0">
+                {item.kind}
+              </span>
+            )}
           </button>
         ))}
       </div>

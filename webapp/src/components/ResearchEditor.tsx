@@ -27,8 +27,14 @@ import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
-// Fast title search — no embeddings, just ILIKE
-async function quickSearch(query: string): Promise<Array<{ id: string; label: string }>> {
+// Fast title search — no embeddings, just ILIKE.
+// Queries BOTH items and notes in parallel so @mentions can reference either.
+// Mirrors the link-picker semantics (notes search by title/content) while
+// keeping items reachable. The id is prefixed with kind so renderHTML can
+// construct the right href (/notes/<id> vs /item/<id>).
+async function quickSearch(
+  query: string
+): Promise<Array<{ id: string; label: string; kind: "item" | "note" }>> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (DEV_USER_ID) headers["X-User-Id"] = DEV_USER_ID;
   else {
@@ -37,10 +43,46 @@ async function quickSearch(query: string): Promise<Array<{ id: string; label: st
     if (token) headers["Authorization"] = `Bearer ${token}`;
     else if (userId) headers["X-User-Id"] = userId;
   }
-  const res = await fetch(`${API_URL}/items/quick-search?q=${encodeURIComponent(query)}&limit=8`, { headers });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).map((r: { id: string; title: string }) => ({ id: r.id, label: r.title }));
+  const q = encodeURIComponent(query);
+  // /notes/search backend rejects <2 chars with 400; gate it.
+  const canSearchNotes = query.trim().length >= 2;
+  const [itemsRes, notesRes] = await Promise.all([
+    fetch(`${API_URL}/items/quick-search?q=${q}&limit=5`, { headers }).catch(() => null),
+    canSearchNotes
+      ? fetch(`${API_URL}/notes/search?q=${q}&limit=5`, { headers }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const items =
+    itemsRes && itemsRes.ok
+      ? ((await itemsRes.json()).results || []).map(
+          (r: { id: string; title: string }) => ({
+            id: `item:${r.id}`,
+            label: r.title,
+            kind: "item" as const,
+          })
+        )
+      : [];
+  const notes =
+    notesRes && notesRes.ok
+      ? ((await notesRes.json()).notes || []).map(
+          (n: { id: string; title?: string; content?: string }) => {
+            const fromTitle = n.title && n.title !== "Untitled" ? n.title : null;
+            const fallback = (n.content || "")
+              .replace(/<[^>]*>/g, "")
+              .trim()
+              .split("\n")[0]
+              .slice(0, 60);
+            return {
+              id: `note:${n.id}`,
+              label: fromTitle || fallback || "Untitled",
+              kind: "note" as const,
+            };
+          }
+        )
+      : [];
+  // Notes first — they're the thing Hudson most often @-references mid-note.
+  return [...notes, ...items];
 }
 
 function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
@@ -299,19 +341,28 @@ export default function ResearchEditor({
       Mention.configure({
         HTMLAttributes: {
           class: "stoa-mention",
-          onclick: "if(this.dataset.id){window.location.href='/item/'+this.dataset.id}",
+          // Prefixed id = "<kind>:<uuid>". Route to /notes/ or /item/ accordingly.
+          onclick:
+            "if(this.dataset.id){var p=this.dataset.id.split(':');var k=p.length>1?p[0]:'item';var u=p.length>1?p.slice(1).join(':'):p[0];window.location.href=(k==='note'?'/notes/':'/item/')+u}",
         },
         renderHTML({ options, node }) {
+          const rawId = String(node.attrs.id ?? "");
+          const [kindPart, ...rest] = rawId.split(":");
+          const hasPrefix = rest.length > 0;
+          const kind = hasPrefix ? kindPart : "item";
+          const uuid = hasPrefix ? rest.join(":") : rawId;
+          const href = kind === "note" ? `/notes/${uuid}` : `/item/${uuid}`;
           return [
             "a",
             {
               ...options.HTMLAttributes,
               "data-type": "mention",
-              "data-id": node.attrs.id,
-              href: `/item/${node.attrs.id}`,
+              "data-id": rawId,
+              "data-kind": kind,
+              href,
               class: "stoa-mention",
             },
-            `@${node.attrs.label ?? node.attrs.id}`,
+            `@${node.attrs.label ?? uuid}`,
           ];
         },
         suggestion: makeSuggestion(),
