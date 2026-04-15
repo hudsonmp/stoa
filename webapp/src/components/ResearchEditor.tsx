@@ -274,6 +274,12 @@ function EditorToolbar({ editor }: { editor: Editor }) {
       return;
     }
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    // Collapse selection to the end of the just-linked range. With the Link
+    // mark configured as non-inclusive (see extensions below), cursor at `to`
+    // is OUTSIDE the mark — so the toolbar button toggles off and the next
+    // character typed is not part of the link.
+    const { to } = editor.state.selection;
+    editor.commands.setTextSelection(to);
   }, [editor]);
 
   const S = 15;
@@ -384,7 +390,12 @@ export default function ResearchEditor({
       Placeholder.configure({ placeholder }),
       Image.configure({ allowBase64: true }),
       Underline,
-      Link.configure({
+      Link.extend({
+        // Non-inclusive so cursor at the end of a link is treated as OUTSIDE
+        // the mark. Matches the "Link button toggles off after applying"
+        // expectation and prevents accidental link-extension when you keep typing.
+        inclusive: false,
+      }).configure({
         openOnClick: true,
         autolink: true,
         HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" },
