@@ -63,6 +63,7 @@ export interface Highlight {
   context?: string;
   color: string;
   note?: string;
+  page_number?: number | null;
   created_at: string;
 }
 

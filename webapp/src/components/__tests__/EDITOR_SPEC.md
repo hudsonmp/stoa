@@ -100,6 +100,20 @@ requirements from the failures. Role 4 implements. Loop.
 | H2  | Typing in editor      | ⌘K              | No-op (don't hijack typing)                                   | U      |
 | H3  | ⌘N / ⌘Y               | —               | Browser-reserved accelerators; unusable from webpage          | D      |
 
+## L. PDF annotation (uploaded PDFs via ItemDetail)
+
+| id  | precondition                         | action                        | expected                                                  | status |
+| --- | ------------------------------------ | ----------------------------- | --------------------------------------------------------- | ------ |
+| L1  | PDF open in ItemDetail               | Select text                   | Floating "Highlight" button appears; click → POST /highlights with page_number | P |
+| L2  | Highlight exists for this PDF        | Load page containing it       | Text-layer spans matching highlight.text get yellow tint  | P      |
+| L3  | Take a note on PDF                   | Type in notepad               | Autosave (≤900ms debounce) creates/PATCHes draft — no Send button | P |
+| L4  | Save bookmark (current page = 7)     | Reload                        | PdfAnnotationView auto-jumps to page 7 once pages render  | P      |
+| L5  | PDF view open with ≥1 collection     | —                             | Folder chip picker reachable from inside the PDF sidebar  | P      |
+| L6  | Highlight on page 5, scroll to page 5| —                             | Yellow tint visible on matched spans (amber highlighter)  | P      |
+| L7  | Create highlight then note           | —                             | Note shows linked-to-highlight indicator in sidebar       | U      |
+| L8  | Select text spanning 2 pages         | Highlight                     | Page number = page of anchor span; graceful degrade       | P      |
+| L9  | Autosave fires while typing fast     | Keep typing after save        | Subsequent edits PATCH same draft note (no duplicate)     | P      |
+
 ## K. Graph view (/graph)
 
 | id  | precondition                         | action                      | expected                                                       | status |

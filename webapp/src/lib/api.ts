@@ -430,6 +430,7 @@ export async function createHighlight(data: {
   context?: string;
   color?: string;
   note?: string;
+  page_number?: number;
 }) {
   return apiFetch<{ highlight: unknown }>("/highlights", {
     method: "POST",

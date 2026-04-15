@@ -437,10 +437,32 @@ export default function ItemDetail() {
           highlights={highlights}
           notes={notes}
           itemId={item.id}
+          collections={availableCollections}
+          onAddToCollection={handleAddToCollection}
           onCreateNote={async (content, tags) => {
             const result = await createNote({ item_id: item.id, content, tags });
             const newNote = (result as { note: Note }).note;
             setNotes((prev) => [newNote, ...prev]);
+            return newNote;
+          }}
+          onCreateHighlight={async ({ text, context, page_number }) => {
+            if (!item) return null;
+            try {
+              const result = await createHighlight({
+                item_id: item.id,
+                text,
+                context,
+                page_number,
+                color: "yellow",
+              });
+              const hl = result.highlight as Highlight;
+              setHighlights((prev) => [hl, ...prev]);
+              setLastCreatedHighlightId(hl.id);
+              return hl;
+            } catch (e) {
+              console.error("Failed to create PDF highlight:", e);
+              return null;
+            }
           }}
         />
       </div>
