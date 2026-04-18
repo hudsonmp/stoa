@@ -208,25 +208,25 @@ async def delete_project(project_id: str, request: Request):
 # ─────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/folders")
-async def list_folders(project_id: str, request: Request, parent_id: Optional[str] = None):
+async def list_folders(project_id: str, request: Request, parent_folder_id: Optional[str] = None):
     """List folders within a project.
 
-    Omit parent_id or pass 'root' → children of the root folder.
-    Pass parent_id=<uuid> → children of that folder.
+    Omit parent_folder_id or pass 'root' → children of the root folder.
+    Pass parent_folder_id=<uuid> → children of that folder.
     """
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
     await _assert_project_owner(project_id, user_id, supabase)
 
-    if parent_id is None or parent_id == "root":
+    if parent_folder_id is None or parent_folder_id == "root":
         root = _get_root_folder(project_id, supabase)
-        parent_id = root["id"]
+        parent_folder_id = root["id"]
 
     result = (
         supabase.table("folders")
         .select("id, project_id, parent_folder_id, name, path, sort_order, created_at")
         .eq("project_id", project_id)
-        .eq("parent_folder_id", parent_id)
+        .eq("parent_folder_id", parent_folder_id)
         .order("sort_order")
         .order("name")
         .execute()
