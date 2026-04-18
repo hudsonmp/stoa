@@ -609,6 +609,69 @@ async def quick_search(request: Request, q: str = "", limit: int = 8):
     return {"results": result.data or []}
 
 
+@router.get("/mention-search")
+async def mention_search(request: Request, q: str = "", limit: int = 8):
+    """Multi-entity @mention autocomplete: items + notes + people.
+
+    Returns [{id, label, ref_type, sub}] for the MentionList component.
+    Items first, then notes, then people — most likely when reading a paper.
+    """
+    import re as _re
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    if not q or len(q) < 2:
+        return {"results": []}
+
+    pat = f"%{q}%"
+    per_type = max(3, limit // 3)
+
+    items_res = (
+        supabase.table("items")
+        .select("id, title, type")
+        .eq("user_id", user_id)
+        .ilike("title", pat)
+        .limit(per_type)
+        .execute()
+    )
+    item_results = [
+        {"id": r["id"], "label": r["title"], "ref_type": "item", "sub": r.get("type", "")}
+        for r in (items_res.data or [])
+    ]
+
+    notes_res = (
+        supabase.table("notes")
+        .select("id, title, content")
+        .eq("user_id", user_id)
+        .ilike("title", pat)
+        .limit(per_type)
+        .execute()
+    )
+    note_results = []
+    for r in (notes_res.data or []):
+        label = r.get("title") or None
+        if not label or label == "Untitled":
+            text = _re.sub(r"<[^>]+>", "", r.get("content", "")).strip()
+            label = (text.split("\n")[0][:60] if text else None) or "Untitled"
+        note_results.append({"id": r["id"], "label": label, "ref_type": "note", "sub": "note"})
+
+    people_res = (
+        supabase.table("people")
+        .select("id, name")
+        .eq("user_id", user_id)
+        .ilike("name", pat)
+        .limit(per_type)
+        .execute()
+    )
+    person_results = [
+        {"id": r["id"], "label": r["name"], "ref_type": "person", "sub": "person"}
+        for r in (people_res.data or [])
+    ]
+
+    combined = (item_results + note_results + person_results)[:limit]
+    return {"results": combined}
+
+
 @router.get("/{item_id}/proxy")
 async def proxy_page(item_id: str, request: Request, user_id: str | None = None):
     """Proxy an item's URL to bypass X-Frame-Options restrictions."""

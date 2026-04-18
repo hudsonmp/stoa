@@ -21,40 +21,91 @@ import {
 } from "lucide-react";
 import MentionList, { type MentionItem, type MentionListRef } from "./MentionList";
 import ReactDOM from "react-dom/client";
-import type { SuggestionOptions, SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
+import type {
+  SuggestionOptions,
+  SuggestionProps,
+  SuggestionKeyDownProps,
+} from "@tiptap/suggestion";
+import { createNoteLink } from "@/lib/api";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
 
-// Fast title search — no embeddings, just ILIKE
-async function quickSearch(query: string): Promise<Array<{ id: string; label: string }>> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (DEV_USER_ID) headers["X-User-Id"] = DEV_USER_ID;
-  else {
-    const token = localStorage.getItem("stoa_token");
-    const userId = localStorage.getItem("stoa_user_id");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    else if (userId) headers["X-User-Id"] = userId;
-  }
-  const res = await fetch(`${API_URL}/items/quick-search?q=${encodeURIComponent(query)}&limit=8`, { headers });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).map((r: { id: string; title: string }) => ({ id: r.id, label: r.title }));
+// ── mention autocomplete ──────────────────────────────────────────────────────
+
+interface MentionResult {
+  id: string;
+  label: string;
+  ref_type: "note" | "item" | "person" | "folder";
+  sub?: string;
 }
 
-function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
+function getAuthHeaders(): Record<string, string> {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (DEV_USER_ID) {
+    h["X-User-Id"] = DEV_USER_ID;
+    return h;
+  }
+  const token = localStorage.getItem("stoa_token");
+  const userId = localStorage.getItem("stoa_user_id");
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  else if (userId) h["X-User-Id"] = userId;
+  return h;
+}
+
+/**
+ * Multi-entity @mention search: items + notes + people.
+ * Falls back to item-only quick-search if mention-search is unavailable.
+ */
+async function mentionSearch(
+  query: string
+): Promise<Array<MentionItem & { ref_type?: string }>> {
+  if (!query || query.length < 1) return [];
+  try {
+    const res = await fetch(
+      `${API_URL}/items/mention-search?q=${encodeURIComponent(query)}&limit=8`,
+      { headers: getAuthHeaders() }
+    );
+    if (!res.ok) throw new Error("mention-search unavailable");
+    const data: { results: MentionResult[] } = await res.json();
+    return (data.results || []).map((r) => ({
+      id: r.id,
+      label: r.label,
+      ref_type: r.ref_type,
+      sub: r.sub,
+    }));
+  } catch {
+    // Fallback: item-only quick-search (pre-existing endpoint)
+    const res2 = await fetch(
+      `${API_URL}/items/quick-search?q=${encodeURIComponent(query)}&limit=8`,
+      { headers: getAuthHeaders() }
+    );
+    if (!res2.ok) return [];
+    const data2: { results: { id: string; title: string }[] } =
+      await res2.json();
+    return (data2.results || []).map((r) => ({
+      id: r.id,
+      label: r.title,
+      ref_type: "item" as const,
+    }));
+  }
+}
+
+function makeSuggestion(): Omit<SuggestionOptions<MentionItem & { ref_type?: string }, MentionItem & { ref_type?: string }>, "editor"> {
   return {
-    items: async ({ query }) => {
-      if (!query || query.length < 1) return [];
-      return quickSearch(query);
-    },
+    items: async ({ query }) => mentionSearch(query),
     render: () => {
       let root: ReactDOM.Root | null = null;
       let popup: HTMLDivElement | null = null;
       let componentRef: MentionListRef | null = null;
 
       return {
-        onStart: (props: SuggestionProps<MentionItem, MentionItem>) => {
+        onStart: (
+          props: SuggestionProps<
+            MentionItem & { ref_type?: string },
+            MentionItem & { ref_type?: string }
+          >
+        ) => {
           popup = document.createElement("div");
           popup.style.position = "absolute";
           popup.style.zIndex = "50";
@@ -63,7 +114,9 @@ function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
           root = ReactDOM.createRoot(popup);
           root.render(
             <MentionList
-              ref={(ref) => { componentRef = ref; }}
+              ref={(ref) => {
+                componentRef = ref;
+              }}
               items={props.items}
               command={props.command}
             />
@@ -72,11 +125,18 @@ function makeSuggestion(): Omit<SuggestionOptions<any, any>, "editor"> {
           updatePosition(popup, props.clientRect);
         },
 
-        onUpdate: (props: SuggestionProps<MentionItem, MentionItem>) => {
+        onUpdate: (
+          props: SuggestionProps<
+            MentionItem & { ref_type?: string },
+            MentionItem & { ref_type?: string }
+          >
+        ) => {
           if (root && popup) {
             root.render(
               <MentionList
-                ref={(ref) => { componentRef = ref; }}
+                ref={(ref) => {
+                  componentRef = ref;
+                }}
                 items={props.items}
                 command={props.command}
               />
@@ -121,7 +181,66 @@ function updatePosition(
   popup.style.top = `${rect.bottom + 4}px`;
 }
 
-// ─── Toolbar Button ───
+// ── link persistence ──────────────────────────────────────────────────────────
+
+/**
+ * Parse @mentions from TipTap HTML and upsert them as note_links.
+ *
+ * Extracts every <a data-type="mention" data-id="..." data-ref-type="...">
+ * element. Each unique (ref_type, ref_id) pair is upserted once with
+ * mention_offset derived from text offset in the content.
+ *
+ * Fire-and-forget: errors are swallowed so the editor save path is unblocked.
+ */
+async function syncMentionLinks(
+  noteId: string,
+  html: string
+): Promise<void> {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    const mentions = doc.querySelectorAll("a[data-type='mention'][data-id]");
+
+    // Deduplicate: keep first occurrence per (ref_type, id) pair
+    const seen = new Set<string>();
+    const links: Array<{
+      target_ref_type: "note" | "item" | "person" | "folder";
+      target_ref_id: string;
+      mention_offset: number;
+    }> = [];
+
+    // Strip HTML to compute character offsets in plain text
+    const plainText = doc.body.textContent || "";
+
+    mentions.forEach((el) => {
+      const id = el.getAttribute("data-id") || "";
+      const refType = (el.getAttribute("data-ref-type") ||
+        "item") as "note" | "item" | "person" | "folder";
+      const key = `${refType}::${id}`;
+      if (!id || seen.has(key)) return;
+      seen.add(key);
+
+      // Approximate character offset of the mention label in plain text
+      const label = el.textContent || "";
+      const offset = Math.max(0, plainText.indexOf(label));
+
+      links.push({
+        target_ref_type: refType,
+        target_ref_id: id,
+        mention_offset: offset,
+      });
+    });
+
+    // Upsert all links concurrently (fire-and-forget individually)
+    await Promise.allSettled(
+      links.map((l) => createNoteLink(noteId, l))
+    );
+  } catch {
+    // Never block the editor save path
+  }
+}
+
+// ── Toolbar ───────────────────────────────────────────────────────────────────
 
 function ToolbarButton({
   onClick,
@@ -150,8 +269,6 @@ function ToolbarButton({
     </button>
   );
 }
-
-// ─── Toolbar ───
 
 function EditorToolbar({ editor }: { editor: Editor }) {
   const addImage = useCallback(() => {
@@ -211,21 +328,27 @@ function EditorToolbar({ editor }: { editor: Editor }) {
       <div className="w-px h-4 bg-border mx-1" />
 
       <ToolbarButton
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        onClick={() =>
+          editor.chain().focus().toggleHeading({ level: 1 }).run()
+        }
         isActive={editor.isActive("heading", { level: 1 })}
         title="Heading 1"
       >
         <Heading1 size={S} />
       </ToolbarButton>
       <ToolbarButton
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        onClick={() =>
+          editor.chain().focus().toggleHeading({ level: 2 }).run()
+        }
         isActive={editor.isActive("heading", { level: 2 })}
         title="Heading 2"
       >
         <Heading2 size={S} />
       </ToolbarButton>
       <ToolbarButton
-        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+        onClick={() =>
+          editor.chain().focus().toggleHeading({ level: 3 }).run()
+        }
         isActive={editor.isActive("heading", { level: 3 })}
         title="Heading 3"
       >
@@ -258,7 +381,11 @@ function EditorToolbar({ editor }: { editor: Editor }) {
 
       <div className="w-px h-4 bg-border mx-1" />
 
-      <ToolbarButton onClick={addLink} isActive={editor.isActive("link")} title="Link">
+      <ToolbarButton
+        onClick={addLink}
+        isActive={editor.isActive("link")}
+        title="Link"
+      >
         <LinkIcon size={S} />
       </ToolbarButton>
       <ToolbarButton onClick={addImage} isActive={false} title="Image">
@@ -268,21 +395,39 @@ function EditorToolbar({ editor }: { editor: Editor }) {
   );
 }
 
-// ─── Research Editor ───
+// ── ResearchEditor ────────────────────────────────────────────────────────────
 
 interface ResearchEditorProps {
   content: string;
   onSave: (content: string) => void;
   placeholder?: string;
+  /** When present, @mentions are persisted as note_links after each save. */
+  noteId?: string;
 }
 
 export default function ResearchEditor({
   content,
   onSave,
   placeholder = "Start writing...",
+  noteId,
 }: ResearchEditorProps) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestContent = useRef(content);
+  const noteIdRef = useRef(noteId);
+  useEffect(() => {
+    noteIdRef.current = noteId;
+  }, [noteId]);
+
+  const handleSave = useCallback(
+    (html: string) => {
+      onSave(html);
+      // Sync @mentions to note_links if this editor owns a note
+      if (noteIdRef.current) {
+        syncMentionLinks(noteIdRef.current, html);
+      }
+    },
+    [onSave]
+  );
 
   const editor = useEditor({
     extensions: [
@@ -298,19 +443,26 @@ export default function ResearchEditor({
       Mention.configure({
         HTMLAttributes: {
           class: "stoa-mention",
-          onclick: "if(this.dataset.id){window.location.href='/item/'+this.dataset.id}",
         },
         renderHTML({ options, node }) {
+          const refType: string = node.attrs.ref_type ?? "item";
+          const id: string = node.attrs.id ?? "";
+          // Route by entity type
+          let href = `/item/${id}`;
+          if (refType === "note") href = `/notes/${id}`;
+          else if (refType === "person") href = `/people/${id}`;
+
           return [
             "a",
             {
               ...options.HTMLAttributes,
               "data-type": "mention",
-              "data-id": node.attrs.id,
-              href: `/item/${node.attrs.id}`,
+              "data-id": id,
+              "data-ref-type": refType,
+              href,
               class: "stoa-mention",
             },
-            `@${node.attrs.label ?? node.attrs.id}`,
+            `@${node.attrs.label ?? id}`,
           ];
         },
         suggestion: makeSuggestion(),
@@ -324,7 +476,7 @@ export default function ResearchEditor({
       // Debounced auto-save: 5s of inactivity
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        onSave(html);
+        handleSave(html);
       }, 5000);
     },
     editorProps: {
@@ -374,8 +526,8 @@ export default function ResearchEditor({
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    onSave(latestContent.current);
-  }, [onSave]);
+    handleSave(latestContent.current);
+  }, [handleSave]);
 
   useEffect(() => {
     if (!editor) return;
@@ -385,12 +537,11 @@ export default function ResearchEditor({
     };
   }, [editor, handleBlur]);
 
-  // Sync content from parent when note changes (different note selected)
+  // Sync content from parent when active note changes
   const prevContent = useRef(content);
   useEffect(() => {
     if (editor && content !== prevContent.current) {
       prevContent.current = content;
-      // Only reset if content is actually different from editor state
       const editorHtml = editor.getHTML();
       if (editorHtml !== content) {
         editor.commands.setContent(content);
