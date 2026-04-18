@@ -1061,3 +1061,248 @@ def _auto_tag_from_subjects(supabase, user_id: str, item_id: str, subjects: list
                 break
         if matched >= 4:
             break
+
+
+# ===========================================================================
+# Multi-content type ingesters: GDoc, Email, GitHub, Image
+# ===========================================================================
+
+class IngestGdocRequest(BaseModel):
+    url: str
+    tags: list[str] = []
+
+
+class IngestEmailRequest(BaseModel):
+    thread_id: str
+    tags: list[str] = []
+
+
+class IngestGithubRequest(BaseModel):
+    url: str
+    tags: list[str] = []
+
+
+@router.post("/gdoc")
+async def ingest_gdoc(req: IngestGdocRequest, request: Request):
+    """Ingest a Google Doc by URL."""
+    from services.gdoc_extractor import extract_gdoc_id, fetch_gdoc
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    doc_id = extract_gdoc_id(req.url)
+    if not doc_id:
+        raise HTTPException(status_code=400, detail="Could not parse Google Doc ID from URL")
+    existing = supabase.table("items").select("id").eq("user_id", user_id).eq("url", req.url).execute()
+    if existing.data:
+        return {"item": existing.data[0], "item_id": existing.data[0]["id"], "already_exists": True}
+    try:
+        extracted = await fetch_gdoc(doc_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Google Docs API error: {e}")
+    item_data = {
+        "user_id": user_id,
+        "url": req.url,
+        "title": extracted["title"],
+        "type": "gdoc",
+        "domain": "docs.google.com",
+        "extracted_text": extracted["markdown"],
+        "reading_status": "to_read",
+        "metadata": {
+            "gdoc_id": extracted["gdoc_id"],
+            "owner_email": extracted["owner_email"],
+            "last_modified": extracted["last_modified"],
+            "shared_with": extracted["shared_with"],
+        },
+    }
+    if req.tags:
+        item_data["tags"] = req.tags
+    result = supabase.table("items").insert(item_data).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="DB insert failed")
+    item = result.data[0]
+    try:
+        await chunk_and_embed(item["id"], extracted["markdown"], supabase)
+    except Exception:
+        pass
+    return {"item": item, "item_id": item["id"], "already_exists": False}
+
+
+@router.post("/email")
+async def ingest_email(req: IngestEmailRequest, request: Request):
+    """Ingest a Gmail thread by thread_id."""
+    from services.email_extractor import fetch_gmail_thread
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    existing_all = supabase.table("items").select("id,metadata").eq("user_id", user_id).eq("type", "email_thread").execute()
+    for row in (existing_all.data or []):
+        if (row.get("metadata") or {}).get("thread_id") == req.thread_id:
+            return {"item": row, "item_id": row["id"], "already_exists": True}
+    try:
+        extracted = await fetch_gmail_thread(req.thread_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gmail API error: {e}")
+    participants_str = ", ".join(extracted["participants"][:10])
+    safe_text = "Subject: " + extracted["subject"] + "\nParticipants: " + participants_str
+    item_data = {
+        "user_id": user_id,
+        "title": extracted["subject"],
+        "type": "email_thread",
+        "domain": "mail.google.com",
+        "extracted_text": safe_text,
+        "messages": extracted["messages"],
+        "reading_status": "to_read",
+        "metadata": {
+            "thread_id": req.thread_id,
+            "participants": extracted["participants"],
+            "message_count": len(extracted["messages"]),
+        },
+    }
+    if req.tags:
+        item_data["tags"] = req.tags
+    result = supabase.table("items").insert(item_data).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="DB insert failed")
+    item = result.data[0]
+    return {"item": item, "item_id": item["id"], "already_exists": False}
+
+
+@router.post("/github")
+async def ingest_github(req: IngestGithubRequest, request: Request):
+    """Ingest a GitHub repository by URL."""
+    from services.github_extractor import extract_github_slug, fetch_github_repo
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    slug = extract_github_slug(req.url)
+    if not slug:
+        raise HTTPException(status_code=400, detail="Could not parse GitHub owner/repo from URL")
+    existing = supabase.table("items").select("id").eq("user_id", user_id).eq("github_slug", slug).execute()
+    if existing.data:
+        return {"item": existing.data[0], "item_id": existing.data[0]["id"], "already_exists": True}
+    try:
+        extracted = await fetch_github_repo(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {e}")
+    description = extracted.get("description") or ""
+    readme_preview = (extracted.get("readme_md") or "")[:500]
+    combined_text = (description + "\n\n" + readme_preview).strip()
+    item_data = {
+        "user_id": user_id,
+        "url": req.url,
+        "title": extracted["full_name"],
+        "type": "github_repo",
+        "domain": "github.com",
+        "extracted_text": combined_text,
+        "github_slug": slug,
+        "stars": extracted.get("stars", 0),
+        "last_commit_at": extracted.get("last_commit_at") or None,
+        "readme_md": extracted.get("readme_md") or None,
+        "file_tree": extracted.get("file_tree") or [],
+        "reading_status": "to_read",
+        "metadata": {
+            "language": extracted.get("language", ""),
+            "topics": extracted.get("topics", []),
+            "license": extracted.get("license", ""),
+        },
+    }
+    if req.tags:
+        item_data["tags"] = req.tags
+    result = supabase.table("items").insert(item_data).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="DB insert failed")
+    item = result.data[0]
+    try:
+        await chunk_and_embed(item["id"], combined_text, supabase)
+    except Exception:
+        pass
+    return {"item": item, "item_id": item["id"], "already_exists": False}
+
+
+@router.post("/research-image")
+async def ingest_research_image(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None),
+    tags: str = Form(""),
+):
+    """Ingest a research image via file upload or URL."""
+    import io
+    import uuid
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+    if file is not None:
+        image_bytes = await file.read()
+        filename = file.filename or "image.png"
+    elif url:
+        import httpx
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=400, detail="Could not fetch image URL")
+            image_bytes = resp.content
+            filename = url.split("/")[-1].split("?")[0] or "image.png"
+    else:
+        raise HTTPException(status_code=400, detail="Provide either 'file' or 'url'")
+    width = height = 0
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(image_bytes))
+        width, height = img.size
+    except Exception:
+        pass
+    ocr_text = ""
+    try:
+        from surya.ocr import run_ocr
+        from surya.model.detection.model import load_model as load_det_model
+        from surya.model.detection.processor import load_processor as load_det_processor
+        from surya.model.recognition.model import load_model as load_rec_model
+        from surya.model.recognition.processor import load_processor as load_rec_processor
+        from PIL import Image as PILImage
+        det_processor, det_model = load_det_processor(), load_det_model()
+        rec_model, rec_processor = load_rec_model(), load_rec_processor()
+        img = PILImage.open(io.BytesIO(image_bytes))
+        result = run_ocr([img], [["en"]], det_model, det_processor, rec_model, rec_processor)
+        if result:
+            ocr_text = "\n".join(line.text for page in result for line in getattr(page, "text_lines", []))
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    bucket = "research-images"
+    storage_path = f"{user_id}/{uuid.uuid4()}_{filename}"
+    try:
+        supabase.storage.from_(bucket).upload(storage_path, image_bytes)
+    except Exception:
+        try:
+            supabase.storage.create_bucket(bucket, options={"public": True})
+            supabase.storage.from_(bucket).upload(storage_path, image_bytes)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Storage upload failed: {exc}")
+    try:
+        pub = supabase.storage.from_(bucket).get_public_url(storage_path)
+        image_url = pub if isinstance(pub, str) else pub.get("publicURL", "")
+    except Exception:
+        import os as _os
+        image_url = f"{_os.environ.get('SUPABASE_URL', '')}/storage/v1/object/public/{bucket}/{storage_path}"
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    item_data = {
+        "user_id": user_id,
+        "title": filename,
+        "type": "image",
+        "domain": "upload",
+        "cover_image_url": image_url,
+        "extracted_text": ocr_text or None,
+        "reading_status": "to_read",
+        "metadata": {"width": width, "height": height, "filename": filename, "has_ocr": bool(ocr_text)},
+    }
+    if tag_list:
+        item_data["tags"] = tag_list
+    result = supabase.table("items").insert(item_data).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="DB insert failed")
+    item = result.data[0]
+    return {"item": item, "item_id": item["id"], "image_url": image_url, "width": width, "height": height, "ocr_text": ocr_text}

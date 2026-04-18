@@ -581,3 +581,45 @@ export async function resolveProjectPath(projectId: string, path: string) {
     `/projects/${projectId}/resolve?path=${encodeURIComponent(path)}`
   );
 }
+
+
+// ---------------------------------------------------------------------------
+// Multi-content ingest endpoints
+// ---------------------------------------------------------------------------
+
+export async function ingestGdoc(url: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/gdoc",
+    { method: "POST", body: JSON.stringify({ url, tags }) }
+  );
+}
+
+export async function ingestEmail(threadId: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/email",
+    { method: "POST", body: JSON.stringify({ thread_id: threadId, tags }) }
+  );
+}
+
+export async function ingestGithub(url: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/github",
+    { method: "POST", body: JSON.stringify({ url, tags }) }
+  );
+}
+
+export async function ingestResearchImage(file: File, tags: string[] = []) {
+  const form = new FormData();
+  form.append("file", file);
+  if (tags.length) form.append("tags", tags.join(","));
+  // Use raw fetch — FormData can't go through apiFetch's JSON serialisation
+  const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+  const userId = localStorage.getItem("stoa_user_id") ?? "";
+  const resp = await fetch(`${API_BASE}/ingest/research-image`, {
+    method: "POST",
+    headers: { "X-User-Id": userId },
+    body: form,
+  });
+  if (!resp.ok) throw new Error(`Image upload failed: ${resp.status}`);
+  return resp.json() as Promise<{ item: import("./supabase").Item; item_id: string; image_url: string; width: number; height: number; ocr_text: string }>;
+}
