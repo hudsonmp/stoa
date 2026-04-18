@@ -4,6 +4,7 @@ import {
   BookCheck,
   BookMarked,
   FolderOpen,
+  FolderKanban,
   FileText,
   Search,
   LogOut,
@@ -34,6 +35,7 @@ const secondaryItems = [
   { to: "/writings", label: "Writings", icon: FileText },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },
+  { to: "/projects", label: "Projects", icon: FolderKanban },
 ];
 
 export default function Sidebar({ counts, reviewDue = 0 }: SidebarProps) {
