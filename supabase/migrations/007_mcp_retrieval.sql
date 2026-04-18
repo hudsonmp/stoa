@@ -52,6 +52,7 @@ CREATE INDEX IF NOT EXISTS project_indexes_user_idx
 
 ALTER TABLE project_indexes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage own project_indexes" ON project_indexes;
 CREATE POLICY "Users manage own project_indexes"
   ON project_indexes FOR ALL
   USING (auth.uid() = user_id);
@@ -78,6 +79,7 @@ CREATE INDEX IF NOT EXISTS note_embeddings_vec_idx
 
 ALTER TABLE note_embeddings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage own note_embeddings" ON note_embeddings;
 CREATE POLICY "Users manage own note_embeddings"
   ON note_embeddings FOR ALL
   USING (auth.uid() = user_id);
