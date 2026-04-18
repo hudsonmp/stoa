@@ -145,12 +145,15 @@ async function handleSavePage(data) {
     const headers = buildAuthHeaders(config);
     const type = data.type || detectType(data.url);
 
+    // Strip `note` from the ingest payload — notes live at /notes, not /ingest.
+    const { note, ...rest } = data;
+
     const body = {
-      url: data.url,
+      url: rest.url,
       type,
-      tags: data.tags || [],
+      tags: rest.tags || [],
     };
-    if (data.collection_id) body.collection_id = data.collection_id;
+    if (rest.collection_id) body.collection_id = rest.collection_id;
 
     const resp = await fetch(`${config.apiUrl}/ingest`, {
       method: "POST",
@@ -165,7 +168,27 @@ async function handleSavePage(data) {
     }
 
     const result = await resp.json();
-    return { success: true, item: result.item };
+    const item = result.item;
+
+    // Attach initial note typed in the popup before saving.
+    if (note && note.trim() && item?.id) {
+      try {
+        await fetch(`${config.apiUrl}/notes`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            item_id: item.id,
+            content: note.trim(),
+            note_type: "marginalia",
+          }),
+        });
+      } catch (noteErr) {
+        console.error("[Stoa] Failed to save note-on-save:", noteErr);
+        // Non-fatal — item was saved successfully.
+      }
+    }
+
+    return { success: true, item };
   } catch (err) {
     console.error("[Stoa] Save page error:", err);
     return { success: false, error: err.message };

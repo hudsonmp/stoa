@@ -195,6 +195,7 @@ export async function createNote(data: {
   evergreen?: boolean;
   anchor_selectors?: Record<string, unknown> | null;
   anchored_highlight_ids?: string[];
+  /** Client-generated UUID for backend idempotency (autosave dedup). */
   draft_id?: string;
 }) {
   return apiFetch<{ note: unknown }>("/notes", {

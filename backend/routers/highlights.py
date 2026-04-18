@@ -1,8 +1,19 @@
-"""Highlight CRUD endpoints."""
+"""Highlight CRUD endpoints.
+
+Anchoring strategy (W3C Web Annotation Data Model):
+  selectors: list[dict] — up to three selector objects per highlight, stored as JSONB.
+    - {"type": "TextQuoteSelector", "exact": "...", "prefix": "...", "suffix": "..."}
+    - {"type": "TextPositionSelector", "start": 42, "end": 58}
+    - {"type": "FragmentSelector", "value": "page=3"}
+
+  The frontend resolver tries TextPositionSelector first (fastest), then
+  TextQuoteSelector (fuzzy context), then substring on highlights.text (legacy).
+  All three are computed at highlight-creation time from pdfjs TextItem positions.
+"""
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -23,6 +34,10 @@ class CreateHighlightRequest(BaseModel):
     end_offset: Optional[int] = None
     color: str = Field(default="yellow", pattern="^(yellow|green|blue|pink|purple)$")
     note: Optional[str] = None
+    page_number: Optional[int] = None
+    # W3C Web Annotation selectors computed by the client from pdfjs TextItem positions.
+    # Nullable: legacy highlights created before this feature won't have selectors.
+    selectors: Optional[list[Any]] = None
 
 
 @router.post("")
@@ -42,7 +57,7 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
     if not item_check.data:
         raise HTTPException(status_code=404, detail="Item not found")
 
-    result = supabase.table("highlights").insert({
+    row: dict[str, Any] = {
         "item_id": req.item_id,
         "user_id": user_id,
         "text": req.text,
@@ -52,7 +67,12 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
         "end_offset": req.end_offset,
         "color": req.color,
         "note": req.note,
-    }).execute()
+        "page_number": req.page_number,
+    }
+    if req.selectors is not None:
+        row["selectors"] = req.selectors
+
+    result = supabase.table("highlights").insert(row).execute()
 
     highlight = result.data[0]
 

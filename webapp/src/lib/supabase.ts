@@ -46,6 +46,28 @@ export interface Item {
   created_at: string;
 }
 
+// W3C Web Annotation Data Model selectors
+// https://www.w3.org/TR/annotation-model/#selectors
+export interface TextQuoteSelector {
+  type: "TextQuoteSelector";
+  exact: string;
+  prefix?: string;
+  suffix?: string;
+}
+
+export interface TextPositionSelector {
+  type: "TextPositionSelector";
+  start: number;
+  end: number;
+}
+
+export interface FragmentSelector {
+  type: "FragmentSelector";
+  value: string; // e.g. "page=3"
+}
+
+export type W3CSelector = TextQuoteSelector | TextPositionSelector | FragmentSelector;
+
 export interface Highlight {
   id: string;
   item_id: string;
@@ -54,6 +76,12 @@ export interface Highlight {
   context?: string;
   color: string;
   note?: string;
+  page_number?: number | null;
+  // W3C Web Annotation selectors — three-tier anchor for reliable re-rendering.
+  // Tier 1: TextPositionSelector (fast, exact offset in page text layer).
+  // Tier 2: TextQuoteSelector (fuzzy context match, survives minor text drift).
+  // Tier 3: substring fallback on highlights.text (legacy behaviour).
+  selectors?: W3CSelector[] | null;
   created_at: string;
 }
 
