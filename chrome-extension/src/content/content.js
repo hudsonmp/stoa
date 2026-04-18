@@ -13,6 +13,24 @@
 
 const STOA_COLORS = ["green"];
 
+// --- PDF Detection ---
+// Returns true when the current page IS a PDF document being rendered by the browser.
+// Covers: native PDF viewer (contentType), direct .pdf URLs with optional query strings
+// (e.g. ?download=0, ?v=2), and full-page embedded PDFs.
+// Does NOT trigger on HTML abstract pages that merely link to a PDF (e.g. arXiv /abs/ pages).
+function detectIsPdf() {
+  // 1. Native PDF viewer sets contentType reliably
+  if (document.contentType === "application/pdf") return true;
+  // 2. URL pathname ends in .pdf regardless of query string or fragment
+  try {
+    const pathname = new URL(window.location.href).pathname;
+    if (pathname.toLowerCase().endsWith(".pdf")) return true;
+  } catch (_) { /* malformed URL */ }
+  // 3. Chrome embeds a full-page <embed type="application/pdf"> for PDFs
+  if (document.querySelector("embed[type='application/pdf']")) return true;
+  return false;
+}
+
 // --- State ---
 let stoaApiUrl = "http://localhost:8000";
 let currentUser = null;
@@ -75,9 +93,7 @@ async function init() {
         url: window.location.href,
         title: document.title,
         hostname: window.location.hostname,
-        isPdf: document.contentType === "application/pdf" ||
-          window.location.href.endsWith(".pdf") ||
-          !!document.querySelector("embed[type='application/pdf']"),
+        isPdf: detectIsPdf(),
       });
       return;
     }
