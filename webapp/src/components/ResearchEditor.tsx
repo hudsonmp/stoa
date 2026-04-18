@@ -465,7 +465,7 @@ export default function ResearchEditor({
             `@${node.attrs.label ?? id}`,
           ];
         },
-        suggestion: makeSuggestion(),
+        suggestion: makeSuggestion() as unknown as typeof Mention.options.suggestion,
       }),
     ],
     content,
