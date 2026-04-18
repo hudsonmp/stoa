@@ -1,7 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Plus, Search, FileText, Trash2, Check, X, ExternalLink } from "lucide-react";
+import {
+  Plus,
+  Search,
+  FileText,
+  Trash2,
+  Check,
+  X,
+  ExternalLink,
+  Leaf,
+} from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
 import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
@@ -22,16 +31,14 @@ function formatRelativeDate(dateStr: string): string {
 
 function extractTitle(note: Note): string {
   if (note.title && note.title !== "Untitled") return note.title;
-  // Strip HTML and take first line
-  const text = note.content
-    .replace(/<[^>]*>/g, "")
-    .trim();
+  const text = note.content.replace(/<[^>]*>/g, "").trim();
   if (!text) return "Untitled";
   const firstLine = text.split("\n")[0];
   return firstLine.length > 50 ? firstLine.slice(0, 50) + "..." : firstLine;
 }
 
 function noteTypeBadge(note: Note): string | null {
+  if (note.evergreen) return "evergreen";
   if (note.item_id) return "annotation";
   if (note.person_id) return "person";
   if (note.tags?.includes("synthesis")) return "synthesis";
@@ -46,7 +53,7 @@ export default function Notes() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
-  const [showAll, setShowAll] = useState(true); // show all notes by default
+  const [showAll, setShowAll] = useState(true);
 
   // Inline title editing state
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
@@ -57,8 +64,7 @@ export default function Notes() {
     setLoading(true);
     try {
       const data = await getNotes();
-      const allNotes = (data.notes as Note[]);
-      // Sort by most recently updated
+      const allNotes = data.notes as Note[];
       allNotes.sort(
         (a, b) =>
           new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
@@ -75,7 +81,6 @@ export default function Notes() {
     load();
   }, [load]);
 
-  // Focus title input when editing starts
   useEffect(() => {
     if (editingTitleId && titleInputRef.current) {
       titleInputRef.current.focus();
@@ -104,7 +109,6 @@ export default function Notes() {
       setSaving(true);
       try {
         await updateNote(activeId, { content });
-        // Update local state without full reload
         setNotes((prev) =>
           prev.map((n) =>
             n.id === activeId
@@ -113,7 +117,7 @@ export default function Notes() {
           )
         );
       } catch {
-        // silent — will retry on next save
+        // silent
       } finally {
         setSaving(false);
       }
@@ -137,14 +141,36 @@ export default function Notes() {
     [activeId, navigate]
   );
 
-  const startEditingTitle = useCallback(
-    (note: Note, e: React.MouseEvent) => {
+  // Toggle evergreen flag on a note
+  const handleToggleEvergreen = useCallback(
+    async (note: Note, e: React.MouseEvent) => {
       e.stopPropagation();
-      setEditingTitleId(note.id);
-      setTitleDraft(note.title && note.title !== "Untitled" ? note.title : "");
+      const newValue = !note.evergreen;
+      // Optimistic update
+      setNotes((prev) =>
+        prev.map((n) =>
+          n.id === note.id ? { ...n, evergreen: newValue } : n
+        )
+      );
+      try {
+        await updateNote(note.id, { evergreen: newValue });
+      } catch {
+        // Revert on failure
+        setNotes((prev) =>
+          prev.map((n) =>
+            n.id === note.id ? { ...n, evergreen: note.evergreen } : n
+          )
+        );
+      }
     },
     []
   );
+
+  const startEditingTitle = useCallback((note: Note, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTitleId(note.id);
+    setTitleDraft(note.title && note.title !== "Untitled" ? note.title : "");
+  }, []);
 
   const saveTitle = useCallback(
     async (noteId: string) => {
@@ -191,7 +217,11 @@ export default function Notes() {
   useEffect(() => {
     if (activeNote) {
       setEditingTitleId(activeNote.id);
-      setTitleDraft(activeNote.title && activeNote.title !== "Untitled" ? activeNote.title : "");
+      setTitleDraft(
+        activeNote.title && activeNote.title !== "Untitled"
+          ? activeNote.title
+          : ""
+      );
     }
   }, [activeNote?.id]);
 
@@ -232,8 +262,7 @@ export default function Notes() {
 
         {/* Search */}
         <div className="px-3 pb-2">
-          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px]
-                          bg-bg-primary border border-border">
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-[6px] bg-bg-primary border border-border">
             <Search size={12} className="text-text-tertiary flex-shrink-0" />
             <input
               type="text"
@@ -308,7 +337,7 @@ export default function Notes() {
                   </div>
                 ) : (
                   <p
-                    className="text-sm font-medium text-text-primary truncate leading-tight"
+                    className="text-sm font-medium text-text-primary truncate leading-tight pr-5"
                     onDoubleClick={(e) => startEditingTitle(note, e)}
                     title="Double-click to rename"
                   >
@@ -321,11 +350,19 @@ export default function Notes() {
                     {formatRelativeDate(note.updated_at)}
                   </span>
                   {badge && badge !== "standalone" && (
-                    <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary bg-bg-secondary px-1.5 py-0.5 rounded">
+                    <span
+                      className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded
+                        ${
+                          badge === "evergreen"
+                            ? "bg-green-50 text-green-600"
+                            : "bg-bg-secondary text-text-tertiary"
+                        }`}
+                    >
                       {badge}
                     </span>
                   )}
                 </div>
+
                 {note.item_id && (
                   <Link
                     to={`/item/${note.item_id}`}
@@ -338,10 +375,25 @@ export default function Notes() {
                   </Link>
                 )}
 
-                {/* Delete button — appears on hover */}
+                {/* Evergreen toggle — hover reveal */}
+                <button
+                  onClick={(e) => handleToggleEvergreen(note, e)}
+                  className={`absolute top-2 right-6 opacity-0 group-hover/note:opacity-100
+                               transition-warm p-1 rounded
+                               ${
+                                 note.evergreen
+                                   ? "text-green-500 opacity-100"
+                                   : "text-text-tertiary hover:text-green-500"
+                               }`}
+                  title={note.evergreen ? "Remove evergreen" : "Make evergreen"}
+                >
+                  <Leaf size={11} />
+                </button>
+
+                {/* Delete button */}
                 <button
                   onClick={(e) => handleDelete(note.id, e)}
-                  className="absolute top-2 right-2 opacity-0 group-hover/note:opacity-100
+                  className="absolute top-2 right-1 opacity-0 group-hover/note:opacity-100
                              transition-warm p-1 rounded text-text-tertiary hover:text-red-500
                              hover:bg-red-50"
                   title="Delete note"
@@ -364,28 +416,82 @@ export default function Notes() {
             transition={{ duration: 0.15 }}
             className="flex-1 flex flex-col"
           >
-            {/* Document header — editable title, Google Doc style */}
+            {/* Document header */}
             <div className="notes-doc-header">
-              <div className="flex items-center justify-between">
-                <input
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={() => saveTitle(activeNote.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      saveTitle(activeNote.id);
-                      (e.target as HTMLInputElement).blur();
+              <div className="flex items-center justify-between gap-3">
+                {/* Evergreen notes don't require a title — show placeholder from linked item */}
+                {activeNote.evergreen ? (
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Leaf
+                      size={16}
+                      className="flex-shrink-0 text-green-500"
+                      title="Evergreen note"
+                    />
+                    {/* Title input still available, but placeholder is smarter */}
+                    <input
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      onBlur={() => saveTitle(activeNote.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          saveTitle(activeNote.id);
+                          (e.target as HTMLInputElement).blur();
+                        }
+                      }}
+                      placeholder={
+                        activeNote.item_id
+                          ? "Untitled (linked to paper)"
+                          : "Concept name..."
+                      }
+                      className="flex-1 font-serif text-2xl font-semibold text-text-primary
+                                 bg-transparent border-none outline-none
+                                 placeholder:text-text-tertiary/40"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={() => saveTitle(activeNote.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        saveTitle(activeNote.id);
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    placeholder="Untitled"
+                    className="flex-1 font-serif text-2xl font-semibold text-text-primary
+                               bg-transparent border-none outline-none
+                               placeholder:text-text-tertiary/40"
+                  />
+                )}
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Evergreen toggle in header */}
+                  <button
+                    onClick={(e) => handleToggleEvergreen(activeNote, e)}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-card text-[11px] font-medium transition-warm
+                      ${
+                        activeNote.evergreen
+                          ? "bg-green-50 text-green-600 hover:bg-green-100"
+                          : "bg-bg-secondary text-text-tertiary hover:text-green-500 hover:bg-green-50"
+                      }`}
+                    title={
+                      activeNote.evergreen
+                        ? "Remove evergreen flag"
+                        : "Make evergreen (Matuschak-style atomic note)"
                     }
-                  }}
-                  placeholder="Untitled"
-                  className="flex-1 font-serif text-2xl font-semibold text-text-primary
-                             bg-transparent border-none outline-none
-                             placeholder:text-text-tertiary/40"
-                />
-                <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0 ml-4">
-                  {saving ? "Saving..." : "Saved"}
-                </span>
+                  >
+                    <Leaf size={12} />
+                    {activeNote.evergreen ? "Evergreen" : "Make evergreen"}
+                  </button>
+                  <span className="text-[10px] font-mono text-text-tertiary">
+                    {saving ? "Saving..." : "Saved"}
+                  </span>
+                </div>
               </div>
+
+              {/* Link to source paper (always shown for evergreen; on-hover for others) */}
               {activeNote.item_id && (
                 <Link
                   to={`/item/${activeNote.item_id}`}
@@ -393,22 +499,32 @@ export default function Notes() {
                              hover:text-text-secondary mt-1"
                 >
                   <ExternalLink size={10} />
-                  View linked item
+                  {activeNote.evergreen ? "Source paper" : "View linked item"}
                 </Link>
               )}
             </div>
+
             <div className="flex-1 notes-editor-fullwidth">
+              {/* Pass noteId so @mentions are persisted as note_links */}
               <ResearchEditor
                 content={activeNote.content}
                 onSave={handleSave}
-                placeholder="Start writing your research notes..."
+                placeholder={
+                  activeNote.evergreen
+                    ? "Write your synthesis in your own words. Use @mention to link concepts..."
+                    : "Start writing your research notes..."
+                }
+                noteId={activeNote.id}
               />
             </div>
           </motion.div>
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <FileText size={32} className="mx-auto mb-3 text-text-tertiary/40" />
+              <FileText
+                size={32}
+                className="mx-auto mb-3 text-text-tertiary/40"
+              />
               <p className="font-serif text-sm text-text-secondary">
                 {notes.length > 0
                   ? "Select a note to start editing"
