@@ -21,6 +21,11 @@ class CreateNoteRequest(BaseModel):
     note_type: str = "marginalia"
     item_ids: list[str] = []
     tags: list[str] = []
+    # Client-generated idempotency key (UUID). If supplied and a note with
+    # the same (user_id, draft_id) already exists, that note is returned
+    # instead of creating a duplicate. Solves the autosave race where two
+    # concurrent POSTs fire before the first response arrives.
+    draft_id: Optional[str] = None
 
 
 class AppendNoteRequest(BaseModel):
@@ -79,14 +84,35 @@ async def create_note(req: CreateNoteRequest, request: Request):
 
     tags = _build_tags(req.note_type, all_item_ids, req.tags)
 
-    result = supabase.table("notes").insert({
+    # Idempotency: if draft_id was supplied, check whether this note was
+    # already created by a concurrent request. Return the existing row to
+    # prevent duplicates under rapid-keystroke autosave race conditions.
+    if req.draft_id:
+        existing = (
+            supabase.table("notes")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("draft_id", req.draft_id)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            note = existing.data[0]
+            note["note_type"] = _extract_note_type(note.get("tags"))
+            return {"note": note}
+
+    row: dict = {
         "user_id": user_id,
         "item_id": req.item_id,
         "person_id": req.person_id,
         "content": req.content,
         "title": req.title,
         "tags": tags,
-    }).execute()
+    }
+    if req.draft_id:
+        row["draft_id"] = req.draft_id
+
+    result = supabase.table("notes").insert(row).execute()
 
     return {"note": result.data[0]}
 

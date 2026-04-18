@@ -64,7 +64,7 @@ interface PdfAnnotationViewProps {
   highlights: Highlight[];
   notes: Note[];
   itemId: string;
-  onCreateNote: (content: string, tags: string[]) => Promise<Note | null>;
+  onCreateNote: (content: string, tags: string[], draft_id?: string) => Promise<Note | null>;
   onCreateHighlight?: (data: {
     text: string;
     context?: string;
@@ -517,6 +517,10 @@ export default function PdfAnnotationView({
   const draftIdRef = useRef<string | null>(null);
   const inFlightRef = useRef(false);
   const inFlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-session idempotency key sent to POST /notes.  Generated lazily on
+  // first create; reset after the note row is confirmed so a fresh edit
+  // session (e.g. user clears and retyps) gets a distinct key.
+  const sessionDraftIdRef = useRef<string | null>(null);
 
   useEffect(() => { draftIdRef.current = draftNoteId; }, [draftNoteId]);
   useEffect(() => { latestRef.current = noteContent; }, [noteContent]);
@@ -556,16 +560,25 @@ export default function PdfAnnotationView({
           } else {
             // Single-flight: reuse in-progress create if one is already running
             if (!createPromiseRef.current) {
-              createPromiseRef.current = onCreateNote(payload, [
-                "synthesis",
-                `ref:${itemId}`,
-              ]);
+              // Generate a stable idempotency key for this editing session.
+              // A concurrent POST carrying the same key is deduplicated server-side.
+              if (!sessionDraftIdRef.current) {
+                sessionDraftIdRef.current = crypto.randomUUID();
+              }
+              createPromiseRef.current = onCreateNote(
+                payload,
+                ["synthesis", `ref:${itemId}`],
+                sessionDraftIdRef.current,
+              );
             }
             const created = await createPromiseRef.current;
             createPromiseRef.current = null;
             if (created?.id) {
               draftIdRef.current = created.id;
               setDraftNoteId(created.id);
+              // Note confirmed — clear the draft key so a future fresh edit
+              // session does not reuse this key (which is now bound to this row).
+              sessionDraftIdRef.current = null;
             }
           }
           lastSavedRef.current = payload;

@@ -437,10 +437,11 @@ export default function ItemDetail() {
           highlights={highlights}
           notes={notes}
           itemId={item.id}
-          onCreateNote={async (content, tags) => {
-            const result = await createNote({ item_id: item.id, content, tags });
+          onCreateNote={async (content, tags, draft_id) => {
+            const result = await createNote({ item_id: item.id, content, tags, draft_id });
             const newNote = (result as { note: Note }).note;
             setNotes((prev) => [newNote, ...prev]);
+            return newNote;
           }}
         />
       </div>

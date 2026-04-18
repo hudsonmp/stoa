@@ -192,6 +192,8 @@ export async function createNote(data: {
   content: string;
   title?: string;
   tags?: string[];
+  /** Client-generated UUID for backend idempotency (autosave dedup). */
+  draft_id?: string;
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
