@@ -166,6 +166,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
   saveBtn.textContent = "Saving...";
 
   const collectionId = getSelectedCollectionId();
+  const noteText = (document.getElementById("note-input")?.value || "").trim();
 
   chrome.runtime.sendMessage(
     {
@@ -176,6 +177,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
         type,
         tags,
         collection_id: collectionId,
+        note: noteText || undefined,
       },
     },
     (response) => {

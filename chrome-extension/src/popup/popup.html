@@ -184,6 +184,28 @@
       outline: none;
     }
 
+    /* --- Initial Note textarea --- */
+    textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #E7E5E4;
+      border-radius: 6px;
+      background: white;
+      color: #1C1917;
+      font-size: 13px;
+      font-family: 'DM Sans', sans-serif;
+      outline: none;
+      resize: vertical;
+      min-height: 68px;
+      transition: border-color 0.15s;
+      line-height: 1.45;
+    }
+    textarea:focus {
+      border-color: #C2410C;
+      box-shadow: 0 0 0 2px rgba(194,65,12,0.08);
+    }
+    textarea::placeholder { color: #A8A29E; }
+
     /* --- Tag Autocomplete --- */
     .tag-suggestions {
       position: absolute;
@@ -361,6 +383,11 @@
         <input type="text" id="tag-input" placeholder="Add tag..." />
       </div>
       <div class="tag-suggestions" id="tag-suggestions"></div>
+    </div>
+
+    <div class="form-group">
+      <label>Initial note (optional)</label>
+      <textarea id="note-input" placeholder="First thought about this page…"></textarea>
     </div>
 
     <div class="actions">
