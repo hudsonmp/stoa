@@ -34,6 +34,26 @@ async function apiFetch(path, options = {}) {
   return resp;
 }
 
+// Fallback PDF detection used when the content script is unreachable (e.g. PDF viewer tabs
+// where content scripts don't inject). Mirrors content.js detectIsPdf for the URL-only case.
+function tabUrlIsPdf(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    if (pathname.toLowerCase().endsWith(".pdf")) return true;
+  } catch (_) { /* malformed */ }
+  return false;
+}
+
+// Show or hide the PDF button based on current pageInfo.
+// Also resets button text/state so a mid-flight label doesn't persist after a tab switch.
+function updatePdfButton() {
+  const btn = $("pdf-open-stoa");
+  if (!btn) return;
+  btn.style.display = pageInfo?.isPdf ? "block" : "none";
+  btn.textContent = "Save & Open in Stoa";
+  btn.disabled = false;
+}
+
 function normalizeUrlForLookup(url) {
   const arxivPdf = url.match(/arxiv\.org\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
   if (arxivPdf) return `https://arxiv.org/abs/${arxivPdf[1]}`;
@@ -81,7 +101,7 @@ async function initSidePanel() {
     // Fallback: use tab info directly
     let hostname = "";
     try { hostname = new URL(tab.url || "").hostname; } catch (e) {}
-    pageInfo = { url: tab.url || "", title: tab.title || "", hostname, isPdf: (tab.url || "").endsWith(".pdf") };
+    pageInfo = { url: tab.url || "", title: tab.title || "", hostname, isPdf: tabUrlIsPdf(tab.url || "") };
   }
 
   // Populate source bar
@@ -89,10 +109,8 @@ async function initSidePanel() {
   $("source-title").textContent = sourceTitle;
   $("source-title").title = pageInfo.title || "";
 
-  // Show PDF button if needed
-  if (pageInfo.isPdf) {
-    $("pdf-open-stoa").style.display = "block";
-  }
+  // Show or hide PDF button
+  updatePdfButton();
 
   // Set type from detection
   const detectedType = guessContentType(pageInfo.hostname);
@@ -655,7 +673,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   pageInfo = await sendToContentScript({ type: "GET_PAGE_INFO" });
   if (!pageInfo) {
     try {
-      pageInfo = { url: tab.url, title: tab.title, hostname: new URL(tab.url).hostname, isPdf: tab.url?.endsWith(".pdf") };
+      pageInfo = { url: tab.url, title: tab.title, hostname: new URL(tab.url).hostname, isPdf: tabUrlIsPdf(tab.url || "") };
     } catch (e) {
       pageInfo = { url: tab.url, title: tab.title, hostname: "", isPdf: false };
     }
@@ -672,6 +690,9 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   $("source-title").textContent = (pageInfo.title || "").substring(0, 60);
   $("notepad").innerHTML = "";
   $("highlight-list").innerHTML = "";
+
+  // Show or hide PDF button for the newly active tab
+  updatePdfButton();
 
   await resolveCurrentItemId();
   updateSaveButtonState();
