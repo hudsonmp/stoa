@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from routers import ingest, search, rag, citations, review, highlights, items, people, notes, classify, projects
+from routers import ingest, search, rag, citations, review, highlights, items, people, notes, classify, projects, mcp_projects
 
 app = FastAPI(title="Stoa API", version="0.1.0")
 
@@ -36,6 +36,7 @@ app.include_router(people.router, prefix="/people", tags=["people"])
 app.include_router(notes.router, prefix="/notes", tags=["notes"])
 app.include_router(classify.router, prefix="/classify", tags=["classify"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
+app.include_router(mcp_projects.router, prefix="/mcp/projects", tags=["mcp-projects"])
 
 
 @app.get("/health")
