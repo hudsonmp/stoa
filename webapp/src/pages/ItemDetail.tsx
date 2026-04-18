@@ -22,6 +22,11 @@ import {
   Copy,
   ChevronDown,
   FolderPlus,
+  Mail,
+  Github,
+  Image,
+  Star,
+  ChevronUp,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
 import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
@@ -44,6 +49,132 @@ const typeIcons: Record<string, typeof BookOpen> = {
 };
 
 const ITEM_TYPES = ["blog", "writing", "book", "paper", "podcast", "video", "page"] as const;
+
+// ---------------------------------------------------------------------------
+// Type-specific sub-renderers
+// ---------------------------------------------------------------------------
+
+function EmailThreadRenderer({ item }: { item: Item }) {
+  const messages: Array<{ message_id: string; sender: string; date: string; body: string }> =
+    ((item as unknown as Record<string, unknown>)["messages"] as typeof messages) || [];
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [chronological, setChronological] = useState(false);
+
+  const ordered = chronological ? [...messages] : [...messages].reverse();
+
+  return (
+    <section className="reader-section">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 text-sm text-text-secondary">
+          <Mail size={14} className="text-[#EA4335]" />
+          <span>{messages.length} message{messages.length !== 1 ? "s" : ""}</span>
+        </div>
+        <button
+          onClick={() => setChronological((v) => !v)}
+          className="text-xs text-text-tertiary hover:text-text-secondary transition-warm"
+        >
+          {chronological ? "Newest first" : "Oldest first"}
+        </button>
+      </div>
+      <div className="space-y-2">
+        {ordered.map((msg, idx) => {
+          const isOpen = expanded[msg.message_id] ?? idx === 0;
+          return (
+            <div key={msg.message_id}
+                 className="border border-border rounded-card overflow-hidden bg-bg-primary">
+              <button
+                onClick={() => setExpanded((e) => ({ ...e, [msg.message_id]: !isOpen }))}
+                className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-bg-secondary transition-warm"
+              >
+                <div className="flex items-center gap-3 text-sm text-left">
+                  <span className="text-text-primary font-medium truncate max-w-xs">{msg.sender || "Unknown"}</span>
+                  <span className="text-text-tertiary text-xs">{msg.date}</span>
+                </div>
+                {isOpen ? <ChevronUp size={14} className="text-text-tertiary shrink-0" />
+                         : <ChevronDown size={14} className="text-text-tertiary shrink-0" />}
+              </button>
+              {isOpen && (
+                <div className="px-4 pb-4 pt-1 border-t border-border">
+                  <pre className="text-sm text-text-secondary whitespace-pre-wrap font-sans leading-relaxed">
+                    {msg.body}
+                  </pre>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function GithubRepoRenderer({ item }: { item: Item }) {
+  const meta = (item.metadata as Record<string, unknown>) || {};
+  const fileTree: string[] = ((item as unknown as Record<string, unknown>)["file_tree"] as string[]) || [];
+  const readmeMd: string = ((item as unknown as Record<string, unknown>)["readme_md"] as string) || "";
+  const stars: number = ((item as unknown as Record<string, unknown>)["stars"] as number) ?? 0;
+  const lastCommit: string = ((item as unknown as Record<string, unknown>)["last_commit_at"] as string) || "";
+
+  return (
+    <section className="reader-section space-y-4">
+      {/* Repo card */}
+      <div className="flex items-start justify-between p-4 bg-bg-secondary rounded-card border border-border">
+        <div className="flex items-center gap-3">
+          <Github size={20} className="text-text-primary shrink-0" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-text-primary">{item.title}</span>
+              {stars > 0 && (
+                <span className="flex items-center gap-0.5 text-xs text-text-tertiary">
+                  <Star size={10} className="fill-amber-400 text-amber-400" /> {stars.toLocaleString()}
+                </span>
+              )}
+            </div>
+            {item.extracted_text && (
+              <p className="text-sm text-text-secondary mt-0.5 line-clamp-2">{item.extracted_text.split("\n")[0]}</p>
+            )}
+            <div className="flex items-center gap-3 mt-1.5 text-xs text-text-tertiary">
+              {!!meta["language"] && <span>⬡ {String(meta["language"])}</span>}
+              {!!meta["license"] && <span>{String(meta["license"])}</span>}
+              {lastCommit && <span>Updated {new Date(lastCommit).toLocaleDateString()}</span>}
+            </div>
+            {Array.isArray(meta["topics"]) && (meta["topics"] as string[]).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {(meta["topics"] as string[]).map((t) => (
+                  <span key={t} className="px-1.5 py-0.5 bg-[#1A73E8]/10 text-[#1A73E8] text-[10px] rounded-full">{t}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        {item.url && (
+          <a href={item.url} target="_blank" rel="noopener noreferrer"
+             className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-warm shrink-0 ml-4">
+            View on GitHub <ExternalLink size={11} />
+          </a>
+        )}
+      </div>
+
+      {/* File tree */}
+      {fileTree.length > 0 && (
+        <div className="p-3 bg-bg-secondary rounded-card border border-border font-mono text-xs text-text-secondary">
+          <p className="text-text-tertiary mb-1.5">/ (top-level)</p>
+          {fileTree.map((f) => <div key={f} className="py-0.5">📄 {f}</div>)}
+        </div>
+      )}
+
+      {/* README */}
+      {readmeMd && (
+        <div className="prose prose-sm max-w-none">
+          <h3 className="text-sm font-semibold text-text-tertiary mb-2 uppercase tracking-wider">README</h3>
+          <pre className="whitespace-pre-wrap text-sm text-text-secondary font-sans leading-relaxed">
+            {readmeMd.slice(0, 3000)}{readmeMd.length > 3000 ? "\n\n[truncated]" : ""}
+          </pre>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
@@ -725,6 +856,78 @@ export default function ItemDetail() {
             />
           ) : !pdfMode && !ar5ivMode ? (
             <>
+              {/* ─── GDoc renderer ─── */}
+              {item.type === "gdoc" && (
+                <section className="reader-section">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-sm text-text-secondary">
+                      <FileText size={14} className="text-[#1A73E8]" />
+                      <span>Google Doc</span>
+                      {!!(item.metadata as Record<string, unknown>)?.["owner_email"] && (
+                        <span className="text-text-tertiary text-xs">
+                          · {String((item.metadata as Record<string, unknown>)["owner_email"])}
+                        </span>
+                      )}
+                    </div>
+                    {item.url && (
+                      <a href={item.url} target="_blank" rel="noopener noreferrer"
+                         className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-warm">
+                        Open in Google Docs <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </div>
+                  {item.extracted_text && (
+                    <div className="prose prose-sm max-w-none text-text-primary font-sans leading-relaxed
+                                    [&>h1]:text-xl [&>h1]:font-bold [&>h1]:mt-4 [&>h1]:mb-2
+                                    [&>h2]:text-lg [&>h2]:font-semibold [&>h2]:mt-3 [&>h2]:mb-2
+                                    [&>h3]:text-base [&>h3]:font-medium [&>h3]:mt-2 [&>h3]:mb-1
+                                    [&>p]:mb-3 [&>p]:text-sm whitespace-pre-wrap">
+                      {item.extracted_text}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* ─── Email thread renderer ─── */}
+              {item.type === "email_thread" && (
+                <EmailThreadRenderer item={item} />
+              )}
+
+              {/* ─── GitHub repo renderer ─── */}
+              {item.type === "github_repo" && (
+                <GithubRepoRenderer item={item} />
+              )}
+
+              {/* ─── Image renderer ─── */}
+              {item.type === "image" && item.cover_image_url && (
+                <section className="reader-section">
+                  <div className="flex items-center gap-2 mb-3 text-sm text-text-secondary">
+                    <Image size={14} className="text-[#6366F1]" />
+                    <span>Research Image</span>
+                    {!!(item.metadata as Record<string, unknown>)?.["width"] && (
+                      <span className="text-text-tertiary text-xs">
+                        · {Number((item.metadata as Record<string, unknown>)["width"])}×
+                          {Number((item.metadata as Record<string, unknown>)["height"])}
+                      </span>
+                    )}
+                  </div>
+                  <img
+                    src={item.cover_image_url}
+                    alt={item.title}
+                    className="max-w-full rounded-card border border-border shadow-sm"
+                    style={{ maxHeight: "70vh", objectFit: "contain" }}
+                  />
+                  {item.extracted_text && (
+                    <div className="mt-3 p-3 bg-bg-secondary rounded-card">
+                      <p className="text-xs font-mono text-text-tertiary mb-1">OCR text</p>
+                      <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono leading-relaxed">
+                        {item.extracted_text}
+                      </pre>
+                    </div>
+                  )}
+                </section>
+              )}
+
               {citation && (
                 <div className="reader-detail-citation">
                   <div className="text-sm text-text-secondary space-y-1">
