@@ -10,8 +10,9 @@ from services.embedding import embed_texts
 
 
 async def vector_search(query: str, user_id: str, n: int = 10, type_filter: Optional[str] = None) -> list[dict]:
-    """Search chunks by embedding similarity."""
-    embeddings = await embed_texts([query])
+    """Search chunks by embedding similarity. Chunks are 1536-dim."""
+    from services.embedding import CHUNK_DIM
+    embeddings = await embed_texts([query], target_dim=CHUNK_DIM)
     query_embedding = embeddings[0]
 
     supabase = get_supabase_service()

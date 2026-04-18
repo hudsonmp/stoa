@@ -149,21 +149,29 @@ async def project_hybrid_search(
 
     Lanes: (a) chunk vector, (b) note vector, (c) note text. RRF fuses.
     """
-    has_vec = True
-    query_embedding: list[float] | None = None
+    # Chunks are 1536-dim, notes are 768-dim — we must embed the query twice.
+    from services.embedding import CHUNK_DIM, NOTE_DIM
+
+    chunk_query_embedding: list[float] | None = None
+    note_query_embedding: list[float] | None = None
     try:
-        query_embedding = (await embed_texts([query]))[0]
+        chunk_query_embedding = (await embed_texts([query], target_dim=CHUNK_DIM))[0]
     except Exception:
-        has_vec = False
+        chunk_query_embedding = None
+    try:
+        note_query_embedding = (await embed_texts([query], target_dim=NOTE_DIM))[0]
+    except Exception:
+        note_query_embedding = None
 
     chunk_hits_vec: list[dict] = []
     note_hits_vec: list[dict] = []
-    if has_vec and query_embedding is not None:
+    if chunk_query_embedding is not None:
         chunk_hits_vec = await match_chunks_scoped(
-            query_embedding, user_id, item_ids, match_count=k * 2
+            chunk_query_embedding, user_id, item_ids, match_count=k * 2
         )
+    if note_query_embedding is not None:
         note_hits_vec = await match_notes_scoped(
-            query_embedding, user_id, note_ids, match_count=k * 2
+            note_query_embedding, user_id, note_ids, match_count=k * 2
         )
 
     note_hits_text = await notes_full_text_scoped(query, user_id, note_ids, limit=k * 2)
@@ -317,8 +325,9 @@ async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
     )
     if existing.data and existing.data[0].get("content_hash") == new_hash:
         return False
+    from services.embedding import NOTE_DIM
     try:
-        vec = (await embed_texts([text[:8000]]))[0]
+        vec = (await embed_texts([text[:8000]], target_dim=NOTE_DIM))[0]
     except Exception:
         return False
     row = {

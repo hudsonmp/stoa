@@ -119,6 +119,19 @@ async def rag_over_project(req: RAGOverProjectRequest, request: Request):
     user_id = await get_user_id(request)
     scope = await resolve_project_path(req.project_path, user_id)
 
+    # Fail loudly when the path cannot be resolved: silently returning 200
+    # with empty hits lets agents believe they searched successfully when
+    # they never did. This is the core research-workflow failure mode.
+    if scope["resolution"] == "unresolved":
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"project_path {req.project_path!r} did not resolve — normalized to "
+                f"{scope['path_key']!r}. Use `/projects/<slug>[/<folder>]` where "
+                f"<slug> is the slugified project name."
+            ),
+        )
+
     hits = await project_hybrid_search(
         query=req.query,
         user_id=user_id,
@@ -156,8 +169,8 @@ async def search_notes_scoped_endpoint(req: SearchNotesRequest, request: Request
     text_hits = await notes_full_text_scoped(req.query, user_id, note_ids, limit=req.limit)
 
     try:
-        from services.embedding import embed_texts
-        vec = (await embed_texts([req.query]))[0]
+        from services.embedding import embed_texts, NOTE_DIM
+        vec = (await embed_texts([req.query], target_dim=NOTE_DIM))[0]
         vec_hits = await match_notes_scoped(
             vec, user_id, note_ids or [], match_count=req.limit,
             evergreen_only=req.evergreen_only,
@@ -223,6 +236,14 @@ def _attach_note_links(notes: list[dict], user_id: str) -> list[dict]:
 async def index_project(req: IndexProjectRequest, request: Request):
     user_id = await get_user_id(request)
     scope = await resolve_project_path(req.project_path, user_id)
+    if scope["resolution"] == "unresolved":
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"project_path {req.project_path!r} did not resolve — normalized to "
+                f"{scope['path_key']!r}. Use `/projects/<slug>[/<folder>]`."
+            ),
+        )
     supabase = get_supabase_service()
 
     # Gather updated_at for hash
@@ -336,6 +357,14 @@ def _chunk_count_for(supabase, item_id: str) -> int:
 async def list_project(request: Request, project_path: str):
     user_id = await get_user_id(request)
     scope = await resolve_project_path(project_path, user_id)
+    if scope["resolution"] == "unresolved":
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"project_path {project_path!r} did not resolve — normalized to "
+                f"{scope['path_key']!r}. Use `/projects/<slug>[/<folder>]`."
+            ),
+        )
     supabase = get_supabase_service()
 
     items: list[dict] = []
@@ -391,6 +420,14 @@ async def get_project_context(req: GetProjectContextRequest, request: Request):
     """
     user_id = await get_user_id(request)
     scope = await resolve_project_path(req.project_path, user_id)
+    if scope["resolution"] == "unresolved":
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"project_path {req.project_path!r} did not resolve — normalized to "
+                f"{scope['path_key']!r}. Use `/projects/<slug>[/<folder>]`."
+            ),
+        )
     supabase = get_supabase_service()
 
     # Project description
