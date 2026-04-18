@@ -561,5 +561,220 @@ async def get_review_queue() -> list[dict]:
         return resp.json().get("reviews", [])
 
 
+# ── MCP retrieval pipeline (feat/mcp-retrieval) ────────────────────────
+#
+# Project-scoped retrieval + agent-write primitives. Exist so a Claude
+# Code instance running a literature review in a specific project can
+# fetch high-quality context without reimplementing RAG plumbing. See
+# docs/mcp-context-engineering.md for the trade-offs and caching
+# economics.
+
+
+@mcp.tool()
+async def rag_over_project(project_path: str, query: str, k: int = 10) -> dict:
+    """Hybrid retrieval over all items + notes scoped to a project path.
+
+    Runs semantic search on item chunks + note embeddings and BM25-ish ILIKE
+    search on note text, fused with Reciprocal Rank Fusion. Every hit carries
+    provenance (item_id, chunk_index, page, anchor_selectors, note_id).
+
+    Args:
+        project_path: e.g. "/projects/requirement-engineering/computational-thinking"
+        query: natural-language query
+        k: number of hits to return (default 10)
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/rag",
+            json={"project_path": project_path, "query": query, "k": k},
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def search_project_notes(
+    query: str,
+    evergreen_only: bool = False,
+    project_path: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Hybrid (semantic + BM25-ish) search over notes.
+
+    Results include outgoing_links + incoming_links so the caller can
+    traverse the @mention graph. Pass project_path to scope to a project;
+    omit to search all notes.
+
+    Args:
+        query: search string
+        evergreen_only: restrict to notes with evergreen=true
+        project_path: optional project scope
+        limit: max notes to return
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/search-notes",
+            json={
+                "query": query,
+                "evergreen_only": evergreen_only,
+                "project_path": project_path,
+                "limit": limit,
+            },
+        )
+        if resp.status_code >= 400:
+            return []
+        return resp.json().get("notes", [])
+
+
+@mcp.tool()
+async def extract_references(item_id: str, max_refs: int = 40) -> dict:
+    """Extract DOI/arXiv references from a paper, resolve them, flag library presence.
+
+    Returns {references, in_library, save_candidates, stats}. Follow up with
+    save_to_project() on each candidate the agent decides is worth ingesting.
+
+    Args:
+        item_id: UUID of the source paper
+        max_refs: cap on resolved references (cost control)
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/extract-refs",
+            json={"item_id": item_id, "max_refs": max_refs},
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def index_project(project_path: str, force: bool = False) -> dict:
+    """Ensure every item has chunks and every note has an embedding for the
+    project. Idempotent via content_hash.
+
+    Args:
+        project_path: canonical project path
+        force: ignore the cache and reindex anyway
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/index",
+            json={"project_path": project_path, "force": force},
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def save_to_project(
+    project_path: str, item_ref: str, folder_subpath: str = ""
+) -> dict:
+    """Ingest an item (URL | arXiv ID | DOI) and attach it to a project folder.
+
+    Creates missing sub-folders along folder_subpath. Use after
+    extract_references() to accept a save_candidate into the library.
+
+    Args:
+        project_path: canonical project path
+        item_ref: URL, arXiv ID (e.g. "2301.00234"), or DOI
+        folder_subpath: relative path under the project
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/save",
+            json={
+                "project_path": project_path,
+                "item_ref": item_ref,
+                "folder_subpath": folder_subpath,
+            },
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def annotate_on_behalf(
+    item_id: str,
+    agent_id: str,
+    highlights: Optional[list[dict]] = None,
+    notes: Optional[list[dict]] = None,
+) -> dict:
+    """Agent-sourced highlights + notes on an item.
+
+    Every row tagged agent_source = {agent_id, created_at} for auditability.
+    Highlights accept W3C Web Annotation selectors. Notes' mention_*_ids
+    become note_links rows.
+
+    Args:
+        item_id: target item UUID
+        agent_id: stable identifier for this agent run, e.g.
+            "claude-code-lit-review-2026-04-18T12:00:00Z"
+        highlights: list of {text, color?, note?, selectors?}
+        notes: list of {content, title?, evergreen?, tags?, anchor_selectors?,
+                        mention_item_ids?, mention_note_ids?, mention_person_ids?}
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/annotate",
+            json={
+                "item_id": item_id,
+                "agent_id": agent_id,
+                "highlights": highlights or [],
+                "notes": notes or [],
+            },
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def list_project(project_path: str) -> dict:
+    """Return the folder tree + items + notes for a project (orientation)."""
+    async with _client() as c:
+        resp = await c.get(
+            f"{STOA_API}/mcp/projects/list",
+            params={"project_path": project_path},
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
+@mcp.tool()
+async def get_project_context(
+    project_path: str, max_tokens: int = 100000
+) -> dict:
+    """Return a cache-friendly compact project context payload.
+
+    Designed to be pasted verbatim into a calling agent's Anthropic system
+    prompt as a content block with cache_control = {type: "ephemeral"}.
+    Response includes context_version (hash of project state); when it
+    changes, the agent should invalidate its cached prefix and rebuild.
+
+    Contents:
+      - project name, description, folder tree
+      - per-item: title, type, authors, year, venue, 1-line abstract, top 3 highlights
+      - evergreen notes: full content
+      - marginalia notes: titles only
+      - outstanding references: currently empty (call extract_references separately)
+
+    The caller (not the MCP server) owns the Anthropic API call and the
+    cache_control placement — per Anthropic's recommendation the server
+    only returns cacheable text.
+    """
+    async with _client() as c:
+        resp = await c.post(
+            f"{STOA_API}/mcp/projects/context",
+            json={"project_path": project_path, "max_tokens": max_tokens},
+        )
+        if resp.status_code >= 400:
+            return {"error": resp.text}
+        return resp.json()
+
+
 if __name__ == "__main__":
     mcp.run()
