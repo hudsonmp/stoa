@@ -186,7 +186,9 @@ async function resolveCurrentItemId() {
 }
 
 // --- Ensure page saved ---
-async function ensurePageSaved() {
+// type override: pass "paper" explicitly when saving a PDF so it isn't guessed
+// as "blog" for domains not in the paper-domain heuristic list.
+async function ensurePageSaved(typeOverride) {
   if (currentItemId) return;
   const lookupUrl = normalizeUrlForLookup(pageInfo.url);
   try {
@@ -200,11 +202,12 @@ async function ensurePageSaved() {
     }
   } catch (e) { /* not found, will ingest */ }
 
+  const type = typeOverride || guessContentType(pageInfo.hostname);
   try {
     const resp = await apiFetch("/ingest", {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify({ url: lookupUrl, type: guessContentType(pageInfo.hostname) }),
+      body: JSON.stringify({ url: lookupUrl, type }),
     });
     if (resp.ok) {
       const data = await resp.json();
@@ -619,16 +622,19 @@ function setupEventListeners() {
   });
 
   // PDF open in Stoa
+  // Flow: if already in library → open directly; otherwise ingest as paper → then open.
   $("pdf-open-stoa").addEventListener("click", async () => {
     const btn = $("pdf-open-stoa");
-    btn.textContent = "Saving...";
+    const alreadySaved = !!currentItemId;
+    btn.textContent = alreadySaved ? "Opening..." : "Saving...";
     btn.disabled = true;
     try {
-      await ensurePageSaved();
+      await ensurePageSaved("paper");
       if (currentItemId) {
-        const webappUrl = (await chrome.storage.local.get("stoa_webapp_url")).stoa_webapp_url || "http://localhost:3000";
+        const stored = await chrome.storage.local.get("stoa_webapp_url");
+        const webappUrl = stored.stoa_webapp_url || "http://localhost:5173";
         chrome.tabs.create({ url: `${webappUrl}/item/${currentItemId}` });
-        btn.textContent = "Saved \u2713";
+        btn.textContent = "Opened \u2713";
       } else {
         btn.textContent = "Failed";
       }

@@ -8,7 +8,7 @@ const FIELDS = {
   "api-url": { key: "stoa_api_url", default: "http://localhost:8000" },
   "user-id": { key: "stoa_user_id", default: "" },
   "auth-token": { key: "stoa_token", default: "" },
-  "webapp-url": { key: "stoa_webapp_url", default: "http://localhost:3000" },
+  "webapp-url": { key: "stoa_webapp_url", default: "http://localhost:5173" },
   "theme-select": { key: "stoa_theme", default: "light" },
 };
 
