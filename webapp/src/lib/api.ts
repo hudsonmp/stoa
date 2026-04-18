@@ -192,6 +192,10 @@ export async function createNote(data: {
   content: string;
   title?: string;
   tags?: string[];
+  evergreen?: boolean;
+  anchor_selectors?: Record<string, unknown> | null;
+  anchored_highlight_ids?: string[];
+  draft_id?: string;
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
@@ -622,4 +626,46 @@ export async function ingestResearchImage(file: File, tags: string[] = []) {
   });
   if (!resp.ok) throw new Error(`Image upload failed: ${resp.status}`);
   return resp.json() as Promise<{ item: import("./supabase").Item; item_id: string; image_url: string; width: number; height: number; ocr_text: string }>;
+}
+
+// ─── note_links (evergreen cross-linking) ────────────────────────────────────
+
+export interface NoteLinkRow {
+  source_note_id: string;
+  target_ref_type: "note" | "item" | "person" | "folder";
+  target_ref_id: string;
+  mention_offset?: number;
+  created_at: string;
+  target_title?: string | null;
+  source_title?: string | null;
+}
+
+export async function getNoteLinks(noteId: string) {
+  return apiFetch<{ outgoing: NoteLinkRow[]; incoming: NoteLinkRow[] }>(
+    `/notes/${noteId}/links`,
+  );
+}
+
+export async function createNoteLink(
+  noteId: string,
+  data: {
+    target_ref_type: "note" | "item" | "person" | "folder";
+    target_ref_id: string;
+    mention_offset?: number;
+  },
+) {
+  return apiFetch<{ link: NoteLinkRow }>(`/notes/${noteId}/links`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteNoteLink(
+  noteId: string,
+  targetRefType: string,
+  targetRefId: string,
+) {
+  return apiFetch(`/notes/${noteId}/links/${targetRefType}/${targetRefId}`, {
+    method: "DELETE",
+  });
 }

@@ -30,6 +30,7 @@ os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
 
 
+
 # --- Mock Supabase ---
 
 class MockSupabaseResponse:
@@ -64,17 +65,39 @@ class MockQueryBuilder:
         return self
     def update(self, *args, **kwargs): return self
     def delete(self, *args, **kwargs): return self
-    def eq(self, *args, **kwargs): return self
     def neq(self, *args, **kwargs): return self
     def ilike(self, *args, **kwargs): return self
-    def in_(self, *args, **kwargs): return self
+    def in_(self, field, values):
+        if field in {"id", "folder_id", "item_id", "project_id"}:
+            strs = [str(v) for v in values]
+            self._data = [r for r in self._data if str(r.get(field, "")) in strs]
+        return self
+
+    def is_(self, field, value):
+        # Handle IS NULL check
+        if value in ("null", None):
+            self._data = [r for r in self._data if r.get(field) is None]
+        return self
+
+    def eq(self, field, value):
+        # Filter on key identifier fields so multi-record tables resolve correctly
+        _FILTER_FIELDS = {"id", "path", "parent_folder_id", "project_id", "folder_id", "item_id", "user_id", "url", "github_slug", "type"}
+        if field in _FILTER_FIELDS:
+            self._data = [r for r in self._data if str(r.get(field, "")) == str(value)]
+        return self
+
+    def contains(self, *args, **kwargs): return self
     def lte(self, *args, **kwargs): return self
     def gte(self, *args, **kwargs): return self
+    def gt(self, *args, **kwargs): return self
+    def lt(self, *args, **kwargs): return self
+    def like(self, *args, **kwargs): return self
+    def single(self, *args, **kwargs): return self
     def order(self, *args, **kwargs): return self
     def limit(self, *args, **kwargs): return self
 
     def execute(self):
-        # If data was inserted/upserted, return that; otherwise return configured data
+        # If data was inserted/upserted, return that; otherwise return filtered data
         if self._insert_data is not None:
             return MockSupabaseResponse(data=self._insert_data)
         return MockSupabaseResponse(data=self._data)
