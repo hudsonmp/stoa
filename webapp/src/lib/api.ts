@@ -403,3 +403,223 @@ export async function getCollectionItems(collectionId: string) {
 export async function getCollectionItemCount(collectionId: string) {
   return apiFetch<{ count: number }>(`/items/collections/${collectionId}/count`);
 }
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  created_at: string;
+  updated_at: string;
+  item_count?: number;
+}
+
+export interface Folder {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  path: string;
+  sort_order: number;
+  created_at: string;
+  item_count?: number;
+  children?: Folder[];
+}
+
+export interface FolderItem {
+  id: string;
+  title: string;
+  url?: string;
+  type: string;
+  domain?: string;
+  favicon_url?: string;
+  cover_image_url?: string;
+  reading_status: string;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  sort_order: number;
+  added_at: string;
+}
+
+export async function listProjects() {
+  return apiFetch<{ projects: Project[] }>("/projects");
+}
+
+export async function createProject(data: {
+  name: string;
+  description?: string;
+  color?: string;
+}) {
+  return apiFetch<{ project: Project }>("/projects", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getProject(projectId: string) {
+  return apiFetch<{ project: Project }>(`/projects/${projectId}`);
+}
+
+export async function updateProject(
+  projectId: string,
+  data: { name?: string; description?: string; color?: string }
+) {
+  return apiFetch<{ project: Project }>(`/projects/${projectId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteProject(projectId: string) {
+  return apiFetch(`/projects/${projectId}`, { method: "DELETE" });
+}
+
+export async function getFolderTree(projectId: string) {
+  return apiFetch<{ tree: Folder[] }>(`/projects/${projectId}/tree`);
+}
+
+export async function listFolders(projectId: string, parentFolderId?: string | null) {
+  const qs =
+    parentFolderId !== undefined
+      ? `?parent_folder_id=${parentFolderId ?? "root"}`
+      : "";
+  return apiFetch<{ folders: Folder[] }>(`/projects/${projectId}/folders${qs}`);
+}
+
+export async function createFolder(
+  projectId: string,
+  data: { name: string; parent_folder_id?: string | null; sort_order?: number }
+) {
+  return apiFetch<{ folder: Folder }>(`/projects/${projectId}/folders`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateFolder(
+  projectId: string,
+  folderId: string,
+  data: { name?: string; sort_order?: number }
+) {
+  return apiFetch<{ folder: Folder }>(`/projects/${projectId}/folders/${folderId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function moveFolder(
+  projectId: string,
+  folderId: string,
+  newParentFolderId: string | null
+) {
+  return apiFetch<{ folder: Folder }>(
+    `/projects/${projectId}/folders/${folderId}/move`,
+    {
+      method: "POST",
+      body: JSON.stringify({ new_parent_folder_id: newParentFolderId }),
+    }
+  );
+}
+
+export async function deleteFolder(projectId: string, folderId: string) {
+  return apiFetch(`/projects/${projectId}/folders/${folderId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listFolderItems(projectId: string, folderId: string) {
+  return apiFetch<{ items: FolderItem[] }>(
+    `/projects/${projectId}/folders/${folderId}/items`
+  );
+}
+
+export async function addItemToFolder(
+  projectId: string,
+  folderId: string,
+  itemId: string,
+  sortOrder?: number
+) {
+  return apiFetch(`/projects/${projectId}/folders/${folderId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ item_id: itemId, sort_order: sortOrder }),
+  });
+}
+
+export async function removeItemFromFolder(
+  projectId: string,
+  folderId: string,
+  itemId: string
+) {
+  return apiFetch(
+    `/projects/${projectId}/folders/${folderId}/items/${itemId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function moveItemToFolder(
+  projectId: string,
+  itemId: string,
+  sourceFolderId: string,
+  targetFolderId: string,
+  sortOrder?: number
+) {
+  return apiFetch(`/projects/${projectId}/items/${itemId}/move`, {
+    method: "POST",
+    body: JSON.stringify({
+      source_folder_id: sourceFolderId,
+      target_folder_id: targetFolderId,
+      sort_order: sortOrder,
+    }),
+  });
+}
+
+export async function resolveProjectPath(projectId: string, path: string) {
+  return apiFetch<{ folder: Folder }>(
+    `/projects/${projectId}/resolve?path=${encodeURIComponent(path)}`
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Multi-content ingest endpoints
+// ---------------------------------------------------------------------------
+
+export async function ingestGdoc(url: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/gdoc",
+    { method: "POST", body: JSON.stringify({ url, tags }) }
+  );
+}
+
+export async function ingestEmail(threadId: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/email",
+    { method: "POST", body: JSON.stringify({ thread_id: threadId, tags }) }
+  );
+}
+
+export async function ingestGithub(url: string, tags: string[] = []) {
+  return apiFetch<{ item: import("./supabase").Item; item_id: string; already_exists: boolean }>(
+    "/ingest/github",
+    { method: "POST", body: JSON.stringify({ url, tags }) }
+  );
+}
+
+export async function ingestResearchImage(file: File, tags: string[] = []) {
+  const form = new FormData();
+  form.append("file", file);
+  if (tags.length) form.append("tags", tags.join(","));
+  // Use raw fetch — FormData can't go through apiFetch's JSON serialisation
+  const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+  const userId = localStorage.getItem("stoa_user_id") ?? "";
+  const resp = await fetch(`${API_BASE}/ingest/research-image`, {
+    method: "POST",
+    headers: { "X-User-Id": userId },
+    body: form,
+  });
+  if (!resp.ok) throw new Error(`Image upload failed: ${resp.status}`);
+  return resp.json() as Promise<{ item: import("./supabase").Item; item_id: string; image_url: string; width: number; height: number; ocr_text: string }>;
+}
