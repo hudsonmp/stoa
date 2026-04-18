@@ -192,6 +192,10 @@ export async function createNote(data: {
   content: string;
   title?: string;
   tags?: string[];
+  evergreen?: boolean;
+  anchor_selectors?: Record<string, unknown> | null;
+  anchored_highlight_ids?: string[];
+  draft_id?: string;
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",

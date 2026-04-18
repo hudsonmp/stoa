@@ -437,8 +437,14 @@ export default function ItemDetail() {
           highlights={highlights}
           notes={notes}
           itemId={item.id}
-          onCreateNote={async (content, tags) => {
-            const result = await createNote({ item_id: item.id, content, tags });
+          onCreateNote={async (content, tags, anchorSelectors, anchoredHighlightIds) => {
+            const result = await createNote({
+              item_id: item.id,
+              content,
+              tags,
+              anchor_selectors: anchorSelectors ?? null,
+              anchored_highlight_ids: anchoredHighlightIds ?? [],
+            });
             const newNote = (result as { note: Note }).note;
             setNotes((prev) => [newNote, ...prev]);
           }}
