@@ -10,9 +10,19 @@ import {
   X,
   ExternalLink,
   Leaf,
+  Link2,
+  ArrowUpRight,
+  ArrowDownLeft,
 } from "lucide-react";
 import ResearchEditor from "@/components/ResearchEditor";
-import { getNotes, createNote, updateNote, deleteNote } from "@/lib/api";
+import {
+  getNotes,
+  createNote,
+  updateNote,
+  deleteNote,
+  getNoteLinks,
+} from "@/lib/api";
+import type { NoteLinkRow } from "@/lib/api";
 import type { Note } from "@/lib/supabase";
 
 function formatRelativeDate(dateStr: string): string {
@@ -45,6 +55,157 @@ function noteTypeBadge(note: Note): string | null {
   return "standalone";
 }
 
+// ── LinksPanel ─────────────────────────────────────────────────────────────
+
+function refTypePath(refType: string, id: string): string {
+  if (refType === "note") return `/notes/${id}`;
+  if (refType === "item") return `/item/${id}`;
+  if (refType === "person") return `/people/${id}`;
+  return "#";
+}
+
+function LinkRow({
+  link,
+  label,
+  direction,
+}: {
+  link: NoteLinkRow;
+  label: string | null | undefined;
+  direction: "out" | "in";
+}) {
+  const targetId =
+    direction === "out" ? link.target_ref_id : link.source_note_id;
+  const href = refTypePath(
+    direction === "out" ? link.target_ref_type : "note",
+    targetId
+  );
+  const displayLabel = label || targetId.slice(0, 8) + "…";
+
+  return (
+    <Link
+      to={href}
+      className="flex items-center gap-2 px-3 py-2 rounded-card
+                 hover:bg-bg-secondary/60 transition-warm group"
+    >
+      {direction === "out" ? (
+        <ArrowUpRight
+          size={12}
+          className="flex-shrink-0 text-text-tertiary group-hover:text-accent"
+        />
+      ) : (
+        <ArrowDownLeft
+          size={12}
+          className="flex-shrink-0 text-text-tertiary group-hover:text-accent"
+        />
+      )}
+      <span className="text-sm text-text-primary truncate flex-1">
+        {displayLabel}
+      </span>
+      <span className="text-[10px] font-mono text-text-tertiary flex-shrink-0">
+        {direction === "out" ? link.target_ref_type : "note"}
+      </span>
+    </Link>
+  );
+}
+
+function LinksPanel({ noteId }: { noteId: string }) {
+  const [outgoing, setOutgoing] = useState<NoteLinkRow[]>([]);
+  const [incoming, setIncoming] = useState<NoteLinkRow[]>([]);
+  const [linksLoading, setLinksLoading] = useState(true);
+  const [linksError, setLinksError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLinksLoading(true);
+    setLinksError(null);
+    getNoteLinks(noteId)
+      .then(({ outgoing: out, incoming: inc }) => {
+        if (!cancelled) {
+          setOutgoing(out);
+          setIncoming(inc);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLinksError("Could not load links.");
+      })
+      .finally(() => {
+        if (!cancelled) setLinksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [noteId]);
+
+  if (linksLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
+        Loading links…
+      </div>
+    );
+  }
+
+  if (linksError) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
+        {linksError}
+      </div>
+    );
+  }
+
+  const empty = outgoing.length === 0 && incoming.length === 0;
+
+  return (
+    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+      {empty && (
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+          <Link2 size={24} className="text-text-tertiary/40" />
+          <p className="text-sm text-text-secondary">No links yet</p>
+          <p className="text-[11px] text-text-tertiary max-w-[220px]">
+            Use @mention in the note body to link other notes, items, or people.
+          </p>
+        </div>
+      )}
+
+      {outgoing.length > 0 && (
+        <section>
+          <p className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary mb-2 px-1">
+            Outgoing ({outgoing.length})
+          </p>
+          <div className="space-y-0.5">
+            {outgoing.map((link) => (
+              <LinkRow
+                key={`${link.target_ref_type}:${link.target_ref_id}:${link.mention_offset ?? 0}`}
+                link={link}
+                label={link.target_title}
+                direction="out"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {incoming.length > 0 && (
+        <section>
+          <p className="text-[10px] font-mono uppercase tracking-wider text-text-tertiary mb-2 px-1">
+            Incoming ({incoming.length})
+          </p>
+          <div className="space-y-0.5">
+            {incoming.map((link) => (
+              <LinkRow
+                key={`${link.source_note_id}:${link.target_ref_type}:${link.mention_offset ?? 0}`}
+                link={link}
+                label={link.source_title}
+                direction="in"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ── Notes page ──────────────────────────────────────────────────────────────
 export default function Notes() {
   const { id: activeId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -54,6 +215,7 @@ export default function Notes() {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [showAll, setShowAll] = useState(true);
+  const [activeTab, setActiveTab] = useState<"write" | "links">("write");
 
   // Inline title editing state
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
@@ -213,7 +375,7 @@ export default function Notes() {
 
   const activeNote = notes.find((n) => n.id === activeId);
 
-  // Sync titleDraft when switching notes
+  // Sync titleDraft + reset tab when switching notes
   useEffect(() => {
     if (activeNote) {
       setEditingTitleId(activeNote.id);
@@ -222,6 +384,7 @@ export default function Notes() {
           ? activeNote.title
           : ""
       );
+      setActiveTab("write");
     }
   }, [activeNote?.id]);
 
@@ -425,7 +588,6 @@ export default function Notes() {
                     <Leaf
                       size={16}
                       className="flex-shrink-0 text-green-500"
-                      title="Evergreen note"
                     />
                     {/* Title input still available, but placeholder is smarter */}
                     <input
@@ -504,19 +666,51 @@ export default function Notes() {
               )}
             </div>
 
-            <div className="flex-1 notes-editor-fullwidth">
-              {/* Pass noteId so @mentions are persisted as note_links */}
-              <ResearchEditor
-                content={activeNote.content}
-                onSave={handleSave}
-                placeholder={
-                  activeNote.evergreen
-                    ? "Write your synthesis in your own words. Use @mention to link concepts..."
-                    : "Start writing your research notes..."
-                }
-                noteId={activeNote.id}
-              />
+            {/* Tab bar: Write | Links */}
+            <div className="flex border-b border-border px-6 gap-0">
+              <button
+                onClick={() => setActiveTab("write")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-warm
+                  ${
+                    activeTab === "write"
+                      ? "border-accent text-accent"
+                      : "border-transparent text-text-tertiary hover:text-text-secondary"
+                  }`}
+              >
+                <FileText size={12} />
+                Write
+              </button>
+              <button
+                onClick={() => setActiveTab("links")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 -mb-px transition-warm
+                  ${
+                    activeTab === "links"
+                      ? "border-accent text-accent"
+                      : "border-transparent text-text-tertiary hover:text-text-secondary"
+                  }`}
+              >
+                <Link2 size={12} />
+                Links
+              </button>
             </div>
+
+            {activeTab === "write" ? (
+              <div className="flex-1 notes-editor-fullwidth">
+                {/* Pass noteId so @mentions are persisted as note_links */}
+                <ResearchEditor
+                  content={activeNote.content}
+                  onSave={handleSave}
+                  placeholder={
+                    activeNote.evergreen
+                      ? "Write your synthesis in your own words. Use @mention to link concepts..."
+                      : "Start writing your research notes..."
+                  }
+                  noteId={activeNote.id}
+                />
+              </div>
+            ) : (
+              <LinksPanel noteId={activeNote.id} />
+            )}
           </motion.div>
         ) : (
           <div className="flex-1 flex items-center justify-center">
