@@ -83,6 +83,7 @@ export interface Highlight {
   selectors?: W3CSelector[] | null;
   project_id?: string | null;
   folder_id?: string | null;
+  tags?: string[] | null;
 }
 
 // W3C Web Annotation selector — mirrors highlights.selectors in feat/pdf-foundation

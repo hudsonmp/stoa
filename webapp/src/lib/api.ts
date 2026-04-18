@@ -698,6 +698,7 @@ export async function createProjectHighlight(data: {
   note?: string;
   page_number?: number;
   selectors?: unknown[];
+  tags?: string[];
 }) {
   return apiFetch<{ highlight: unknown }>("/project-highlights", {
     method: "POST",
@@ -724,15 +725,26 @@ export async function getProjectHighlights(params?: {
   url?: string;
   project_id?: string;
   folder_id?: string;
+  tag?: string;
 }) {
   const query = new URLSearchParams();
   if (params?.item_id) query.set("item_id", params.item_id);
   if (params?.url) query.set("url", params.url);
   if (params?.project_id) query.set("project_id", params.project_id);
   if (params?.folder_id) query.set("folder_id", params.folder_id);
+  if (params?.tag) query.set("tag", params.tag);
   const qs = query.toString();
   return apiFetch<{ highlights: unknown[] }>(
     `/project-highlights${qs ? `?${qs}` : ""}`,
+  );
+}
+
+// Distinct tags the user has used on project highlights, ranked by recent use.
+// Used by the chip-input autocomplete in ProjectPdfAnnotationView.
+export async function getProjectHighlightTags(projectId?: string) {
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return apiFetch<{ tags: Array<{ tag: string; count: number }> }>(
+    `/project-highlights/tags${qs}`,
   );
 }
 

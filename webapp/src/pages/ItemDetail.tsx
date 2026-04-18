@@ -653,7 +653,7 @@ export default function ItemDetail() {
               setNotes((prev) => [newNote, ...prev]);
               return newNote;
             }}
-            onCreateHighlight={async ({ text, context, page_number, selectors }) => {
+            onCreateHighlight={async ({ text, context, page_number, selectors, tags }) => {
               const result = await createProjectHighlight({
                 item_id: item.id,
                 project_id: projectId,
@@ -662,6 +662,7 @@ export default function ItemDetail() {
                 context,
                 page_number,
                 selectors: selectors as unknown[] | undefined,
+                tags,
               });
               const hl = (result as { highlight: Highlight }).highlight;
               setHighlights((prev) => [hl, ...prev]);

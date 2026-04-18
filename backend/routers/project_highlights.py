@@ -43,6 +43,9 @@ class CreateProjectHighlightRequest(BaseModel):
     page_number: Optional[int] = None
     # W3C Web Annotation selectors computed by the client from pdfjs TextItem positions.
     selectors: Optional[list[Any]] = None
+    # Searchable interpretive-frame labels (e.g. "cite", "method", "question").
+    # Free-form + autocomplete from user's own history; distinct from `note`.
+    tags: list[str] = []
 
 
 @router.post("")
@@ -77,6 +80,7 @@ async def create_project_highlight(
         "color": req.color,
         "note": req.note,
         "page_number": req.page_number,
+        "tags": [t.strip() for t in req.tags if t and t.strip()],
     }
     if req.selectors is not None:
         row["selectors"] = req.selectors
@@ -111,8 +115,10 @@ async def update_project_highlight(highlight_id: str, request: Request):
     supabase = get_supabase_service()
     body = await request.json()
 
-    allowed = {"note", "color", "selectors", "page_number"}
+    allowed = {"note", "color", "selectors", "page_number", "tags"}
     updates = {k: v for k, v in body.items() if k in allowed}
+    if "tags" in updates and isinstance(updates["tags"], list):
+        updates["tags"] = [t.strip() for t in updates["tags"] if t and str(t).strip()]
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields")
 
@@ -135,8 +141,10 @@ async def get_project_highlights(
     item_id: Optional[str] = None,
     project_id: Optional[str] = None,
     folder_id: Optional[str] = None,
+    tag: Optional[str] = None,
 ):
-    """Fetch project highlights by URL / item / project / folder."""
+    """Fetch project highlights by URL / item / project / folder, optionally
+    filtered by a single tag (`?tag=cite`)."""
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
 
@@ -160,9 +168,47 @@ async def get_project_highlights(
         query = query.eq("project_id", project_id)
     if folder_id:
         query = query.eq("folder_id", folder_id)
+    if tag:
+        # Array containment via PostgREST `cs` operator — hits the GIN index.
+        query = query.contains("tags", [tag])
 
     result = query.order("created_at", desc=True).limit(100).execute()
     return {"highlights": result.data or []}
+
+
+@router.get("/tags")
+async def list_distinct_tags(
+    request: Request,
+    project_id: Optional[str] = None,
+):
+    """Return the user's distinct highlight tags (optionally project-scoped),
+    ranked by recent usage. Feeds the chip-input autocomplete on the client."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    query = (
+        supabase.table("project_highlights")
+        .select("tags,created_at")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .limit(500)
+    )
+    if project_id:
+        query = query.eq("project_id", project_id)
+    rows = query.execute().data or []
+
+    # Rank by most-recent occurrence first, then by total frequency.
+    seen: dict[str, int] = {}
+    order: list[str] = []
+    for row in rows:
+        for t in (row.get("tags") or []):
+            if not t:
+                continue
+            if t not in seen:
+                order.append(t)
+            seen[t] = seen.get(t, 0) + 1
+
+    return {"tags": [{"tag": t, "count": seen[t]} for t in order]}
 
 
 @router.delete("/{highlight_id}")

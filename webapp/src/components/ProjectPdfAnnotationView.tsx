@@ -21,9 +21,9 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { Highlighter, CheckCircle2, Loader2 } from "lucide-react";
+import { Highlighter, CheckCircle2, Loader2, Tag as TagIcon, X as XIcon } from "lucide-react";
 import ProjectNoteEditor from "@/components/ProjectNoteEditor";
-import { updateProjectNote } from "@/lib/api";
+import { updateProjectNote, getProjectHighlightTags } from "@/lib/api";
 import type {
   Highlight,
   Note,
@@ -52,6 +52,7 @@ interface ProjectPdfAnnotationViewProps {
     context?: string;
     page_number?: number;
     selectors?: W3CSelector[];
+    tags?: string[];
   }) => Promise<Highlight | null>;
 }
 
@@ -243,6 +244,7 @@ export default function ProjectPdfAnnotationView({
   highlights,
   notes,
   itemId,
+  projectId,
   onCreateNote,
   onCreateHighlight,
 }: ProjectPdfAnnotationViewProps) {
@@ -382,25 +384,71 @@ export default function ProjectPdfAnnotationView({
     return () => document.removeEventListener("mouseup", onMouseUp);
   }, [pageElOfNode]);
 
+  // Tag state for new highlights + sidebar filter + autocomplete source.
+  const [pendingTags, setPendingTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [knownTags, setKnownTags] = useState<string[]>([]);
+  const [filterTag, setFilterTag] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getProjectHighlightTags(projectId)
+      .then((data) => {
+        if (cancelled) return;
+        setKnownTags((data?.tags || []).map((t) => t.tag));
+      })
+      .catch(() => {
+        /* ignore — tag autocomplete is non-critical */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, highlights.length]);
+
+  const commitTagDraft = useCallback(() => {
+    const raw = tagDraft.trim().replace(/,$/, "").trim();
+    if (!raw) return;
+    // Allow comma-separated entry: "cite, method" → two tags.
+    const parts = raw
+      .split(/[,\n]+/)
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    setPendingTags((prev) => {
+      const next = [...prev];
+      for (const t of parts) if (!next.includes(t)) next.push(t);
+      return next;
+    });
+    setTagDraft("");
+  }, [tagDraft]);
+
   const submitHighlight = useCallback(async () => {
     if (!selectionState || !onCreateHighlight) return;
+    // Commit any in-progress tag draft before submitting.
+    const drafts = tagDraft
+      .split(/[,\n]+/)
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    const tags = Array.from(new Set([...pendingTags, ...drafts]));
     const selectors = computeSelectors(
       selectionState.pageEl,
       selectionState.pageNumber,
       selectionState.text
     );
     setSelectionState(null);
+    setPendingTags([]);
+    setTagDraft("");
     window.getSelection()?.removeAllRanges();
     try {
       await onCreateHighlight({
         text: selectionState.text,
         page_number: selectionState.pageNumber,
         selectors,
+        tags,
       });
     } catch {
       /* silent */
     }
-  }, [selectionState, onCreateHighlight]);
+  }, [selectionState, onCreateHighlight, pendingTags, tagDraft]);
 
   // ── overlay rendering ────────────────────────────────────────────────────
 
@@ -551,18 +599,110 @@ export default function ProjectPdfAnnotationView({
   return (
     <div ref={containerRef} className="pdf-split-view">
       {selectionState && onCreateHighlight && (
-        <button
-          onClick={submitHighlight}
+        <div
           className="pdf-selection-toolbar"
           style={{
             position: "fixed",
             left: selectionState.x,
             top: selectionState.y,
             transform: "translate(-50%, -100%)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            padding: 6,
+            minWidth: 260,
+            background: "var(--bg-primary, #fff)",
+            border: "1px solid var(--border, #e5e5e5)",
+            borderRadius: 6,
+            boxShadow: "0 4px 18px rgba(0,0,0,.08)",
+            zIndex: 50,
           }}
+          onMouseDown={(e) => e.preventDefault() /* keep text selection */}
         >
-          <Highlighter size={12} /> Highlight
-        </button>
+          {/* chip row + input */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+            <TagIcon size={11} style={{ opacity: 0.55 }} />
+            {pendingTags.map((t) => (
+              <span
+                key={t}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 2,
+                  fontSize: 11,
+                  padding: "1px 6px",
+                  background: "var(--bg-secondary, #f0f0f0)",
+                  borderRadius: 999,
+                }}
+              >
+                {t}
+                <button
+                  onClick={() => setPendingTags(pendingTags.filter((x) => x !== t))}
+                  style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 0 }}
+                  aria-label={`remove ${t}`}
+                >
+                  <XIcon size={9} />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (tagDraft.trim()) commitTagDraft();
+                  else submitHighlight();
+                } else if (e.key === "," || e.key === "Tab") {
+                  if (tagDraft.trim()) {
+                    e.preventDefault();
+                    commitTagDraft();
+                  }
+                } else if (e.key === "Backspace" && !tagDraft && pendingTags.length) {
+                  setPendingTags(pendingTags.slice(0, -1));
+                }
+              }}
+              placeholder={pendingTags.length ? "" : "tag (cite, method, …) — Enter to save"}
+              list="highlight-tag-suggestions"
+              style={{
+                flex: 1,
+                minWidth: 80,
+                fontSize: 11,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                padding: "2px 4px",
+              }}
+              autoFocus
+            />
+            <datalist id="highlight-tag-suggestions">
+              {knownTags
+                .filter((t) => !pendingTags.includes(t))
+                .map((t) => (
+                  <option key={t} value={t} />
+                ))}
+            </datalist>
+          </div>
+          <button
+            onClick={submitHighlight}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              fontSize: 11,
+              padding: "3px 8px",
+              background: "var(--accent, #1a73e8)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 4,
+              cursor: "pointer",
+            }}
+          >
+            <Highlighter size={11} /> Save{pendingTags.length ? ` with ${pendingTags.length} tag${pendingTags.length > 1 ? "s" : ""}` : " highlight"}
+          </button>
+        </div>
       )}
 
       <div ref={scrollRef} className="pdf-pages-scroll">
@@ -642,26 +782,108 @@ export default function ProjectPdfAnnotationView({
           </div>
         </div>
 
-        {highlights.length > 0 && (
-          <>
-            <div className="pdf-sidebar-divider" />
-            <div className="pdf-sidebar-heading">
-              Highlights ({highlights.length})
-            </div>
-            {highlights.map((hl) => (
-              <div key={hl.id} className="pdf-sidebar-card">
-                <p className="pdf-sidebar-quote">&ldquo;{hl.text}&rdquo;</p>
-                {hl.note && <p className="pdf-sidebar-note">{hl.note}</p>}
-                <span className="pdf-sidebar-time">
-                  {new Date(hl.created_at).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
+        {highlights.length > 0 && (() => {
+          // Distinct tags present on this item's highlights; feeds the filter row.
+          const localTags = Array.from(
+            new Set(highlights.flatMap((h) => h.tags || []))
+          );
+          const shown = filterTag
+            ? highlights.filter((h) => (h.tags || []).includes(filterTag))
+            : highlights;
+          return (
+            <>
+              <div className="pdf-sidebar-divider" />
+              <div className="pdf-sidebar-heading">
+                Highlights ({shown.length}
+                {filterTag && shown.length !== highlights.length
+                  ? ` of ${highlights.length}`
+                  : ""})
               </div>
-            ))}
-          </>
-        )}
+              {localTags.length > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 3,
+                    padding: "2px 10px 6px",
+                  }}
+                >
+                  <button
+                    onClick={() => setFilterTag(null)}
+                    style={{
+                      fontSize: 10,
+                      padding: "1px 7px",
+                      borderRadius: 999,
+                      border: "1px solid var(--border, #e5e5e5)",
+                      background: filterTag === null ? "var(--accent, #1a73e8)" : "transparent",
+                      color: filterTag === null ? "#fff" : "var(--text-secondary, #444)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    all
+                  </button>
+                  {localTags.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setFilterTag(filterTag === t ? null : t)}
+                      style={{
+                        fontSize: 10,
+                        padding: "1px 7px",
+                        borderRadius: 999,
+                        border: "1px solid var(--border, #e5e5e5)",
+                        background: filterTag === t ? "var(--accent, #1a73e8)" : "transparent",
+                        color: filterTag === t ? "#fff" : "var(--text-secondary, #444)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      #{t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {shown.map((hl) => (
+                <div key={hl.id} className="pdf-sidebar-card">
+                  <p className="pdf-sidebar-quote">&ldquo;{hl.text}&rdquo;</p>
+                  {hl.tags && hl.tags.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 3,
+                        marginTop: 2,
+                      }}
+                    >
+                      {hl.tags.map((t) => (
+                        <span
+                          key={t}
+                          onClick={() => setFilterTag(t)}
+                          style={{
+                            cursor: "pointer",
+                            fontSize: 10,
+                            padding: "0 6px",
+                            borderRadius: 999,
+                            background: "var(--bg-secondary, #f3f3f3)",
+                            color: "var(--text-secondary, #555)",
+                          }}
+                          title={`Filter by #${t}`}
+                        >
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {hl.note && <p className="pdf-sidebar-note">{hl.note}</p>}
+                  <span className="pdf-sidebar-time">
+                    {new Date(hl.created_at).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </div>
+              ))}
+            </>
+          );
+        })()}
 
         {notes.length > 0 && (
           <>
