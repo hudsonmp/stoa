@@ -15,6 +15,8 @@ import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
 import Notes from "@/pages/Notes";
 import Writings from "@/pages/Writings";
+import Projects from "@/pages/Projects";
+import ProjectFolder from "@/pages/ProjectFolder";
 
 export default function App() {
   return (
@@ -39,6 +41,9 @@ export default function App() {
               <Route path="/notes/:id" element={<Notes />} />
               <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
+              <Route path="/projects" element={<Projects />} />
+              <Route path="/projects/:projectId" element={<ProjectFolder />} />
+              <Route path="/projects/:projectId/folders/:folderId" element={<ProjectFolder />} />
             </Route>
           </Routes>
         </AnimatePresence>
