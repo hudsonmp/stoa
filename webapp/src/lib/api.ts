@@ -403,3 +403,45 @@ export async function getCollectionItems(collectionId: string) {
 export async function getCollectionItemCount(collectionId: string) {
   return apiFetch<{ count: number }>(`/items/collections/${collectionId}/count`);
 }
+
+// ─── note_links (evergreen cross-linking) ────────────────────────────────────
+
+export interface NoteLinkRow {
+  source_note_id: string;
+  target_ref_type: "note" | "item" | "person" | "folder";
+  target_ref_id: string;
+  mention_offset?: number;
+  created_at: string;
+  target_title?: string | null;
+  source_title?: string | null;
+}
+
+export async function getNoteLinks(noteId: string) {
+  return apiFetch<{ outgoing: NoteLinkRow[]; incoming: NoteLinkRow[] }>(
+    `/notes/${noteId}/links`,
+  );
+}
+
+export async function createNoteLink(
+  noteId: string,
+  data: {
+    target_ref_type: "note" | "item" | "person" | "folder";
+    target_ref_id: string;
+    mention_offset?: number;
+  },
+) {
+  return apiFetch<{ link: NoteLinkRow }>(`/notes/${noteId}/links`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteNoteLink(
+  noteId: string,
+  targetRefType: string,
+  targetRefId: string,
+) {
+  return apiFetch(`/notes/${noteId}/links/${targetRefType}/${targetRefId}`, {
+    method: "DELETE",
+  });
+}

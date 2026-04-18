@@ -32,7 +32,15 @@ export interface Item {
   user_id: string;
   url?: string;
   title: string;
-  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing";
+  type:
+    | "book"
+    | "blog"
+    | "paper"
+    | "podcast"
+    | "page"
+    | "tweet"
+    | "video"
+    | "writing";
   favicon_url?: string;
   cover_image_url?: string;
   spine_color?: string;
@@ -57,6 +65,36 @@ export interface Highlight {
   created_at: string;
 }
 
+// W3C Web Annotation selector — mirrors highlights.selectors in feat/pdf-foundation
+export interface WebAnnotationSelector {
+  type:
+    | "TextQuoteSelector"
+    | "TextPositionSelector"
+    | "CssSelector"
+    | string;
+  // TextQuoteSelector
+  exact?: string;
+  prefix?: string;
+  suffix?: string;
+  // TextPositionSelector
+  start?: number;
+  end?: number;
+  // CssSelector
+  value?: string;
+}
+
+// Cross-link row from the note_links table
+export interface NoteLink {
+  source_note_id: string;
+  target_ref_type: "note" | "item" | "person" | "folder";
+  target_ref_id: string;
+  mention_offset?: number;
+  created_at: string;
+  // enriched by Links-tab endpoint
+  target_title?: string | null;
+  source_title?: string | null;
+}
+
 export interface Note {
   id: string;
   user_id: string;
@@ -65,6 +103,10 @@ export interface Note {
   title?: string;
   content: string;
   tags?: string[];
+  // Evergreen additions (migration 006)
+  evergreen: boolean;
+  anchor_selectors?: WebAnnotationSelector | null;
+  anchored_highlight_ids?: string[];
   created_at: string;
   updated_at: string;
 }
