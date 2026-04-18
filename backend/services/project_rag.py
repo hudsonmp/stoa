@@ -88,7 +88,8 @@ async def match_notes_scoped(
     if evergreen_only:
         params["filter_evergreen"] = True
     try:
-        result = supabase.rpc("match_notes", params).execute()
+        # Fork: match_notes → match_project_notes (project_note_embeddings)
+        result = supabase.rpc("match_project_notes", params).execute()
     except Exception:
         return []
     return (result.data or [])[:match_count]
@@ -97,7 +98,7 @@ async def match_notes_scoped(
 async def notes_full_text_scoped(
     query: str, user_id: str, note_ids: Optional[list[str]] = None, limit: int = 10,
 ) -> list[dict]:
-    """ILIKE fallback on note title + content — approximates BM25 without FTS."""
+    """ILIKE fallback on project_note title + content — approximates BM25 without FTS."""
     if not query or len(query.strip()) < 2:
         return []
     supabase = get_supabase_service()
@@ -105,13 +106,13 @@ async def notes_full_text_scoped(
     pattern = f"%{escaped}%"
 
     q_title = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, title, content, evergreen, tags, item_id, updated_at")
         .eq("user_id", user_id)
         .ilike("title", pattern)
     )
     q_content = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, title, content, evergreen, tags, item_id, updated_at")
         .eq("user_id", user_id)
         .ilike("content", pattern)
@@ -300,10 +301,13 @@ async def ensure_item_chunks(item_id: str, user_id: str) -> int:
 
 
 async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
-    """Ensure a note has an up-to-date embedding. Returns True if (re)embedded."""
+    """Ensure a project_note has an up-to-date embedding. Returns True if (re)embedded.
+
+    Post-fork: reads project_notes, writes project_note_embeddings.
+    """
     supabase = get_supabase_service()
     note = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, content, title, user_id")
         .eq("id", note_id)
         .eq("user_id", user_id)
@@ -317,9 +321,9 @@ async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
         return False
     new_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     existing = (
-        supabase.table("note_embeddings")
-        .select("note_id, content_hash")
-        .eq("note_id", note_id)
+        supabase.table("project_note_embeddings")
+        .select("project_note_id, content_hash")
+        .eq("project_note_id", note_id)
         .limit(1)
         .execute()
     )
@@ -331,12 +335,14 @@ async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
     except Exception:
         return False
     row = {
-        "note_id": note_id,
+        "project_note_id": note_id,
         "user_id": user_id,
         "embedding": vec,
         "content_hash": new_hash,
     }
-    supabase.table("note_embeddings").upsert(row, on_conflict="note_id").execute()
+    supabase.table("project_note_embeddings").upsert(
+        row, on_conflict="project_note_id"
+    ).execute()
     return True
 
 

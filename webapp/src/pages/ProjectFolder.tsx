@@ -20,6 +20,11 @@ import {
   Trash2,
   ExternalLink,
   GripVertical,
+  FileText,
+  Link as LinkIcon,
+  Github,
+  Mail,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   getProject,
@@ -32,6 +37,11 @@ import {
   addItemToFolder,
   removeItemFromFolder,
   moveItemToFolder,
+  ingestUrl,
+  ingestPdf,
+  ingestGdoc,
+  ingestGithub,
+  ingestResearchImage,
   type Project,
   type Folder as FolderType,
   type FolderItem,
@@ -97,8 +107,8 @@ function FolderIcon({ folder, selected, onSelect, onOpen, onCtx, onDragStart, on
   );
 }
 
-function ItemIcon({ item, selected, onSelect, onCtx, onDragStart }: {
-  item: FolderItem; selected: boolean; onSelect: () => void;
+function ItemIcon({ item, selected, onSelect, onOpen, onCtx, onDragStart }: {
+  item: FolderItem; selected: boolean; onSelect: () => void; onOpen: () => void;
   onCtx: (e: React.MouseEvent) => void; onDragStart: (e: React.DragEvent) => void;
 }) {
   return (
@@ -107,7 +117,7 @@ function ItemIcon({ item, selected, onSelect, onCtx, onDragStart }: {
       onDragStart={onDragStart}
       onContextMenu={onCtx}
       onClick={onSelect}
-      onDoubleClick={() => item.url && window.open(item.url, "_blank")}
+      onDoubleClick={onOpen}
       className={`flex flex-col items-center gap-1.5 p-3 rounded-card cursor-pointer select-none transition-warm ${selected ? "bg-accent/10 ring-1 ring-accent/30" : "hover:bg-bg-secondary"}`}
     >
       {item.cover_image_url ? (
@@ -154,9 +164,30 @@ function CreateFolderModal({ projectId, parentFolderId, onClose, onCreated }: {
   );
 }
 
-function ContextMenu({ menu, onClose, onNewFolder, onRenameFolder, onDeleteFolder, onRemoveItem }: {
-  menu: CtxMenu; onClose: () => void; onNewFolder: () => void;
-  onRenameFolder: (f: FolderType) => void; onDeleteFolder: (f: FolderType) => void; onRemoveItem: (i: FolderItem) => void;
+function ContextMenu({
+  menu,
+  onClose,
+  onNewFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onRemoveItem,
+  onAddPdf,
+  onAddUrl,
+  onAddGdoc,
+  onAddGithub,
+  onAddImage,
+}: {
+  menu: CtxMenu;
+  onClose: () => void;
+  onNewFolder: () => void;
+  onRenameFolder: (f: FolderType) => void;
+  onDeleteFolder: (f: FolderType) => void;
+  onRemoveItem: (i: FolderItem) => void;
+  onAddPdf: () => void;
+  onAddUrl: () => void;
+  onAddGdoc: () => void;
+  onAddGithub: () => void;
+  onAddImage: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -165,8 +196,18 @@ function ContextMenu({ menu, onClose, onNewFolder, onRenameFolder, onDeleteFolde
     return () => document.removeEventListener("mousedown", h);
   }, [onClose]);
   return (
-    <motion.div ref={ref} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.1 }} className="fixed z-50 min-w-[160px] bg-bg-primary border border-border rounded-card shadow-xl py-1 text-sm" style={{ left: menu.x, top: menu.y }}>
-      {menu.kind === "blank" && <button onClick={() => { onClose(); onNewFolder(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><Plus size={13} /> New Folder</button>}
+    <motion.div ref={ref} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.1 }} className="fixed z-50 min-w-[180px] bg-bg-primary border border-border rounded-card shadow-xl py-1 text-sm" style={{ left: menu.x, top: menu.y }}>
+      {menu.kind === "blank" && (
+        <>
+          <button onClick={() => { onClose(); onNewFolder(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><Plus size={13} /> New Folder</button>
+          <div className="my-1 h-px bg-border" />
+          <button onClick={() => { onClose(); onAddPdf(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><FileText size={13} /> Add PDF</button>
+          <button onClick={() => { onClose(); onAddUrl(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><LinkIcon size={13} /> Add URL</button>
+          <button onClick={() => { onClose(); onAddGdoc(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><Mail size={13} /> Add Google Doc</button>
+          <button onClick={() => { onClose(); onAddGithub(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><Github size={13} /> Add GitHub Repo</button>
+          <button onClick={() => { onClose(); onAddImage(); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><ImageIcon size={13} /> Add Image</button>
+        </>
+      )}
       {menu.kind === "folder" && menu.target && (
         <>
           <button onClick={() => { onClose(); onRenameFolder(menu.target as FolderType); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-text-secondary hover:bg-bg-secondary hover:text-text-primary transition-warm"><Pencil size={13} /> Rename</button>
@@ -289,6 +330,118 @@ export default function ProjectFolder() {
     setItems((prev) => prev.filter((i) => i.id !== item.id));
   };
 
+  // ── navigation helper: open an item inside the current project context ────
+  const openItemInProject = useCallback(
+    (itemId: string) => {
+      if (!projectId) return;
+      const params = new URLSearchParams({ project_id: projectId });
+      if (currentFolderId) params.set("folder_id", currentFolderId);
+      navigate(`/item/${itemId}?${params.toString()}`);
+    },
+    [projectId, currentFolderId, navigate]
+  );
+
+  // ── attach an ingested item to the current folder + refresh ───────────────
+  const attachAndReload = useCallback(
+    async (ingestedItemId: string | undefined) => {
+      if (!projectId || !currentFolderId || !ingestedItemId) return;
+      try {
+        await addItemToFolder(projectId, currentFolderId, ingestedItemId);
+      } catch {
+        /* non-fatal — item was still ingested */
+      }
+      await load();
+    },
+    [projectId, currentFolderId, load]
+  );
+
+  // ── Add-X handlers (context menu on blank space) ──────────────────────────
+  // Each prompts for input / opens a file picker, ingests via the existing
+  // /ingest/* routes, then attaches to the current folder. If there is no
+  // current folder (i.e. we are at the project root), we surface a notice
+  // instead of silently failing — items must live in a folder.
+
+  const requireFolder = useCallback(() => {
+    if (!currentFolderId) {
+      alert("Open a folder first — items must live inside a folder.");
+      return false;
+    }
+    return true;
+  }, [currentFolderId]);
+
+  const handleAddPdf = useCallback(async () => {
+    if (!requireFolder()) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/pdf";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const result = await ingestPdf(file);
+        const newItemId = (result.item as { id?: string } | undefined)?.id;
+        await attachAndReload(newItemId);
+      } catch {
+        alert("PDF ingest failed.");
+      }
+    };
+    input.click();
+  }, [requireFolder, attachAndReload]);
+
+  const handleAddUrl = useCallback(async () => {
+    if (!requireFolder()) return;
+    const url = window.prompt("Paste a URL to ingest:");
+    if (!url) return;
+    try {
+      const result = (await ingestUrl({ url })) as { item?: { id?: string } };
+      await attachAndReload(result.item?.id);
+    } catch {
+      alert("URL ingest failed.");
+    }
+  }, [requireFolder, attachAndReload]);
+
+  const handleAddGdoc = useCallback(async () => {
+    if (!requireFolder()) return;
+    const url = window.prompt("Paste a Google Doc URL:");
+    if (!url) return;
+    try {
+      const result = await ingestGdoc(url);
+      await attachAndReload(result.item_id);
+    } catch {
+      alert("Google Doc ingest failed.");
+    }
+  }, [requireFolder, attachAndReload]);
+
+  const handleAddGithub = useCallback(async () => {
+    if (!requireFolder()) return;
+    const url = window.prompt("Paste a GitHub repo URL:");
+    if (!url) return;
+    try {
+      const result = await ingestGithub(url);
+      await attachAndReload(result.item_id);
+    } catch {
+      alert("GitHub repo ingest failed.");
+    }
+  }, [requireFolder, attachAndReload]);
+
+  const handleAddImage = useCallback(async () => {
+    if (!requireFolder()) return;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const result = await ingestResearchImage(file);
+        await attachAndReload(result.item_id);
+      } catch {
+        alert("Image ingest failed.");
+      }
+    };
+    input.click();
+  }, [requireFolder, attachAndReload]);
+
   if (!projectId) return null;
 
   return (
@@ -313,7 +466,7 @@ export default function ProjectFolder() {
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <Folder size={36} className="text-text-tertiary opacity-30 mb-3" />
             <p className="text-sm text-text-secondary">Empty folder</p>
-            <p className="text-xs text-text-tertiary mt-1">Right-click to create a subfolder, or paste item IDs with Cmd+V.</p>
+            <p className="text-xs text-text-tertiary mt-1">Right-click to add a PDF, URL, Google Doc, GitHub repo, image, or subfolder.</p>
           </div>
         ) : viewMode === "icon" ? (
           <div className="p-4 flex flex-wrap gap-1 content-start" onContextMenu={(e) => { if (e.target === e.currentTarget) openCtx(e, "blank"); }}>
@@ -332,7 +485,7 @@ export default function ProjectFolder() {
               )}
               {items.map((item) => (
                 <motion.div key={item.id} layout initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }} className="w-[100px]" onClick={(e) => e.stopPropagation()}>
-                  <ItemIcon item={item} selected={selectedId === item.id} onSelect={() => setSelectedId(item.id)} onCtx={(e) => { setSelectedId(item.id); openCtx(e, "item", item); }} onDragStart={(e) => onItemDragStart(e, item)} />
+                  <ItemIcon item={item} selected={selectedId === item.id} onSelect={() => setSelectedId(item.id)} onOpen={() => openItemInProject(item.id)} onCtx={(e) => { setSelectedId(item.id); openCtx(e, "item", item); }} onDragStart={(e) => onItemDragStart(e, item)} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -352,7 +505,7 @@ export default function ProjectFolder() {
               </div>
             ))}
             {items.map((item) => (
-              <div key={item.id} draggable onDragStart={(e) => onItemDragStart(e, item)} onContextMenu={(e) => { setSelectedId(item.id); openCtx(e, "item", item); }} onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); }} onDoubleClick={() => item.url && window.open(item.url, "_blank")} className={`flex items-center gap-3 px-6 py-2.5 cursor-pointer select-none transition-warm group ${selectedId === item.id ? "bg-accent/8" : "hover:bg-bg-secondary"}`}>
+              <div key={item.id} draggable onDragStart={(e) => onItemDragStart(e, item)} onContextMenu={(e) => { setSelectedId(item.id); openCtx(e, "item", item); }} onClick={(e) => { e.stopPropagation(); setSelectedId(item.id); }} onDoubleClick={() => openItemInProject(item.id)} className={`flex items-center gap-3 px-6 py-2.5 cursor-pointer select-none transition-warm group ${selectedId === item.id ? "bg-accent/8" : "hover:bg-bg-secondary"}`}>
                 <GripVertical size={14} className="text-text-tertiary opacity-0 group-hover:opacity-100 shrink-0" />
                 <span className="text-base leading-none shrink-0">{typeIcon(item.type)}</span>
                 <div className="flex-1 min-w-0">
@@ -376,7 +529,19 @@ export default function ProjectFolder() {
       </AnimatePresence>
       <AnimatePresence>
         {ctxMenu && (
-          <ContextMenu menu={ctxMenu} onClose={() => setCtxMenu(null)} onNewFolder={() => setShowCreateFolder(true)} onRenameFolder={(folder) => { setRenamingFolder(folder); setRenameName(folder.name); }} onDeleteFolder={handleDeleteFolder} onRemoveItem={handleRemoveItem} />
+          <ContextMenu
+            menu={ctxMenu}
+            onClose={() => setCtxMenu(null)}
+            onNewFolder={() => setShowCreateFolder(true)}
+            onRenameFolder={(folder) => { setRenamingFolder(folder); setRenameName(folder.name); }}
+            onDeleteFolder={handleDeleteFolder}
+            onRemoveItem={handleRemoveItem}
+            onAddPdf={handleAddPdf}
+            onAddUrl={handleAddUrl}
+            onAddGdoc={handleAddGdoc}
+            onAddGithub={handleAddGithub}
+            onAddImage={handleAddImage}
+          />
         )}
       </AnimatePresence>
     </div>

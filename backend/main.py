@@ -6,7 +6,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from routers import ingest, search, rag, citations, review, highlights, items, people, notes, classify, projects, mcp_projects
+from routers import (
+    ingest,
+    search,
+    rag,
+    citations,
+    review,
+    highlights,
+    items,
+    people,
+    notes,
+    classify,
+    projects,
+    mcp_projects,
+    project_notes,
+    project_highlights,
+)
 
 app = FastAPI(title="Stoa API", version="0.1.0")
 
@@ -37,6 +52,8 @@ app.include_router(notes.router, prefix="/notes", tags=["notes"])
 app.include_router(classify.router, prefix="/classify", tags=["classify"])
 app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(mcp_projects.router, prefix="/mcp/projects", tags=["mcp-projects"])
+app.include_router(project_notes.router, prefix="/project-notes", tags=["project-notes"])
+app.include_router(project_highlights.router, prefix="/project-highlights", tags=["project-highlights"])
 
 
 @app.get("/health")
@@ -53,6 +70,11 @@ TEST_USER_ID = "5f067d11-b2b8-4efe-84c7-5ac9c5602c9a"
 
 # Tables in FK-safe deletion order
 _CLEANUP_TABLES = [
+    # Project-scoped forks first — cascade-safe chain:
+    "project_note_links",
+    "project_note_embeddings",
+    "project_notes",
+    "project_highlights",
     "folder_items",     # must precede folders and items
     "folders",          # must precede projects
     "projects",         # projects.user_id scoped

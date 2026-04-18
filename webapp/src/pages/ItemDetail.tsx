@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -29,12 +29,37 @@ import {
   ChevronUp,
 } from "lucide-react";
 import type { Item, Highlight, Note, Citation } from "@/lib/supabase";
-import { getItem, updateItem, createNote, updateNote, createHighlight, updateHighlight, getItemTags, setItemTags, deleteNote, deleteHighlight, getPdfEmbedUrl, getAr5ivUrl, exportBibtex, exportApa, exportMla, listCollections, addItemToCollection } from "@/lib/api";
+import {
+  getItem,
+  updateItem,
+  createNote,
+  updateNote,
+  createHighlight,
+  updateHighlight,
+  getItemTags,
+  setItemTags,
+  deleteNote,
+  deleteHighlight,
+  getPdfEmbedUrl,
+  getAr5ivUrl,
+  exportBibtex,
+  exportApa,
+  exportMla,
+  listCollections,
+  addItemToCollection,
+  createProjectNote,
+  updateProjectNote,
+  createProjectHighlight,
+  getProjectNotes,
+  getProjectHighlights,
+} from "@/lib/api";
 import ReaderView from "@/components/ReaderView";
 import HighlightPanel from "@/components/HighlightPanel";
 import NoteEditor from "@/components/NoteEditor";
 import ResearchEditor from "@/components/ResearchEditor";
 import PdfAnnotationView from "@/components/PdfAnnotationView";
+import ProjectPdfAnnotationView from "@/components/ProjectPdfAnnotationView";
+import ProjectNoteEditor from "@/components/ProjectNoteEditor";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -179,6 +204,15 @@ function GithubRepoRenderer({ item }: { item: Item }) {
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Project context: when ?project_id= (and optionally &folder_id=) is present,
+  // the reader loads project_notes + project_highlights and writes to the
+  // forked editors. Otherwise it behaves as the original library reader.
+  const projectId = searchParams.get("project_id") || undefined;
+  const folderId = searchParams.get("folder_id") || undefined;
+  const inProjectContext = Boolean(projectId);
+
   const [item, setItem] = useState<Item | null>(null);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -221,7 +255,7 @@ export default function ItemDetail() {
   useEffect(() => {
     if (!id) return;
     loadItem();
-  }, [id]);
+  }, [id, inProjectContext]);
 
   const pdfUrl = item ? getPdfEmbedUrl(item) : null;
   const ar5ivUrl = item ? getAr5ivUrl(item) : null;
@@ -240,9 +274,28 @@ export default function ItemDetail() {
     try {
       const data = await getItem(id!);
       setItem(data.item as Item);
-      setHighlights((data.highlights as Highlight[]) || []);
-      const itemNotes = (data.notes as Note[]) || [];
-      setNotes(itemNotes);
+
+      // In project context we swap the library highlights/notes for their
+      // forked project_* equivalents. The /items/:id endpoint still returns
+      // the legacy data, which we ignore in favour of explicit /project-* reads.
+      if (inProjectContext) {
+        try {
+          const [phResp, pnResp] = await Promise.all([
+            getProjectHighlights({ item_id: id!, project_id: projectId, folder_id: folderId }),
+            getProjectNotes({ project_id: projectId, folder_id: folderId, item_id: id! }),
+          ]);
+          setHighlights((phResp.highlights as Highlight[]) || []);
+          setNotes((pnResp.notes as Note[]) || []);
+        } catch {
+          setHighlights([]);
+          setNotes([]);
+        }
+      } else {
+        setHighlights((data.highlights as Highlight[]) || []);
+        setNotes((data.notes as Note[]) || []);
+      }
+
+      const itemNotes = inProjectContext ? [] : ((data.notes as Note[]) || []);
       setCitation((data.citation as Citation) || null);
       setRelatedItems((data.related as Item[]) || []);
       // Find or prepare main note (source-note or first note)
@@ -366,9 +419,25 @@ export default function ItemDetail() {
     setNoteSaving(true);
     try {
       if (mainNoteId) {
-        await updateNote(mainNoteId, { content });
+        if (inProjectContext) {
+          await updateProjectNote(mainNoteId, { content });
+        } else {
+          await updateNote(mainNoteId, { content });
+        }
+      } else if (inProjectContext) {
+        const result = await createProjectNote({
+          project_id: projectId,
+          folder_id: folderId,
+          item_id: item.id,
+          content,
+          title: item.title,
+          tags: ["source-note"],
+        });
+        const newNote = (result as { note: Note }).note;
+        setMainNoteId(newNote.id);
+        setNotes((prev) => [newNote, ...prev]);
       } else {
-        // Create new source note
+        // Create new source note (library)
         const result = await createNote({
           item_id: item.id,
           content,
@@ -385,7 +454,7 @@ export default function ItemDetail() {
     } finally {
       setNoteSaving(false);
     }
-  }, [item, mainNoteId]);
+  }, [item, mainNoteId, inProjectContext, projectId, folderId]);
 
   const updateStatus = async (status: Item["reading_status"]) => {
     if (!item) return;
@@ -563,23 +632,59 @@ export default function ItemDetail() {
             )}
           </div>
         </div>
-        <PdfAnnotationView
-          pdfUrl={pdfUrl}
-          highlights={highlights}
-          notes={notes}
-          itemId={item.id}
-          onCreateNote={async (content, tags, draft_id) => {
-            const result = await createNote({
-              item_id: item.id,
-              content,
-              tags,
-              draft_id,
-            });
-            const newNote = (result as { note: Note }).note;
-            setNotes((prev) => [newNote, ...prev]);
-            return newNote;
-          }}
-        />
+        {inProjectContext ? (
+          <ProjectPdfAnnotationView
+            pdfUrl={pdfUrl}
+            highlights={highlights}
+            notes={notes}
+            itemId={item.id}
+            projectId={projectId}
+            folderId={folderId}
+            onCreateNote={async (content, tags, draft_id) => {
+              const result = await createProjectNote({
+                project_id: projectId,
+                folder_id: folderId,
+                item_id: item.id,
+                content,
+                tags,
+                draft_id,
+              });
+              const newNote = (result as { note: Note }).note;
+              setNotes((prev) => [newNote, ...prev]);
+              return newNote;
+            }}
+            onCreateHighlight={async ({ text, context, page_number, selectors }) => {
+              const result = await createProjectHighlight({
+                item_id: item.id,
+                project_id: projectId,
+                folder_id: folderId,
+                text,
+                context,
+                page_number,
+                selectors: selectors as unknown[] | undefined,
+              });
+              const hl = (result as { highlight: Highlight }).highlight;
+              setHighlights((prev) => [hl, ...prev]);
+              return hl;
+            }}
+          />
+        ) : (
+          <PdfAnnotationView
+            pdfUrl={pdfUrl}
+            highlights={highlights}
+            notes={notes}
+            itemId={item.id}
+            onCreateNote={async (content, tags) => {
+              const result = await createNote({
+                item_id: item.id,
+                content,
+                tags,
+              });
+              const newNote = (result as { note: Note }).note;
+              setNotes((prev) => [newNote, ...prev]);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -972,11 +1077,20 @@ export default function ItemDetail() {
                   </span>
                 </div>
                 <div className="item-notes-editor">
-                  <ResearchEditor
-                    content={mainNoteContent}
-                    onSave={handleMainNoteSave}
-                    placeholder="Write your notes about this item..."
-                  />
+                  {inProjectContext ? (
+                    <ProjectNoteEditor
+                      content={mainNoteContent}
+                      onSave={handleMainNoteSave}
+                      placeholder="Write your notes about this item..."
+                      projectNoteId={mainNoteId ?? undefined}
+                    />
+                  ) : (
+                    <ResearchEditor
+                      content={mainNoteContent}
+                      onSave={handleMainNoteSave}
+                      placeholder="Write your notes about this item..."
+                    />
+                  )}
                 </div>
               </section>
             </>

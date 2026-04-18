@@ -195,6 +195,8 @@ async def search_notes_scoped_endpoint(req: SearchNotesRequest, request: Request
 
 
 def _attach_note_links(notes: list[dict], user_id: str) -> list[dict]:
+    """Post-fork: @mention links live in project_note_links keyed by
+    source_project_note_id."""
     supabase = get_supabase_service()
     ids = [n.get("note_id") or n.get("id") for n in notes]
     ids = [i for i in ids if i]
@@ -202,14 +204,14 @@ def _attach_note_links(notes: list[dict], user_id: str) -> list[dict]:
         return notes
     try:
         out_links = (
-            supabase.table("note_links")
-            .select("source_note_id, target_ref_type, target_ref_id")
-            .in_("source_note_id", ids)
+            supabase.table("project_note_links")
+            .select("source_project_note_id, target_ref_type, target_ref_id")
+            .in_("source_project_note_id", ids)
             .execute()
         )
         in_links = (
-            supabase.table("note_links")
-            .select("source_note_id, target_ref_type, target_ref_id")
+            supabase.table("project_note_links")
+            .select("source_project_note_id, target_ref_type, target_ref_id")
             .in_("target_ref_id", ids)
             .eq("target_ref_type", "note")
             .execute()
@@ -219,7 +221,7 @@ def _attach_note_links(notes: list[dict], user_id: str) -> list[dict]:
     out_by_src: dict[str, list] = {}
     in_by_tgt: dict[str, list] = {}
     for r in (out_links.data or []):
-        out_by_src.setdefault(r["source_note_id"], []).append(r)
+        out_by_src.setdefault(r["source_project_note_id"], []).append(r)
     for r in (in_links.data or []):
         in_by_tgt.setdefault(r["target_ref_id"], []).append(r)
     for n in notes:
@@ -263,7 +265,7 @@ async def index_project(req: IndexProjectRequest, request: Request):
     note_updates: dict[str, str] = {}
     if scope["note_ids"]:
         meta = (
-            supabase.table("notes")
+            supabase.table("project_notes")
             .select("id, updated_at")
             .in_("id", scope["note_ids"])
             .execute()
@@ -382,7 +384,7 @@ async def list_project(request: Request, project_path: str):
     notes: list[dict] = []
     if scope["note_ids"]:
         res = (
-            supabase.table("notes")
+            supabase.table("project_notes")
             .select("id, title, evergreen, tags, item_id, updated_at, created_at")
             .eq("user_id", user_id)
             .in_("id", scope["note_ids"])
@@ -473,7 +475,7 @@ async def get_project_context(req: GetProjectContextRequest, request: Request):
     highlights_by_item: dict[str, list[dict]] = {}
     if items:
         hls = (
-            supabase.table("highlights")
+            supabase.table("project_highlights")
             .select("item_id, text, note, created_at")
             .eq("user_id", user_id)
             .in_("item_id", [i["id"] for i in items])
@@ -489,7 +491,7 @@ async def get_project_context(req: GetProjectContextRequest, request: Request):
     notes_titles: list[dict] = []
     if scope["note_ids"]:
         nres = (
-            supabase.table("notes")
+            supabase.table("project_notes")
             .select("id, title, content, evergreen, tags, item_id, updated_at")
             .eq("user_id", user_id)
             .in_("id", scope["note_ids"])
@@ -866,11 +868,11 @@ def _folder_path_for(supabase, folder_id: str) -> str:
 
 @router.post("/annotate")
 async def annotate_on_behalf(req: AnnotateOnBehalfRequest, request: Request):
-    """Write agent-sourced highlights + notes to an item.
+    """Write agent-sourced highlights + notes to an item, project-scoped.
 
-    Rows carry `agent_source = {agent_id, created_at}`. Selectors mirror W3C
-    Web Annotation shape (same key as feat/pdf-foundation). @mentions create
-    `note_links` rows.
+    Agent writes go to `project_highlights` and `project_notes` (forked tables).
+    Rows carry `agent_source = {agent_id, created_at}`. Selectors use W3C Web
+    Annotation shape. @mentions create `project_note_links` rows.
     """
     user_id = await get_user_id(request)
     supabase = get_supabase_service()
@@ -905,14 +907,10 @@ async def annotate_on_behalf(req: AnnotateOnBehalfRequest, request: Request):
         if h.selectors is not None:
             row["selectors"] = h.selectors
         try:
-            r = supabase.table("highlights").insert(row).execute()
+            r = supabase.table("project_highlights").insert(row).execute()
             created_highlights.append(r.data[0] if r.data else {})
         except Exception as exc:
-            logger.warning("agent highlight insert failed (%s); retrying without new cols", exc)
-            row.pop("selectors", None)
-            row.pop("agent_source", None)
-            r = supabase.table("highlights").insert(row).execute()
-            created_highlights.append(r.data[0] if r.data else {})
+            logger.warning("agent project_highlight insert failed: %s", exc)
 
     created_notes: list[dict] = []
     for n in req.notes:
@@ -928,12 +926,10 @@ async def annotate_on_behalf(req: AnnotateOnBehalfRequest, request: Request):
         if n.anchor_selectors is not None:
             row["anchor_selectors"] = n.anchor_selectors
         try:
-            r = supabase.table("notes").insert(row).execute()
+            r = supabase.table("project_notes").insert(row).execute()
         except Exception as exc:
-            logger.warning("agent note insert fell back: %s", exc)
-            row.pop("agent_source", None)
-            row.pop("anchor_selectors", None)
-            r = supabase.table("notes").insert(row).execute()
+            logger.warning("agent project_note insert failed: %s", exc)
+            continue
         if not r.data:
             continue
         note = r.data[0]
@@ -942,30 +938,30 @@ async def annotate_on_behalf(req: AnnotateOnBehalfRequest, request: Request):
         link_rows = []
         for iid in n.mention_item_ids:
             link_rows.append({
-                "source_note_id": note["id"],
+                "source_project_note_id": note["id"],
                 "target_ref_type": "item",
                 "target_ref_id": iid,
                 "mention_offset": 0,
             })
         for nid in n.mention_note_ids:
             link_rows.append({
-                "source_note_id": note["id"],
+                "source_project_note_id": note["id"],
                 "target_ref_type": "note",
                 "target_ref_id": nid,
                 "mention_offset": 0,
             })
         for pid in n.mention_person_ids:
             link_rows.append({
-                "source_note_id": note["id"],
+                "source_project_note_id": note["id"],
                 "target_ref_type": "person",
                 "target_ref_id": pid,
                 "mention_offset": 0,
             })
         if link_rows:
             try:
-                supabase.table("note_links").insert(link_rows).execute()
+                supabase.table("project_note_links").insert(link_rows).execute()
             except Exception as exc:
-                logger.info("note_links insert skipped: %s", exc)
+                logger.info("project_note_links insert skipped: %s", exc)
 
     return {
         "item_id": req.item_id,

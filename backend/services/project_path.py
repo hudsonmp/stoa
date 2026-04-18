@@ -268,13 +268,18 @@ def _items_under_folders(supabase, folder_ids: list[str]) -> list[str]:
 
 
 def _notes_for_items(supabase, item_ids: list[str], user_id: str) -> list[str]:
-    """Notes attached to any of these items (via notes.item_id or ref:<id> tag)."""
+    """Project notes attached to any of these items.
+
+    Post-fork: searches `project_notes` only. Library notes are deliberately
+    excluded from MCP retrieval — cross-library recall would require a
+    separate endpoint.
+    """
     if not item_ids:
         return []
     ids: set[str] = set()
 
     direct = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id")
         .eq("user_id", user_id)
         .in_("item_id", item_ids)
@@ -284,7 +289,7 @@ def _notes_for_items(supabase, item_ids: list[str], user_id: str) -> list[str]:
         ids.add(r["id"])
 
     all_notes = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, tags")
         .eq("user_id", user_id)
         .limit(5000)
