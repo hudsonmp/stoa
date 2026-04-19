@@ -455,7 +455,18 @@ export default function ProjectFolder() {
           <button onClick={(e) => { e.stopPropagation(); setViewMode("icon"); }} className={`p-1.5 rounded transition-warm ${viewMode === "icon" ? "bg-bg-secondary text-text-primary" : "text-text-tertiary hover:text-text-primary"}`} title="Icon view"><LayoutGrid size={15} /></button>
           <button onClick={(e) => { e.stopPropagation(); setViewMode("list"); }} className={`p-1.5 rounded transition-warm ${viewMode === "list" ? "bg-bg-secondary text-text-primary" : "text-text-tertiary hover:text-text-primary"}`} title="List view"><List size={15} /></button>
           <div className="w-px h-4 bg-border mx-1" />
-          <button onClick={(e) => { e.stopPropagation(); setShowCreateFolder(true); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-card text-xs font-medium bg-accent text-white hover:bg-accent/90 transition-warm"><Plus size={13} /> New Folder</button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              // Open the existing blank-area context menu anchored below the button.
+              setCtxMenu({ x: rect.right - 180, y: rect.bottom + 4, kind: "blank" });
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-card text-xs font-medium bg-accent text-white hover:bg-accent/90 transition-warm"
+            title="Add a folder, PDF, URL, Google Doc, GitHub repo, or image"
+          >
+            <Plus size={13} /> Add
+          </button>
         </div>
       </div>
 
@@ -466,7 +477,7 @@ export default function ProjectFolder() {
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <Folder size={36} className="text-text-tertiary opacity-30 mb-3" />
             <p className="text-sm text-text-secondary">Empty folder</p>
-            <p className="text-xs text-text-tertiary mt-1">Right-click to add a PDF, URL, Google Doc, GitHub repo, image, or subfolder.</p>
+            <p className="text-xs text-text-tertiary mt-1">Click <span className="font-medium text-text-secondary">+ Add</span> above to drop in a folder, PDF, URL, Google Doc, GitHub repo, or image.</p>
           </div>
         ) : viewMode === "icon" ? (
           <div className="p-4 flex flex-wrap gap-1 content-start" onContextMenu={(e) => { if (e.target === e.currentTarget) openCtx(e, "blank"); }}>
