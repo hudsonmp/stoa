@@ -25,6 +25,9 @@ import {
   Github,
   Mail,
   Image as ImageIcon,
+  FolderSync,
+  AlertTriangle,
+  CloudOff,
 } from "lucide-react";
 import {
   getProject,
@@ -42,10 +45,13 @@ import {
   ingestGdoc,
   ingestGithub,
   ingestResearchImage,
+  getProjectSyncStatus,
   type Project,
   type Folder as FolderType,
   type FolderItem,
+  type SyncStatus,
 } from "@/lib/api";
+import ProjectSyncPanel from "@/components/ProjectSyncPanel";
 
 type ViewMode = "icon" | "list";
 interface CtxMenu { x: number; y: number; kind: "folder" | "item" | "blank"; target?: FolderType | FolderItem; }
@@ -239,6 +245,8 @@ export default function ProjectFolder() {
   const [renamingFolder, setRenamingFolder] = useState<FolderType | null>(null);
   const [renameName, setRenameName] = useState("");
   const [crumbs, setCrumbs] = useState<{ id: string | null; name: string }[]>([]);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [showSyncPanel, setShowSyncPanel] = useState(false);
 
   const currentFolderId = folderId ?? null;
   const dragPayload = useRef<{ kind: "folder" | "item"; id: string; sourceFolderId: string | null } | null>(null);
@@ -267,6 +275,21 @@ export default function ProjectFolder() {
   }, [projectId, currentFolderId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Poll sync status every 15s and once immediately. Keeps "Synced Ns ago" badge honest.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await getProjectSyncStatus(projectId);
+        if (!cancelled) setSyncStatus(s);
+      } catch { /* ignore */ }
+    };
+    tick();
+    const h = window.setInterval(tick, 15_000);
+    return () => { cancelled = true; window.clearInterval(h); };
+  }, [projectId, showSyncPanel]);
 
   const allIds = [...folders.map((f) => f.id), ...items.map((i) => i.id)];
 
@@ -452,6 +475,8 @@ export default function ProjectFolder() {
         </button>
         <Breadcrumbs crumbs={crumbs} projectId={projectId} />
         <div className="flex items-center gap-1 ml-auto shrink-0">
+          <SyncBadge status={syncStatus} onClick={() => setShowSyncPanel(true)} />
+          <div className="w-px h-4 bg-border mx-1" />
           <button onClick={(e) => { e.stopPropagation(); setViewMode("icon"); }} className={`p-1.5 rounded transition-warm ${viewMode === "icon" ? "bg-bg-secondary text-text-primary" : "text-text-tertiary hover:text-text-primary"}`} title="Icon view"><LayoutGrid size={15} /></button>
           <button onClick={(e) => { e.stopPropagation(); setViewMode("list"); }} className={`p-1.5 rounded transition-warm ${viewMode === "list" ? "bg-bg-secondary text-text-primary" : "text-text-tertiary hover:text-text-primary"}`} title="List view"><List size={15} /></button>
           <div className="w-px h-4 bg-border mx-1" />
@@ -555,6 +580,73 @@ export default function ProjectFolder() {
           />
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {showSyncPanel && projectId && (
+          <ProjectSyncPanel
+            projectId={projectId}
+            projectSlug={(project?.name || "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}
+            onClose={() => setShowSyncPanel(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+// ─── SyncBadge ────────────────────────────────────────────────────────────────
+
+function formatAgo(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function SyncBadge({ status, onClick }: { status: SyncStatus | null; onClick: () => void }) {
+  if (!status) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-text-tertiary hover:text-text-primary hover:bg-bg-secondary transition-warm"
+        title="Folder sync settings"
+      >
+        <FolderSync size={12} /> Sync
+      </button>
+    );
+  }
+  const enabled = !!(status.enabled || status.watcher_running);
+  const conflicted = (status.conflict_count ?? 0) > 0;
+
+  let icon = <CloudOff size={12} />;
+  let label = "Sync off";
+  let cls = "text-text-tertiary hover:text-text-primary";
+
+  if (conflicted) {
+    icon = <AlertTriangle size={12} className="text-amber-500" />;
+    label = `${status.conflict_count} conflict${status.conflict_count === 1 ? "" : "s"}`;
+    cls = "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800";
+  } else if (enabled) {
+    const when = status.last_sync_at || status.last_synced_at;
+    const ago = when ? formatAgo(when) : "";
+    icon = <FolderSync size={12} className="text-emerald-500" />;
+    label = ago ? `Synced ${ago}` : "Synced";
+    cls = "text-emerald-700 dark:text-emerald-400 hover:bg-bg-secondary";
+  }
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-warm ${cls}`}
+      title="Folder sync settings"
+    >
+      {icon} {label}
+    </button>
   );
 }
