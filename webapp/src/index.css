@@ -632,6 +632,57 @@ body::before {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+   Highlight marks — theme-aware contrast.
+
+   Saturated hue + ~30% alpha keeps the highlight visible AND lets the
+   underlying page luminance (light OR dark) pass through enough that
+   text on top stays readable (WCAG-adjacent, not strictly certified).
+   box-decoration-break: clone → rounded corners on every line fragment,
+   not just the outer bounding box, so multi-line highlights look right.
+   ────────────────────────────────────────────────────────────────────── */
+mark,
+.prose mark,
+.reader-text-content mark,
+.reader-view mark {
+  background-color: rgba(250, 204, 21, 0.32);  /* default: yellow 400 @ 32% */
+  color: inherit;
+  padding: 0.08em 0.12em;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+mark[data-color="yellow"], .prose mark[data-color="yellow"], .reader-text-content mark[data-color="yellow"], .reader-view mark[data-color="yellow"] { background-color: rgba(250, 204, 21, 0.32); }
+mark[data-color="green"],  .prose mark[data-color="green"],  .reader-text-content mark[data-color="green"],  .reader-view mark[data-color="green"]  { background-color: rgba(34, 197, 94, 0.28); }
+mark[data-color="blue"],   .prose mark[data-color="blue"],   .reader-text-content mark[data-color="blue"],   .reader-view mark[data-color="blue"]   { background-color: rgba(59, 130, 246, 0.28); }
+mark[data-color="pink"],   .prose mark[data-color="pink"],   .reader-text-content mark[data-color="pink"],   .reader-view mark[data-color="pink"]   { background-color: rgba(236, 72, 153, 0.28); }
+mark[data-color="purple"], .prose mark[data-color="purple"], .reader-text-content mark[data-color="purple"], .reader-view mark[data-color="purple"] { background-color: rgba(139, 92, 246, 0.28); }
+
+/* Dark mode (system preference OR a `.dark` root class): lighter-tone hues
+   at slightly lower alpha so the tint is visible without washing white text. */
+@media (prefers-color-scheme: dark) {
+  mark                       { background-color: rgba(253, 224, 71, 0.25); }
+  mark[data-color="yellow"]  { background-color: rgba(253, 224, 71, 0.25); }
+  mark[data-color="green"]   { background-color: rgba(134, 239, 172, 0.22); }
+  mark[data-color="blue"]    { background-color: rgba(147, 197, 253, 0.22); }
+  mark[data-color="pink"]    { background-color: rgba(249, 168, 212, 0.22); }
+  mark[data-color="purple"]  { background-color: rgba(196, 181, 253, 0.22); }
+}
+html.dark mark,
+[data-theme="dark"] mark {
+  background-color: rgba(253, 224, 71, 0.25);
+}
+html.dark mark[data-color="yellow"],
+[data-theme="dark"] mark[data-color="yellow"] { background-color: rgba(253, 224, 71, 0.25); }
+html.dark mark[data-color="green"],
+[data-theme="dark"] mark[data-color="green"]  { background-color: rgba(134, 239, 172, 0.22); }
+html.dark mark[data-color="blue"],
+[data-theme="dark"] mark[data-color="blue"]   { background-color: rgba(147, 197, 253, 0.22); }
+html.dark mark[data-color="pink"],
+[data-theme="dark"] mark[data-color="pink"]   { background-color: rgba(249, 168, 212, 0.22); }
+html.dark mark[data-color="purple"],
+[data-theme="dark"] mark[data-color="purple"] { background-color: rgba(196, 181, 253, 0.22); }
+
 /* Active highlight pulse — triggered when hovering the corresponding margin card */
 mark.stoa-hl-active {
   outline: 2px solid var(--accent);
