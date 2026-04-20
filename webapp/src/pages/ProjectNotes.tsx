@@ -22,7 +22,7 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
 } from "lucide-react";
-import ProjectNoteEditor from "@/components/ProjectNoteEditor";
+import NoteEditorV2 from "@/components/NoteEditorV2";
 import {
   getProjectNotes,
   createProjectNote,
@@ -705,15 +705,26 @@ export default function ProjectNotes() {
 
             {activeTab === "write" ? (
               <div className="flex-1 notes-editor-fullwidth">
-                <ProjectNoteEditor
+                <NoteEditorV2
                   content={activeNote.content}
                   onSave={handleSave}
                   placeholder={
                     activeNote.evergreen
-                      ? "Write your synthesis in your own words. Use @mention to link concepts..."
-                      : "Start writing your project notes..."
+                      ? "Write your synthesis in your own words. Use @mention to link concepts, [[Title]] for wikilinks, $x^2$ for math, ⌘⌥F for footnote, ⌘⌥M for comment..."
+                      : "Start writing — markdown shortcuts, $math$, [[wikilinks]], @mentions all work."
                   }
                   projectNoteId={activeNote.id}
+                  title={activeNote.title && activeNote.title !== "Untitled" ? activeNote.title : ""}
+                  frontmatter={{
+                    id: activeNote.id,
+                    item_id: activeNote.item_id ?? null,
+                    project_id: activeNote.project_id ?? null,
+                    folder_id: activeNote.folder_id ?? null,
+                    evergreen: !!activeNote.evergreen,
+                    tags: activeNote.tags ?? [],
+                    created_at: activeNote.created_at,
+                    updated_at: activeNote.updated_at,
+                  }}
                 />
               </div>
             ) : (

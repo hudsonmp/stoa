@@ -24,9 +24,11 @@ import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from services.auth import get_supabase_service, get_user_id
+from services.note_markdown import note_to_markdown
 
 router = APIRouter()
 
@@ -248,6 +250,51 @@ async def search_project_notes(request: Request, q: str, limit: int = 20):
             notes.append(note)
 
     return {"notes": notes[:limit], "count": len(notes[:limit])}
+
+
+@router.get("/{note_id}/markdown", response_class=PlainTextResponse)
+async def get_project_note_markdown(note_id: str, request: Request):
+    """Return the note as round-trippable `.md` (frontmatter + body).
+
+    Consumed by the folder-sync engine (vault reconciliation) and by the
+    editor's "show source" toggle. Path-safe relative to `GET /{note_id}`.
+    """
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("project_notes")
+        .select("*")
+        .eq("id", note_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Project note not found")
+    note = result.data[0]
+
+    links_result = (
+        supabase.table("project_note_links")
+        .select("target_ref_id, target_ref_type")
+        .eq("source_project_note_id", note_id)
+        .execute()
+    )
+    md = note_to_markdown(note)
+    if links_result.data:
+        from services.note_markdown import (  # noqa: WPS433
+            _build_frontmatter,
+            html_to_markdown,
+            stringify_frontmatter,
+        )
+
+        fm = _build_frontmatter(dict(note))
+        fm["links_out"] = [row["target_ref_id"] for row in links_result.data]
+        title = (note.get("title") or "").strip()
+        body_md = html_to_markdown(note.get("content") or "")
+        title_line = f"# {title}\n\n" if title and title != "Untitled" else ""
+        md = f"{stringify_frontmatter(fm)}\n{title_line}{body_md}"
+
+    return PlainTextResponse(md, media_type="text/markdown")
 
 
 @router.get("/{note_id}")
