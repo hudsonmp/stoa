@@ -21,6 +21,7 @@ from routers import (
     mcp_projects,
     project_notes,
     project_highlights,
+    sync,
 )
 
 app = FastAPI(title="Stoa API", version="0.1.0")
@@ -54,6 +55,17 @@ app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(mcp_projects.router, prefix="/mcp/projects", tags=["mcp-projects"])
 app.include_router(project_notes.router, prefix="/project-notes", tags=["project-notes"])
 app.include_router(project_highlights.router, prefix="/project-highlights", tags=["project-highlights"])
+app.include_router(sync.router, prefix="/sync", tags=["sync"])
+
+
+@app.on_event("shutdown")
+async def _shutdown_sync_engines():
+    """Stop all folder-sync watchers before the process exits."""
+    try:
+        from services.folder_sync import shutdown_all
+        shutdown_all()
+    except Exception:
+        pass
 
 
 @app.get("/health")
