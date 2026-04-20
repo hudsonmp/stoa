@@ -23,6 +23,7 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Highlighter, CheckCircle2, Loader2, Tag as TagIcon, X as XIcon } from "lucide-react";
 import ProjectNoteEditor from "@/components/ProjectNoteEditor";
+import IpadInkOverlay from "@/components/IpadInkOverlay";
 import { updateProjectNote, getProjectHighlightTags } from "@/lib/api";
 import type {
   Highlight,
@@ -726,6 +727,13 @@ export default function ProjectPdfAnnotationView({
                   renderTextLayer={true}
                   renderAnnotationLayer={false}
                 />
+                {/*
+                  iPad Apple-Pencil ink overlay. Absolutely positioned inside
+                  the page wrapper so it inherits the page's rendered width
+                  and stays aligned through browser zoom. Sibling to the text
+                  layer so text selection continues to work.
+                */}
+                <IpadInkOverlay itemId={itemId} pageNumber={pageNum} />
                 <div className="pdf-page-num">{pageNum}</div>
               </div>
             );

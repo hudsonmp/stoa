@@ -1,6 +1,6 @@
 import Foundation
 
-struct Item: Codable, Identifiable {
+struct Item: Codable, Identifiable, Hashable {
     let id: String
     let title: String
     let url: String?
@@ -17,6 +17,9 @@ struct Item: Codable, Identifiable {
         case readingStatus = "reading_status"
         case createdAt = "created_at"
     }
+
+    static func == (lhs: Item, rhs: Item) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 struct Collection: Codable, Identifiable {

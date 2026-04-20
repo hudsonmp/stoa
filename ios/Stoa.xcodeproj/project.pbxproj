@@ -7,22 +7,36 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		297FAD7EAB0478F43D99FBA5 /* PdfReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA23BC3A6915E0355BF674F /* PdfReaderView.swift */; };
 		2B74B35D0025232453093476 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A2DD330775A330362CC32F /* LibraryView.swift */; };
 		3010B1D78C06EA23F16AEBB4 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF70B7D746D6174590E5ECD /* KeychainHelper.swift */; };
 		32BA47C2558253D497F5D63A /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFFC53BD0F1C575C2860C40B /* Constants.swift */; };
+		37A2C946567B1DB7D0C785FE /* PdfReaderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478B74221F9205CC2A8EC9E5 /* PdfReaderViewController.swift */; };
 		41E23738FD7C587C85DD818E /* StoaAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */; };
+		42831F7F7BA07068BE8CE15D /* FolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83B07F9CD89E935762FFD4E /* FolderStore.swift */; };
 		45A36E5CF15890FCA55D6BB5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B2AEED7D04518F3CABA899 /* SettingsView.swift */; };
 		5121257F0E24399DAF8AB630 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */; };
 		54C4F22BF62EE813FB0927D3 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C99D523C8D0A69E24D18FB4 /* ShareViewController.swift */; };
+		56C85C53BD326D739DCBFBDC /* InkRasterizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41BD82DC04695F1CAC490C69 /* InkRasterizerTests.swift */; };
 		607A5DE7B6E849E163DDB134 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFFC53BD0F1C575C2860C40B /* Constants.swift */; };
 		7ECE0D615F08CEB63CF3C9B9 /* ShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B6AFE677F642B558DFDDAB /* ShareView.swift */; };
+		CD6F935752E2EEEA0CCF0089 /* InkRasterizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CF49378E4A3E980F6F990B6 /* InkRasterizer.swift */; };
 		DF338EF2592E700C23641DA2 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D6543DF0A088375CD2029D /* AuthService.swift */; };
 		F11AF5F69AE98F195DE79FB0 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF70B7D746D6174590E5ECD /* KeychainHelper.swift */; };
 		F274ED59A3DDD97D8442E4DB /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6949875982616553976453C /* Item.swift */; };
+		F837F3E4E736B70C396C9F85 /* PdfInkCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 823E8B31C98B954DEDF51F1F /* PdfInkCoordinator.swift */; };
+		F847BD8D853007790C0E1476 /* ItemResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18C27FA9D2C2F717005B227D /* ItemResolver.swift */; };
 		FE82798D6903C00054F712C4 /* StoaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD82D649E91F17D4D2B7BA6B /* StoaApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		F6EB876B1D06BEAD53017B23 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6B25148843BFCC55A6B78F03 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 583A3255D3645A6AFFAFA779;
+			remoteInfo = Stoa;
+		};
 		FFFF8678D19500BD2B113A36 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 6B25148843BFCC55A6B78F03 /* Project object */;
@@ -33,17 +47,25 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0CF49378E4A3E980F6F990B6 /* InkRasterizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkRasterizer.swift; sourceTree = "<group>"; };
+		18C27FA9D2C2F717005B227D /* ItemResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ItemResolver.swift; sourceTree = "<group>"; };
 		277E731D806ACC6936445220 /* StoaShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StoaShareExtension.entitlements; sourceTree = "<group>"; };
 		28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		3CBAB7FAB0C601398845AB25 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		41BD82DC04695F1CAC490C69 /* InkRasterizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InkRasterizerTests.swift; sourceTree = "<group>"; };
+		478B74221F9205CC2A8EC9E5 /* PdfReaderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfReaderViewController.swift; sourceTree = "<group>"; };
 		66A2DD330775A330362CC32F /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		74B6AFE677F642B558DFDDAB /* ShareView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareView.swift; sourceTree = "<group>"; };
+		823E8B31C98B954DEDF51F1F /* PdfInkCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfInkCoordinator.swift; sourceTree = "<group>"; };
 		83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoaAPI.swift; sourceTree = "<group>"; };
 		860B914C33A9F22A0726EB3C /* Stoa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Stoa.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9C99D523C8D0A69E24D18FB4 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		AFFC53BD0F1C575C2860C40B /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		C56F61054184BE8DC9892733 /* StoaTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = StoaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C6949875982616553976453C /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		CBF70B7D746D6174590E5ECD /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		CDA23BC3A6915E0355BF674F /* PdfReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfReaderView.swift; sourceTree = "<group>"; };
+		D83B07F9CD89E935762FFD4E /* FolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderStore.swift; sourceTree = "<group>"; };
 		DEFAF3FB812E906B39764BE6 /* StoaShareExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = StoaShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1D6543DF0A088375CD2029D /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
 		E6232C499923138EF1D40C5C /* Stoa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Stoa.entitlements; sourceTree = "<group>"; };
@@ -71,6 +93,14 @@
 			path = StoaShareExtension;
 			sourceTree = "<group>";
 		};
+		420949DF9911195A8105F508 /* StoaTests */ = {
+			isa = PBXGroup;
+			children = (
+				41BD82DC04695F1CAC490C69 /* InkRasterizerTests.swift */,
+			);
+			path = StoaTests;
+			sourceTree = "<group>";
+		};
 		67AA166013001E89CF2F6EB6 /* Stoa */ = {
 			isa = PBXGroup;
 			children = (
@@ -89,8 +119,19 @@
 				B6554557BD19947C92DCE75C /* Shared */,
 				67AA166013001E89CF2F6EB6 /* Stoa */,
 				3F8ED6E21693762EAFC500EC /* StoaShareExtension */,
+				420949DF9911195A8105F508 /* StoaTests */,
 				D0E688210FC99097C5E8A61E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		701116E16CA84EB22C8540A2 /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				823E8B31C98B954DEDF51F1F /* PdfInkCoordinator.swift */,
+				CDA23BC3A6915E0355BF674F /* PdfReaderView.swift */,
+				478B74221F9205CC2A8EC9E5 /* PdfReaderViewController.swift */,
+			);
+			path = Reader;
 			sourceTree = "<group>";
 		};
 		7B6A7E2164DFF7E9FD8C406D /* Views */ = {
@@ -99,6 +140,7 @@
 				66A2DD330775A330362CC32F /* LibraryView.swift */,
 				28B7BCD2259AF1EC009BA0E3 /* LoginView.swift */,
 				F0B2AEED7D04518F3CABA899 /* SettingsView.swift */,
+				701116E16CA84EB22C8540A2 /* Reader */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -116,6 +158,9 @@
 			isa = PBXGroup;
 			children = (
 				E1D6543DF0A088375CD2029D /* AuthService.swift */,
+				D83B07F9CD89E935762FFD4E /* FolderStore.swift */,
+				0CF49378E4A3E980F6F990B6 /* InkRasterizer.swift */,
+				18C27FA9D2C2F717005B227D /* ItemResolver.swift */,
 				83FA8197EAA0E1A23C5BC9A1 /* StoaAPI.swift */,
 			);
 			path = Services;
@@ -126,6 +171,7 @@
 			children = (
 				860B914C33A9F22A0726EB3C /* Stoa.app */,
 				DEFAF3FB812E906B39764BE6 /* StoaShareExtension.appex */,
+				C56F61054184BE8DC9892733 /* StoaTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -133,6 +179,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		348258CE641C7D1E5A401A7D /* StoaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0A186A037A38C620EE61A377 /* Build configuration list for PBXNativeTarget "StoaTests" */;
+			buildPhases = (
+				4E6BFA11DBB3932D2B572CD1 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CBFDFED3A0E10AE5C979229A /* PBXTargetDependency */,
+			);
+			name = StoaTests;
+			packageProductDependencies = (
+			);
+			productName = StoaTests;
+			productReference = C56F61054184BE8DC9892733 /* StoaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		583A3255D3645A6AFFAFA779 /* Stoa */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 46BEA45890A2E4761F5F67A2 /* Build configuration list for PBXNativeTarget "Stoa" */;
@@ -177,6 +241,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					348258CE641C7D1E5A401A7D = {
+						DevelopmentTeam = "";
+					};
 					583A3255D3645A6AFFAFA779 = {
 						DevelopmentTeam = "";
 					};
@@ -201,6 +268,7 @@
 			targets = (
 				583A3255D3645A6AFFAFA779 /* Stoa */,
 				69077CF4B5A16B99DC7162CF /* StoaShareExtension */,
+				348258CE641C7D1E5A401A7D /* StoaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -217,16 +285,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4E6BFA11DBB3932D2B572CD1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				56C85C53BD326D739DCBFBDC /* InkRasterizerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C02562D2516685838BDEBC84 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				DF338EF2592E700C23641DA2 /* AuthService.swift in Sources */,
 				607A5DE7B6E849E163DDB134 /* Constants.swift in Sources */,
+				42831F7F7BA07068BE8CE15D /* FolderStore.swift in Sources */,
+				CD6F935752E2EEEA0CCF0089 /* InkRasterizer.swift in Sources */,
 				F274ED59A3DDD97D8442E4DB /* Item.swift in Sources */,
+				F847BD8D853007790C0E1476 /* ItemResolver.swift in Sources */,
 				3010B1D78C06EA23F16AEBB4 /* KeychainHelper.swift in Sources */,
 				2B74B35D0025232453093476 /* LibraryView.swift in Sources */,
 				5121257F0E24399DAF8AB630 /* LoginView.swift in Sources */,
+				F837F3E4E736B70C396C9F85 /* PdfInkCoordinator.swift in Sources */,
+				297FAD7EAB0478F43D99FBA5 /* PdfReaderView.swift in Sources */,
+				37A2C946567B1DB7D0C785FE /* PdfReaderViewController.swift in Sources */,
 				45A36E5CF15890FCA55D6BB5 /* SettingsView.swift in Sources */,
 				41E23738FD7C587C85DD818E /* StoaAPI.swift in Sources */,
 				FE82798D6903C00054F712C4 /* StoaApp.swift in Sources */,
@@ -240,6 +322,11 @@
 			isa = PBXTargetDependency;
 			target = 583A3255D3645A6AFFAFA779 /* Stoa */;
 			targetProxy = FFFF8678D19500BD2B113A36 /* PBXContainerItemProxy */;
+		};
+		CBFDFED3A0E10AE5C979229A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 583A3255D3645A6AFFAFA779 /* Stoa */;
+			targetProxy = F6EB876B1D06BEAD53017B23 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -259,6 +346,23 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
+		};
+		622DDDDBA7C4C90F89AE790E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.stoa.StoaTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stoa.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stoa";
+			};
+			name = Debug;
 		};
 		6F68FBDE878F7E3B27CE1CE5 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -387,8 +491,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -396,6 +502,10 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.stoa.Stoa;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -422,8 +532,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Stoa/Stoa.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Stoa;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -431,13 +543,43 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.stoa.Stoa;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F41F2CD789DCC12085A1E5A1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.stoa.StoaTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Stoa.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stoa";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0A186A037A38C620EE61A377 /* Build configuration list for PBXNativeTarget "StoaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				622DDDDBA7C4C90F89AE790E /* Debug */,
+				F41F2CD789DCC12085A1E5A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		46BEA45890A2E4761F5F67A2 /* Build configuration list for PBXNativeTarget "Stoa" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

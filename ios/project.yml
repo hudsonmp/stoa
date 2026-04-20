@@ -14,14 +14,22 @@ targets:
   Stoa:
     type: application
     platform: iOS
+    # Universal app: iPhone + iPad both enabled so PencilKit works on iPad.
+    # TARGETED_DEVICE_FAMILY=1,2 → 1=iPhone, 2=iPad.
+    supportedDestinations: [iOS, iPadOS]
     sources:
       - path: Stoa
       - path: Shared
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Stoa
         INFOPLIST_KEY_UILaunchScreen_Generation: true
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone stays portrait-only; iPad gets all four orientations so
+        # the PDF reader rotates naturally with the device.
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         CODE_SIGN_ENTITLEMENTS: Stoa/Stoa.entitlements
     entitlements:
       path: Stoa/Stoa.entitlements
@@ -32,8 +40,17 @@ targets:
           - group.com.stoa.shared
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.stoa.shared
+        # iCloud Documents — required to resolve the ubiquity container
+        # where the Mac daemon's vault lives.
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.stoa.shared
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.com.stoa.shared
     scheme:
-      testTargets: []
+      testTargets:
+        - StoaTests
 
   StoaShareExtension:
     type: app-extension
@@ -55,3 +72,22 @@ targets:
     dependencies:
       - target: Stoa
         embed: false
+
+  StoaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: StoaTests
+    dependencies:
+      - target: Stoa
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        # Host-app testing breaks on simulators without a signed iCloud
+        # entitlement. We use linker-level testability against the Stoa
+        # target (bundle loader + test host) for CI builds with signing
+        # disabled, and fall back to a logic-test mode when iCloud can't
+        # be provisioned. Setting BUNDLE_LOADER here is still needed so
+        # @testable import Stoa resolves symbols.
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Stoa.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Stoa"

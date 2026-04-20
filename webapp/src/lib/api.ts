@@ -583,6 +583,100 @@ export async function resolveProjectPath(projectId: string, path: string) {
 }
 
 
+// ─── Folder sync (Obsidian-style filesystem vault) ────────────────────────
+
+export interface SyncConflict {
+  local_path: string;
+  item_id?: string | null;
+  note_id?: string | null;
+  reason?: string | null;
+}
+
+export interface SyncStatus {
+  project_id: string;
+  sync_path?: string | null;
+  enabled?: boolean;
+  last_sync_at?: string | null;
+  last_synced_at?: string | null;
+  entry_count: number;
+  conflict_count: number;
+  conflicts: SyncConflict[];
+  watcher_running: boolean;
+}
+
+export interface SyncScanSummary {
+  scanned: number;
+  pushed_to_stoa: number;
+  pushed_to_disk: number;
+  updated: number;
+  conflicts: number;
+  soft_deleted: number;
+  errors: string[];
+}
+
+export async function enableProjectSync(projectId: string, syncPath: string) {
+  return apiFetch<{
+    enabled: boolean;
+    sync_path: string;
+    initial_scan: SyncScanSummary;
+    status: SyncStatus;
+  }>(`/sync/projects/${projectId}/enable`, {
+    method: "POST",
+    body: JSON.stringify({ sync_path: syncPath }),
+  });
+}
+
+export async function disableProjectSync(projectId: string) {
+  return apiFetch<{ disabled: boolean }>(`/sync/projects/${projectId}/disable`, {
+    method: "POST",
+  });
+}
+
+export async function pullProjectSync(projectId: string) {
+  return apiFetch<{ scan: SyncScanSummary; status: SyncStatus }>(
+    `/sync/projects/${projectId}/pull`,
+    { method: "POST" }
+  );
+}
+
+export async function pushProjectSync(projectId: string) {
+  return apiFetch<{ push: SyncScanSummary; status: SyncStatus }>(
+    `/sync/projects/${projectId}/push`,
+    { method: "POST" }
+  );
+}
+
+export async function cloneProjectSync(projectId: string, syncPath: string) {
+  return apiFetch<{
+    cloned: boolean;
+    sync_path: string;
+    push: SyncScanSummary;
+    status: SyncStatus;
+  }>(`/sync/projects/${projectId}/clone`, {
+    method: "POST",
+    body: JSON.stringify({ sync_path: syncPath }),
+  });
+}
+
+export async function getProjectSyncStatus(projectId: string) {
+  return apiFetch<SyncStatus>(`/sync/projects/${projectId}/status`);
+}
+
+export async function resolveSyncConflict(
+  projectId: string,
+  choice: "local" | "stoa" | "both",
+  target: { item_id?: string; note_id?: string }
+) {
+  return apiFetch<{ resolved: string; status: SyncStatus }>(
+    `/sync/projects/${projectId}/resolve-conflict`,
+    {
+      method: "POST",
+      body: JSON.stringify({ choice, ...target }),
+    }
+  );
+}
+
+
 // ---------------------------------------------------------------------------
 // Multi-content ingest endpoints
 // ---------------------------------------------------------------------------
@@ -746,6 +840,32 @@ export async function getProjectHighlightTags(projectId?: string) {
   return apiFetch<{ tags: Array<{ tag: string; count: number }> }>(
     `/project-highlights/tags${qs}`,
   );
+}
+
+// iPad Apple-Pencil ink — signed URL + page dims (PDF points).
+// 404 → null (most pages have no ink); any other failure → null too,
+// the overlay is purely additive and should never crash the viewer.
+export async function getIpadInk(
+  itemId: string,
+  page: number,
+): Promise<{
+  signed_url: string;
+  page_width_pt: number | null;
+  page_height_pt: number | null;
+  scale: number | null;
+  sha_png: string | null;
+  updated_at: string | null;
+} | null> {
+  try {
+    const res = await fetch(
+      `${API_URL}/project-items/${encodeURIComponent(itemId)}/ink?page=${page}`,
+      { headers: getAuthHeaders() },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 export async function getProjectNoteLinks(noteId: string) {
