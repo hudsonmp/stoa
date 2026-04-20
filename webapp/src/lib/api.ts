@@ -779,3 +779,70 @@ export async function deleteProjectNoteLink(
     { method: "DELETE" },
   );
 }
+
+// ─── Project-note comments (Google-Docs-style sidebar) ────────────────────
+
+export interface NoteCommentRow {
+  id: string;
+  project_note_id: string;
+  user_id: string;
+  parent_id: string | null;
+  range_selector: unknown | null;
+  body: string;
+  resolved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listNoteComments(projectNoteId: string) {
+  return apiFetch<{ comments: NoteCommentRow[] }>(
+    `/note-comments?project_note_id=${encodeURIComponent(projectNoteId)}`,
+  );
+}
+
+export async function createNoteComment(data: {
+  project_note_id: string;
+  body: string;
+  range_selector?: unknown;
+  parent_id?: string | null;
+}) {
+  return apiFetch<{ comment: NoteCommentRow }>("/note-comments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateNoteComment(
+  commentId: string,
+  updates: {
+    body?: string;
+    resolved?: boolean;
+    range_selector?: unknown;
+  },
+) {
+  return apiFetch<{ comment: NoteCommentRow }>(`/note-comments/${commentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteNoteComment(commentId: string) {
+  return apiFetch(`/note-comments/${commentId}`, { method: "DELETE" });
+}
+
+// Markdown export (for folder-sync, or user "view source" toggle)
+export async function getProjectNoteMarkdown(noteId: string): Promise<string> {
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    const userId = localStorage.getItem("stoa_user_id");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    else if (userId) h["X-User-Id"] = userId;
+  }
+  const res = await fetch(`${API_URL}/project-notes/${noteId}/markdown`, {
+    headers: h,
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.text();
+}

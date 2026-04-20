@@ -59,7 +59,7 @@ import NoteEditor from "@/components/NoteEditor";
 import ResearchEditor from "@/components/ResearchEditor";
 import PdfAnnotationView from "@/components/PdfAnnotationView";
 import ProjectPdfAnnotationView from "@/components/ProjectPdfAnnotationView";
-import ProjectNoteEditor from "@/components/ProjectNoteEditor";
+import NoteEditorV2 from "@/components/NoteEditorV2";
 import { useHighlightPositions } from "@/hooks/useHighlightPositions";
 
 const typeIcons: Record<string, typeof BookOpen> = {
@@ -1079,10 +1079,10 @@ export default function ItemDetail() {
                 </div>
                 <div className="item-notes-editor">
                   {inProjectContext ? (
-                    <ProjectNoteEditor
+                    <NoteEditorV2
                       content={mainNoteContent}
                       onSave={handleMainNoteSave}
-                      placeholder="Write your notes about this item..."
+                      placeholder="Write your notes about this item. [[wikilinks]], $math$, @mentions, ⌘⌥M to comment."
                       projectNoteId={mainNoteId ?? undefined}
                     />
                   ) : (

@@ -21,6 +21,7 @@ from routers import (
     mcp_projects,
     project_notes,
     project_highlights,
+    note_comments,
 )
 
 app = FastAPI(title="Stoa API", version="0.1.0")
@@ -54,6 +55,7 @@ app.include_router(projects.router, prefix="/projects", tags=["projects"])
 app.include_router(mcp_projects.router, prefix="/mcp/projects", tags=["mcp-projects"])
 app.include_router(project_notes.router, prefix="/project-notes", tags=["project-notes"])
 app.include_router(project_highlights.router, prefix="/project-highlights", tags=["project-highlights"])
+app.include_router(note_comments.router, prefix="/note-comments", tags=["note-comments"])
 
 
 @app.get("/health")
