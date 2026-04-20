@@ -22,6 +22,7 @@ from routers import (
     project_notes,
     project_highlights,
     sync,
+    ink,
 )
 
 app = FastAPI(title="Stoa API", version="0.1.0")
@@ -56,6 +57,7 @@ app.include_router(mcp_projects.router, prefix="/mcp/projects", tags=["mcp-proje
 app.include_router(project_notes.router, prefix="/project-notes", tags=["project-notes"])
 app.include_router(project_highlights.router, prefix="/project-highlights", tags=["project-highlights"])
 app.include_router(sync.router, prefix="/sync", tags=["sync"])
+app.include_router(ink.router, prefix="/project-items", tags=["ink"])
 
 
 @app.on_event("shutdown")

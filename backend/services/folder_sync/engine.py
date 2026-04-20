@@ -94,6 +94,8 @@ class ScanResult:
     updated: int = 0
     conflicts: int = 0
     soft_deleted: int = 0
+    ink_uploaded: int = 0            # iPad ink PNGs newly pushed to Supabase storage
+    ink_scanned: int = 0             # ink sidecars inspected this scan
     errors: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -104,6 +106,8 @@ class ScanResult:
             "updated": self.updated,
             "conflicts": self.conflicts,
             "soft_deleted": self.soft_deleted,
+            "ink_uploaded": self.ink_uploaded,
+            "ink_scanned": self.ink_scanned,
             "errors": self.errors,
         }
 
@@ -136,6 +140,10 @@ class SyncEngine:
         (self.vault_root / fs_layout.VAULT_HIDDEN).mkdir(exist_ok=True)
         (self.vault_root / fs_layout.VAULT_HIDDEN / fs_layout.ANNOTATIONS_DIR).mkdir(exist_ok=True)
         (self.vault_root / fs_layout.VAULT_HIDDEN / fs_layout.COMMENTS_DIR).mkdir(exist_ok=True)
+        # iPad ink + per-item manifest. Both are read-write by both the Mac
+        # daemon and the iPad app.
+        (self.vault_root / fs_layout.VAULT_HIDDEN / fs_layout.INK_DIR).mkdir(exist_ok=True)
+        (self.vault_root / fs_layout.VAULT_HIDDEN / fs_layout.ITEMS_DIR).mkdir(exist_ok=True)
 
     def acquire_lock(self) -> bool:
         """Create .stoa/sync.lock. Returns False if another process holds it."""
@@ -254,6 +262,25 @@ class SyncEngine:
             except Exception as exc:
                 logger.exception("reconcile stoa→disk failed for project %s", self.project_id)
                 result.errors.append(f"stoa->disk: {exc}")
+
+            # ── Phase C: iPad ink sidecars under .stoa/ink/<item_id>/ ──
+            # This is file-first sync for iPad-authored annotations. We scan
+            # a dedicated subtree (outside the main .stoa prune) and upload
+            # PNGs to the project-sync bucket so the webapp can render them.
+            try:
+                self._reconcile_ink(manifest, result)
+            except Exception as exc:
+                logger.exception("ink reconcile failed for project %s", self.project_id)
+                result.errors.append(f"ink: {exc}")
+
+            # ── Phase D: per-item manifests under .stoa/items/<item_id>.json ──
+            # iPad uses these to map a file URL → item_id without hitting the
+            # network. Cheap to rewrite every scan (bounded by # of items).
+            try:
+                self._write_item_manifests()
+            except Exception as exc:
+                logger.exception("item manifest write failed for project %s", self.project_id)
+                result.errors.append(f"items-manifest: {exc}")
 
             manifest.last_sync_at = datetime.now(timezone.utc).isoformat()
             manifest.write_disk()
@@ -1213,6 +1240,251 @@ class SyncEngine:
                 except OSError:
                     continue
         return best
+
+    # ─── iPad ink sync ────────────────────────────────────────────
+
+    def _ink_storage_key(self, item_id: str, page_index: int) -> str:
+        """Storage key for a page's ink PNG in the `project-sync` bucket.
+
+        Layout:  <user_id>/.stoa/ink/<item_id>/p<NNN>.png
+        Mirrors the on-disk path so a glance at the bucket matches the vault.
+        """
+        basename = fs_layout.ink_page_basename(page_index)
+        return f"{self.user_id}/.stoa/ink/{item_id}/{basename}.png"
+
+    def _ink_manifest_local_path(self, item_id: str, page_index: int) -> str:
+        """Vault-relative path used as the sync_manifest.local_path for an ink row."""
+        basename = fs_layout.ink_page_basename(page_index)
+        return str(
+            Path(fs_layout.VAULT_HIDDEN)
+            / fs_layout.INK_DIR
+            / item_id
+            / f"{basename}.png"
+        )
+
+    def _reconcile_ink(self, manifest: Manifest, result: ScanResult) -> None:
+        """Walk `.stoa/ink/<item_id>/p<n>.png` and reconcile against sync_manifest.
+
+        Tier 1 behaviour: on any PNG-SHA change, re-upload to project-sync and
+        upsert the manifest row with meta.json contents. Missing PNGs whose
+        manifest rows exist are tombstoned.
+        """
+        seen_keys: set = set()
+        for ink in sidecars.iter_ink_sidecars(self.vault_root):
+            result.ink_scanned += 1
+            key = (ink.item_id, ink.page_index)
+            seen_keys.add(key)
+
+            try:
+                png_bytes = ink.png_path.read_bytes()
+            except OSError as exc:
+                result.errors.append(f"ink:{ink.item_id}/p{ink.page_index+1}: {exc}")
+                continue
+
+            png_sha = hashing.hash_bytes(png_bytes)
+            meta = ink.load_meta()
+            local_path = self._ink_manifest_local_path(ink.item_id, ink.page_index)
+
+            # Look up existing ink row via kind='ink' + item_id + page_index.
+            existing_row = self._fetch_ink_row(ink.item_id, ink.page_index)
+            if existing_row and existing_row.get("content_hash") == png_sha:
+                # No change — skip upload. Update in-memory manifest so future
+                # scans see a consistent state even if the json was stale.
+                manifest.upsert(ManifestEntry(
+                    local_path=local_path,
+                    content_hash=png_sha,
+                    item_id=ink.item_id,
+                    last_synced_at=existing_row.get("last_synced_at"),
+                ))
+                continue
+
+            # Upload (or replace) PNG in project-sync bucket.
+            storage_key = self._ink_storage_key(ink.item_id, ink.page_index)
+            try:
+                try:
+                    self.supabase.storage.from_("project-sync").upload(storage_key, png_bytes)
+                except Exception:
+                    # Already exists → overwrite.
+                    self.supabase.storage.from_("project-sync").update(storage_key, png_bytes)
+                result.ink_uploaded += 1
+            except Exception as exc:
+                logger.warning("ink png upload failed for %s: %s", storage_key, exc)
+                result.errors.append(f"ink-upload:{storage_key}: {exc}")
+                continue
+
+            # Upsert sync_manifest row with kind='ink'.
+            now = datetime.now(timezone.utc).isoformat()
+            ink_meta: Dict[str, Any] = {
+                "sha_png": png_sha,
+                "sha_pkd": meta.get("sha_pkd"),
+                "page_width_pt": meta.get("page_width_pt"),
+                "page_height_pt": meta.get("page_height_pt"),
+                "scale": meta.get("scale"),
+                "pk_version": meta.get("pk_version"),
+                "storage_key": storage_key,
+                "path_pkd": str(
+                    Path(fs_layout.VAULT_HIDDEN)
+                    / fs_layout.INK_DIR
+                    / ink.item_id
+                    / f"{fs_layout.ink_page_basename(ink.page_index)}.pkd"
+                ),
+                "path_meta": str(
+                    Path(fs_layout.VAULT_HIDDEN)
+                    / fs_layout.INK_DIR
+                    / ink.item_id
+                    / f"{fs_layout.ink_page_basename(ink.page_index)}.meta.json"
+                ),
+            }
+            try:
+                self._upsert_ink_row(
+                    item_id=ink.item_id,
+                    page_index=ink.page_index,
+                    local_path=local_path,
+                    png_sha=png_sha,
+                    png_size=len(png_bytes),
+                    meta=ink_meta,
+                    now=now,
+                )
+            except Exception as exc:
+                logger.warning("ink manifest upsert failed for %s p%d: %s",
+                               ink.item_id, ink.page_index, exc)
+                result.errors.append(f"ink-manifest:{ink.item_id}/p{ink.page_index+1}: {exc}")
+                continue
+
+            # Reflect into the local Manifest so status() shows it.
+            manifest.upsert(ManifestEntry(
+                local_path=local_path,
+                content_hash=png_sha,
+                item_id=ink.item_id,
+                last_synced_at=now,
+                last_size=len(png_bytes),
+            ))
+
+        # Tombstone ink rows whose PNGs vanished from disk.
+        try:
+            existing = (
+                self.supabase.table("sync_manifest")
+                .select("id, item_id, page_index")
+                .eq("project_id", self.project_id)
+                .eq("kind", "ink")
+                .is_("deleted_at", "null")
+                .execute()
+            )
+            for row in (existing.data or []):
+                if (row["item_id"], row["page_index"]) in seen_keys:
+                    continue
+                now = datetime.now(timezone.utc).isoformat()
+                self.supabase.table("sync_manifest").update(
+                    {"deleted_at": now}
+                ).eq("id", row["id"]).execute()
+        except Exception:
+            logger.debug("ink tombstone sweep skipped", exc_info=True)
+
+    def _fetch_ink_row(self, item_id: str, page_index: int) -> Optional[Dict[str, Any]]:
+        try:
+            res = (
+                self.supabase.table("sync_manifest")
+                .select("id, content_hash, last_synced_at, meta")
+                .eq("project_id", self.project_id)
+                .eq("kind", "ink")
+                .eq("item_id", item_id)
+                .eq("page_index", page_index)
+                .is_("deleted_at", "null")
+                .limit(1)
+                .execute()
+            )
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
+
+    def _upsert_ink_row(
+        self,
+        item_id: str,
+        page_index: int,
+        local_path: str,
+        png_sha: str,
+        png_size: int,
+        meta: Dict[str, Any],
+        now: str,
+    ) -> None:
+        """Direct PostgREST upsert for ink rows. Bypasses the general `upsert_db_entry`
+        because that helper doesn't know about kind/page_index/meta columns.
+        """
+        existing = self._fetch_ink_row(item_id, page_index)
+        payload = {
+            "project_id": self.project_id,
+            "user_id": self.user_id,
+            "item_id": item_id,
+            "note_id": None,
+            "local_path": local_path,
+            "content_hash": png_sha,
+            "last_synced_at": now,
+            "last_size": png_size,
+            "conflict": False,
+            "conflict_reason": None,
+            "kind": "ink",
+            "page_index": page_index,
+            "meta": meta,
+        }
+        if existing:
+            self.supabase.table("sync_manifest").update(payload).eq(
+                "id", existing["id"]
+            ).execute()
+        else:
+            self.supabase.table("sync_manifest").insert(payload).execute()
+
+    def _write_item_manifests(self) -> None:
+        """Write `.stoa/items/<item_id>.json` for every non-deleted project item
+        so iPad can resolve PDF URL → item_id locally.
+        """
+        # Pull items + their folder paths (so the manifest mirrors the on-disk layout).
+        folders = (
+            self.supabase.table("folders")
+            .select("id, path")
+            .eq("project_id", self.project_id)
+            .execute()
+        )
+        folder_rows = folders.data or []
+        if not folder_rows:
+            return
+        folder_paths = {f["id"]: f["path"] for f in folder_rows}
+
+        fi = (
+            self.supabase.table("folder_items")
+            .select("folder_id, item_id")
+            .in_("folder_id", [f["id"] for f in folder_rows])
+            .execute()
+        )
+        fi_rows = fi.data or []
+        if not fi_rows:
+            return
+        item_ids = list({r["item_id"] for r in fi_rows})
+
+        ir = (
+            self.supabase.table("items")
+            .select("id, title, type, url, domain, metadata, github_slug, deleted_at")
+            .in_("id", item_ids)
+            .execute()
+        )
+        items_by_id: Dict[str, Dict[str, Any]] = {}
+        for i in (ir.data or []):
+            if not i.get("deleted_at"):
+                items_by_id[i["id"]] = i
+
+        # Build folder_id → relpath map (root folders → "")
+        for r in fi_rows:
+            item = items_by_id.get(r["item_id"])
+            if not item:
+                continue
+            folder_rel = fs_layout.folder_relpath(folder_paths.get(r["folder_id"], "/"))
+            fname = fs_layout.item_filename(item)
+            rel = str(folder_rel / fname) if str(folder_rel) else fname
+            try:
+                sidecars.write_item_manifest(
+                    self.vault_root, item["id"], item.get("title") or "", rel,
+                )
+            except Exception:
+                logger.debug("write_item_manifest failed for %s", item["id"], exc_info=True)
 
     # ─── status ────────────────────────────────────────────────────
 
