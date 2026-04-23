@@ -18,6 +18,7 @@ import Writings from "@/pages/Writings";
 import Projects from "@/pages/Projects";
 import ProjectFolder from "@/pages/ProjectFolder";
 import ProjectNotes from "@/pages/ProjectNotes";
+import ReadPDF from "@/pages/ReadPDF";
 
 export default function App() {
   return (
@@ -47,6 +48,7 @@ export default function App() {
               <Route path="/projects/:projectId/folders/:folderId" element={<ProjectFolder />} />
               <Route path="/project-notes" element={<ProjectNotes />} />
               <Route path="/project-notes/:id" element={<ProjectNotes />} />
+              <Route path="/read-pdf" element={<ReadPDF />} />
             </Route>
           </Routes>
         </AnimatePresence>
