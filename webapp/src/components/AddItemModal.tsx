@@ -26,6 +26,7 @@ const ITEM_TYPES = [
   "paper",
   "podcast",
   "video",
+  "grant",
   "page",
 ] as const;
 

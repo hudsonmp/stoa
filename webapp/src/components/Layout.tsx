@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "./Sidebar";
+import { createNote } from "@/lib/api";
+
+const LIBRARY_COLLAPSED_KEY = "stoa_library_sidebar_collapsed";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const DEV_USER_ID = import.meta.env.VITE_DEV_USER_ID;
@@ -17,7 +21,19 @@ function authHeaders(): Record<string, string> {
 }
 
 export default function Layout() {
+  const navigate = useNavigate();
   const [counts, setCounts] = useState({ to_read: 0, read: 0, writing: 0, total: 0 });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem(LIBRARY_COLLAPSED_KEY) === "1";
+  });
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((cur) => {
+      const next = !cur;
+      localStorage.setItem(LIBRARY_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -34,16 +50,88 @@ export default function Layout() {
     return () => clearInterval(interval);
   }, [loadCounts]);
 
+  // Global "new note" shortcut — ⌘K on Mac, Ctrl+K elsewhere.
+  // Two bug fixes over the first cut:
+  //   1) Register on capture phase. ProseMirror/TipTap's keymap plugin runs
+  //      in the bubble phase on the editor element; without capture, a
+  //      nested editor can swallow the event before window receives it.
+  //   2) Do NOT bail out when focus is in a contenteditable/input. The
+  //      modifier (⌘ or Ctrl) makes this an intentional shortcut regardless
+  //      of context — Hudson's canonical usage is ⌘K mid-note to start a
+  //      new one. The earlier guard over-defended and blocked the common case.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const cmd = isMac ? e.metaKey : e.ctrlKey;
+      if (!cmd) return;
+      if (e.altKey || e.shiftKey) return; // reserve ⌘⇧K / ⌘⌥K for future
+      const isK = e.key === "k" || e.key === "K";
+      if (!isK) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Diagnostic so we can confirm in devtools whether the handler fired.
+      // Remove once ⌘K is verified in the wild.
+      // eslint-disable-next-line no-console
+      console.log("[stoa] ⌘K captured — creating note");
+      (async () => {
+        try {
+          // Inherit the active folder filter from Notes.tsx if one is set.
+          // Notes.tsx writes this to localStorage whenever the filter changes.
+          const activeFolder = localStorage.getItem("stoa_active_folder_filter");
+          const res = await createNote({
+            content: "",
+            title: "Untitled",
+            note_type: "synthesis",
+            collection_ids: activeFolder ? [activeFolder] : [],
+          });
+          const id = (res.note as { id: string }).id;
+          // Broadcast so Notes.tsx re-loads its list. Without this the new
+          // note exists server-side but activeNote=notes.find(...) returns
+          // undefined and the editor panel shows "Select a note to edit".
+          window.dispatchEvent(new CustomEvent("stoa:notes-changed"));
+          navigate(`/notes/${id}`);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("[stoa] ⌘K create failed:", err);
+          navigate("/notes");
+        }
+      })();
+    }
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [navigate]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-bg-primary">
-      <motion.div
-        initial={{ x: -240, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-        className="flex-shrink-0"
-      >
-        <Sidebar counts={counts} />
-      </motion.div>
+      {!sidebarCollapsed && (
+        <motion.div
+          initial={{ x: -240, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+          className="flex-shrink-0 relative"
+        >
+          <Sidebar counts={counts} />
+          <button
+            onClick={toggleSidebar}
+            title="Collapse sidebar"
+            className="absolute top-4 right-2 z-20 p-1 text-text-tertiary
+                       hover:text-accent transition-warm"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </motion.div>
+      )}
+      {sidebarCollapsed && (
+        <button
+          onClick={toggleSidebar}
+          title="Expand sidebar"
+          className="flex-shrink-0 w-6 flex flex-col items-center pt-4
+                     text-text-tertiary hover:text-accent transition-warm"
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
 
       <main className="flex-1 overflow-y-auto">
         <motion.div

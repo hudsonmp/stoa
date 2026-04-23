@@ -23,6 +23,7 @@ class CreateHighlightRequest(BaseModel):
     end_offset: Optional[int] = None
     color: str = Field(default="yellow", pattern="^(yellow|green|blue|pink|purple)$")
     note: Optional[str] = None
+    page_number: Optional[int] = None
 
 
 @router.post("")
@@ -52,6 +53,7 @@ async def create_highlight(req: CreateHighlightRequest, request: Request):
         "end_offset": req.end_offset,
         "color": req.color,
         "note": req.note,
+        "page_number": req.page_number,
     }).execute()
 
     highlight = result.data[0]

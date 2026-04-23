@@ -83,9 +83,11 @@ body::before {
   background: var(--text-tertiary);
 }
 
-/* Selection color */
+/* Selection color — 0.15 was too faint to read as "selected".
+   Bumped to 0.35 which remains readable on both light text and within
+   the editor's serif paragraphs. */
 ::selection {
-  background: rgba(194, 65, 12, 0.15);
+  background: rgba(194, 65, 12, 0.35);
   color: var(--text-primary);
 }
 
@@ -1755,10 +1757,134 @@ mark.stoa-hl-active {
 
 .pdf-page-wrapper canvas { display: block; }
 
-.pdf-page-wrapper .react-pdf__Page__textContent { opacity: 0.2; }
+/* Text layer must be visually invisible (PDF.js renders a transparent
+   text-span layer for selection only) but NOT set via `opacity`. CSS
+   opacity cascades to descendants — including ::selection — so setting
+   the layer to opacity: 0.2 multiplied the highlight alpha down to ~0.06
+   and made it unreadable. `color: transparent` preserves the invisible-
+   text-layer effect without dimming the selection background.
+   See: PDF.js text layer invariants + MDN on `opacity` vs `color`. */
+.pdf-page-wrapper .react-pdf__Page__textContent { color: transparent; }
 .pdf-page-wrapper .react-pdf__Page__textContent ::selection {
-  background: rgba(194, 65, 12, 0.3);
+  /* Bright background + multiply blend = selection shows through letters
+     instead of covering them. ::selection support for mix-blend-mode is
+     browser-uneven (Chromium honors it; Safari mostly does); worst-case
+     fallback is a solid 0.45 alpha tint which remains visible. */
+  background: rgba(194, 65, 12, 0.85);
+  color: transparent;
+  mix-blend-mode: multiply;
 }
+
+/* Persisted highlight overlays — applied to text-layer spans whose
+   concatenated content matched a stored highlight.text.
+   `mix-blend-mode: multiply` is the load-bearing property: the text layer
+   sits DOM-above the canvas, so a plain background color paints over the
+   rendered letters and obscures them. multiply blends the yellow with the
+   canvas pixels beneath — black text × yellow = still dark (legible);
+   white paper × yellow = yellow (the highlight you want). Same technique
+   Hypothesis and PDF.js native highlights use. */
+.pdf-page-wrapper .react-pdf__Page__textContent span.pdf-highlight-mark {
+  background: rgba(250, 204, 21, 0.95); /* high alpha OK under multiply */
+  mix-blend-mode: multiply;
+  border-radius: 1px;
+}
+
+/* Floating selection toolbar */
+.pdf-selection-toolbar {
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 14px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
+  font-size: 12px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+}
+.pdf-selection-toolbar:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Collection picker inside the PDF sidebar */
+.pdf-collection-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 4px 4px;
+}
+.pdf-collection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-family: ui-monospace, Menlo, monospace;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border);
+  cursor: pointer;
+}
+.pdf-collection-chip.is-active {
+  border-style: solid;
+  color: var(--accent);
+  background: rgba(194, 65, 12, 0.08);
+  cursor: default;
+}
+.pdf-collection-chip:hover {
+  color: var(--text-primary);
+}
+.pdf-collection-picker {
+  margin: 2px 4px 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+}
+.pdf-collection-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-light);
+  cursor: pointer;
+}
+.pdf-collection-picker-item:last-child { border-bottom: none; }
+.pdf-collection-picker-item:hover { background: var(--bg-secondary); }
+.pdf-collection-picker-empty {
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pdf-sidebar-sync {
+  font-size: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--text-tertiary);
+  padding: 2px 2px 0 2px;
+  min-height: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pdf-sidebar-sync-ok { color: #059669; display: inline-flex; align-items: center; gap: 3px; }
+.pdf-sidebar-sync-err { color: #b45309; font-size: 10px; }
+.pdf-sidebar-sync span { display: inline-flex; align-items: center; gap: 3px; }
+.pdf-sidebar-sync-spin { animation: pdf-spin 0.9s linear infinite; }
+@keyframes pdf-spin { to { transform: rotate(360deg); } }
 
 .pdf-page-num {
   position: absolute;

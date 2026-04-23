@@ -5,13 +5,11 @@ import {
   useState,
 } from "react";
 
-export type MentionKind = "item" | "person" | "profile";
-
 export interface MentionItem {
+  /** Prefixed id: "item:<uuid>" or "note:<uuid>". renderHTML parses the prefix to route. */
   id: string;
   label: string;
-  kind: MentionKind;
-  subtitle?: string;
+  kind?: "item" | "note";
 }
 
 interface MentionListProps {
@@ -22,14 +20,6 @@ interface MentionListProps {
 export interface MentionListRef {
   onKeyDown: (props: { event: KeyboardEvent }) => boolean;
 }
-
-const SECTION_LABELS: Record<MentionKind, string> = {
-  item: "Pages",
-  person: "People",
-  profile: "Friends",
-};
-
-const SECTION_ORDER: MentionKind[] = ["item", "person", "profile"];
 
 const MentionList = forwardRef<MentionListRef, MentionListProps>(
   ({ items, command }, ref) => {
@@ -70,55 +60,27 @@ const MentionList = forwardRef<MentionListRef, MentionListProps>(
       );
     }
 
-    // Group items by kind, preserving relative order within each group.
-    // Render sections only for kinds that have results.
-    const grouped = new Map<MentionKind, MentionItem[]>();
-    for (const item of items) {
-      const list = grouped.get(item.kind) || [];
-      list.push(item);
-      grouped.set(item.kind, list);
-    }
-
-    // Build a flat rendering list with section headers interleaved.
-    // Track the global index so keyboard selection spans sections.
-    let globalIndex = 0;
-
     return (
-      <div className="bg-bg-primary border border-border rounded-card shadow-warm-lg p-1 min-w-[220px] max-h-[280px] overflow-y-auto">
-        {SECTION_ORDER.filter((k) => grouped.has(k)).map((kind) => {
-          const sectionItems = grouped.get(kind)!;
-          return (
-            <div key={kind}>
-              {grouped.size > 1 && (
-                <p className="px-3 pt-2 pb-0.5 text-[10px] font-sans font-medium text-text-tertiary uppercase tracking-wider">
-                  {SECTION_LABELS[kind]}
-                </p>
-              )}
-              {sectionItems.map((item) => {
-                const idx = globalIndex++;
-                return (
-                  <button
-                    key={`${item.kind}-${item.id}`}
-                    onClick={() => command(item)}
-                    className={`w-full text-left px-3 py-1.5 rounded-[6px] text-sm transition-warm
-                      ${
-                        idx === selectedIndex
-                          ? "bg-bg-secondary text-text-primary"
-                          : "text-text-secondary hover:bg-bg-secondary/60"
-                      }`}
-                  >
-                    <span className="block truncate">{item.label}</span>
-                    {item.subtitle && (
-                      <span className="block text-[11px] text-text-tertiary truncate">
-                        {item.subtitle}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
+      <div className="bg-bg-primary border border-border rounded-card shadow-warm-lg p-1 min-w-[180px] max-h-[240px] overflow-y-auto">
+        {items.map((item, index) => (
+          <button
+            key={item.id}
+            onClick={() => command(item)}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-[6px] text-sm transition-warm
+              ${
+                index === selectedIndex
+                  ? "bg-bg-secondary text-text-primary"
+                  : "text-text-secondary hover:bg-bg-secondary/60"
+              }`}
+          >
+            <span className="truncate">{item.label}</span>
+            {item.kind && (
+              <span className="text-[9px] font-mono uppercase tracking-wider text-text-tertiary flex-shrink-0">
+                {item.kind}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
     );
   }

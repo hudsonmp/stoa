@@ -14,6 +14,7 @@ import Collections from "@/pages/Collections";
 import Papers from "@/pages/Papers";
 import Authors from "@/pages/Authors";
 import Notes from "@/pages/Notes";
+import Graph from "@/pages/Graph";
 import Writings from "@/pages/Writings";
 import Projects from "@/pages/Projects";
 import ProjectFolder from "@/pages/ProjectFolder";
@@ -41,6 +42,7 @@ export default function App() {
               <Route path="/papers" element={<Papers />} />
               <Route path="/notes" element={<Notes />} />
               <Route path="/notes/:id" element={<Notes />} />
+              <Route path="/graph" element={<Graph />} />
               <Route path="/authors" element={<Authors />} />
               <Route path="/collections" element={<Collections />} />
               <Route path="/projects" element={<Projects />} />

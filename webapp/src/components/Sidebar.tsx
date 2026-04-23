@@ -11,6 +11,7 @@ import {
   UserCheck,
   PenLine,
   FileInput,
+  Network,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -33,6 +34,7 @@ const navItems = [
 const secondaryItems = [
   { to: "/papers", label: "Papers", icon: FileText },
   { to: "/notes", label: "Notes", icon: PenLine },
+  { to: "/graph", label: "Graph", icon: Network },
   { to: "/writings", label: "Writings", icon: FileText },
   { to: "/authors", label: "Authors", icon: UserCheck },
   { to: "/collections", label: "Collections", icon: FolderOpen },

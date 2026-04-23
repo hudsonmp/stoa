@@ -186,17 +186,144 @@ export async function updateItem(itemId: string, updates: Record<string, unknown
   });
 }
 
+export type KnowledgeType =
+  | "declarative"
+  | "procedural"
+  | "conceptual"
+  | "episodic"
+  | "stylistic"
+  | "idea"
+  | "mytake";
+
+export const KNOWLEDGE_TYPES: KnowledgeType[] = [
+  "declarative",
+  "procedural",
+  "conceptual",
+  "episodic",
+  "stylistic",
+  "idea",
+  "mytake",
+];
+
 export async function createNote(data: {
   item_id?: string;
   person_id?: string;
   content: string;
   title?: string;
+  note_type?: "marginalia" | "synthesis" | "journal";
+  knowledge_type?: KnowledgeType;
+  note_ids?: string[];
+  collection_ids?: string[];
   tags?: string[];
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function getNoteById(noteId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}`);
+}
+
+export async function linkNoteToNote(noteId: string, targetNoteId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/link-note`, {
+    method: "POST",
+    body: JSON.stringify({ target_note_id: targetNoteId }),
+  });
+}
+
+export async function unlinkNoteFromNote(noteId: string, targetNoteId: string) {
+  return apiFetch<{ note: unknown }>(
+    `/notes/${noteId}/link-note/${targetNoteId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function addNoteToCollection(noteId: string, collectionId: string) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/collections`, {
+    method: "POST",
+    body: JSON.stringify({ collection_id: collectionId }),
+  });
+}
+
+export async function setNoteAnkiId(noteId: string, ankiId: number) {
+  return apiFetch<{ note: unknown }>(`/notes/${noteId}/anki-id`, {
+    method: "POST",
+    body: JSON.stringify({ anki_id: ankiId }),
+  });
+}
+
+export async function removeNoteFromCollection(
+  noteId: string,
+  collectionId: string
+) {
+  return apiFetch<{ note: unknown }>(
+    `/notes/${noteId}/collections/${collectionId}`,
+    { method: "DELETE" }
+  );
+}
+
+export async function getNotesByCollection(collectionId: string, limit = 200) {
+  return apiFetch<{ notes: unknown[]; collection_id: string; count: number }>(
+    `/notes/by-collection/${collectionId}?limit=${limit}`
+  );
+}
+
+export interface Flashcard {
+  id: string;
+  front: string;
+  back: string;
+  knowledge_type: "declarative";
+  collection_ids: string[];
+  linked_note_ids: string[];
+  updated_at?: string;
+}
+
+export interface GraphNode {
+  id: string;
+  title: string;
+  knowledge_type: KnowledgeType | null;
+  note_type: "marginalia" | "synthesis" | "journal";
+  collection_ids: string[];
+  degree: number;
+  // populated by the force simulation at runtime
+  x?: number;
+  y?: number;
+}
+
+export interface GraphEdge {
+  source: string | GraphNode;
+  target: string | GraphNode;
+  kind: "link" | "body" | "both";
+}
+
+export async function getNotesGraph() {
+  return apiFetch<{ nodes: GraphNode[]; edges: GraphEdge[] }>("/notes/graph");
+}
+
+export async function getFlashcards(collectionId?: string, limit = 200) {
+  const qs = new URLSearchParams();
+  if (collectionId) qs.set("collection_id", collectionId);
+  qs.set("limit", String(limit));
+  return apiFetch<{ cards: Flashcard[]; count: number; collection_id: string | null }>(
+    `/notes/flashcards?${qs.toString()}`
+  );
+}
+
+export async function getOrphanNotes(limit = 50) {
+  return apiFetch<{ notes: unknown[]; count: number; min_links: number }>(
+    `/notes/orphans?limit=${limit}`
+  );
+}
+
+export async function getNotesByKnowledgeType(
+  kt: KnowledgeType,
+  limit = 50
+) {
+  return apiFetch<{ notes: unknown[]; knowledge_type: KnowledgeType; count: number }>(
+    `/notes/by-knowledge-type/${kt}?limit=${limit}`
+  );
 }
 
 export async function getNotes(params?: { person_id?: string; item_id?: string }) {
@@ -303,6 +430,7 @@ export async function createHighlight(data: {
   context?: string;
   color?: string;
   note?: string;
+  page_number?: number;
 }) {
   return apiFetch<{ highlight: unknown }>("/highlights", {
     method: "POST",

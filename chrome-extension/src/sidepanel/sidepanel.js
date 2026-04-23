@@ -317,7 +317,18 @@ async function loadOrCreateSourceNote() {
   const backup = await chrome.storage.local.get(backupKey);
   const initialContent = backup[backupKey] || "";
 
-  // Create new note
+  // Don't create an empty note just because the side panel opened. A page-save
+  // with no note/annotation should leave zero noise in the Notes list.
+  // Creation is deferred until autoSaveNotepad fires with real content
+  // (which re-invokes this function after writing the backup).
+  const hasContent = initialContent.replace(/<[^>]*>/g, "").trim().length > 0;
+  if (!hasContent) {
+    notepad.innerHTML = "";
+    lastSavedNoteContent = "";
+    return;
+  }
+
+  // Create new note (only reached when initialContent is non-empty)
   if (!currentItemId) await ensurePageSaved();
   try {
     const resp = await apiFetch("/notes", {
