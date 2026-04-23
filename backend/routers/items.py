@@ -710,6 +710,56 @@ async def disable_public_share(item_id: str, request: Request):
     return {"unshared": True, "id": item_id}
 
 
+@router.post("/{item_id}/extract-concepts")
+async def extract_concepts(item_id: str, request: Request):
+    """Run concept extraction on an item and store propositions in metadata.
+
+    Extracts structured claims, methods, findings, limitations, and research
+    questions from the item's text using Claude, then stores them in the
+    item's metadata.propositions JSONB field.
+    """
+    from services.concept_extraction import extract_propositions
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    item_res = (
+        supabase.table("items")
+        .select("id, type, extracted_text, metadata")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .single()
+        .execute()
+    )
+    if not item_res.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_res.data
+    extracted_text = item.get("extracted_text") or ""
+    if not extracted_text.strip():
+        raise HTTPException(status_code=400, detail="Item has no extracted text")
+
+    try:
+        propositions = await extract_propositions(extracted_text)
+    except Exception as e:
+        logger.error("Concept extraction failed for item %s: %s", item_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+
+    # Merge into existing metadata (non-destructive)
+    existing_metadata = item.get("metadata") or {}
+    existing_metadata["propositions"] = propositions
+
+    supabase.table("items").update({
+        "metadata": existing_metadata,
+    }).eq("id", item_id).execute()
+
+    return {
+        "item_id": item_id,
+        "propositions": propositions,
+        "count": len(propositions),
+    }
+
+
 @router.delete("/{item_id}")
 async def delete_item(item_id: str, request: Request):
     """Delete an item and all its related data (cascades via FK constraints)."""

@@ -776,5 +776,81 @@ async def get_project_context(
         return resp.json()
 
 
+# ── Concept search ────────────────────────────────────────────────────
+
+
+def _supabase():
+    """Lazy supabase client for direct DB access (used by search_concepts)."""
+    from supabase import create_client
+    return create_client(
+        os.getenv("SUPABASE_URL", ""),
+        os.getenv("SUPABASE_SERVICE_KEY", ""),
+    )
+
+
+@mcp.tool()
+def search_concepts(
+    query: str,
+    type: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Search across extracted propositions (claims, methods, findings, limitations, research questions) from all papers in Hudson's library.
+
+    Uses substring matching on both original and normalized proposition text.
+    Useful for finding cross-domain connections between papers.
+
+    Args:
+        query: Search terms (e.g., "self-supervised", "reward model", "transfer learning")
+        type: Filter by proposition type: "claim", "method", "finding", "limitation", "research_question"
+        limit: Max results to return (default 20)
+
+    Returns:
+        List of matching propositions with source paper info
+    """
+    sb = _supabase()
+    user_id = _get_user_id()
+
+    # Fetch all items that have propositions in metadata
+    result = (
+        sb.table("items")
+        .select("id, title, url, type, metadata")
+        .eq("user_id", user_id)
+        .not_.is_("metadata", "null")
+        .execute()
+    )
+
+    query_lower = query.lower()
+    matches = []
+
+    for item in (result.data or []):
+        meta = item.get("metadata") or {}
+        propositions = meta.get("propositions", [])
+        if not propositions:
+            continue
+
+        for prop in propositions:
+            # Filter by type if specified
+            if type and prop.get("type") != type:
+                continue
+
+            # Match against text and normalized fields
+            text_lower = (prop.get("text", "") + " " + prop.get("normalized", "")).lower()
+            if query_lower in text_lower:
+                matches.append({
+                    "item_id": item["id"],
+                    "item_title": item["title"],
+                    "item_url": item.get("url"),
+                    "item_type": item.get("type"),
+                    "proposition": prop,
+                })
+
+            if len(matches) >= limit:
+                break
+        if len(matches) >= limit:
+            break
+
+    return matches
+
+
 if __name__ == "__main__":
     mcp.run()

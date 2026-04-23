@@ -252,7 +252,25 @@ async def ingest_url(req: IngestURLRequest, request: Request):
         "item_id": item_id,
     }).execute()
 
-    return {"item": item, "chunks_created": len(chunks), "citation": citation_data}
+    # Concept extraction for papers (non-fatal)
+    propositions = None
+    if req.type == "paper":
+        try:
+            from services.concept_extraction import extract_propositions
+            propositions = await extract_propositions(extracted["extracted_text"])
+            if propositions:
+                existing_meta = item.get("metadata") or {}
+                existing_meta["propositions"] = propositions
+                supabase.table("items").update({"metadata": existing_meta}).eq("id", item_id).execute()
+        except Exception:
+            logger.warning("Concept extraction failed, item saved without propositions", exc_info=True)
+
+    return {
+        "item": item,
+        "chunks_created": len(chunks),
+        "citation": citation_data,
+        "propositions_count": len(propositions) if propositions else 0,
+    }
 
 
 @router.post("/pdf")
@@ -352,7 +370,24 @@ async def ingest_pdf(
         except Exception:
             logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
 
-    return {"item": item, "chunks_created": len(chunks), "citation": citation_data}
+    # Concept extraction (non-fatal — paper is saved even if this fails)
+    propositions = None
+    try:
+        from services.concept_extraction import extract_propositions
+        propositions = await extract_propositions(extracted["extracted_text"])
+        if propositions:
+            existing_meta = item.get("metadata") or {}
+            existing_meta["propositions"] = propositions
+            supabase.table("items").update({"metadata": existing_meta}).eq("id", item["id"]).execute()
+    except Exception:
+        logger.warning("Concept extraction failed for PDF, paper saved without propositions", exc_info=True)
+
+    return {
+        "item": item,
+        "chunks_created": len(chunks),
+        "citation": citation_data,
+        "propositions_count": len(propositions) if propositions else 0,
+    }
 
 
 @router.post("/batch-pdf")
@@ -485,6 +520,17 @@ async def ingest_batch_pdf(
                 except Exception:
                     logger.warning("PDF author extraction failed for %s", safe_filename, exc_info=True)
 
+            # Concept extraction (non-fatal)
+            try:
+                from services.concept_extraction import extract_propositions
+                propositions = await extract_propositions(extracted["extracted_text"])
+                if propositions:
+                    existing_meta = item.get("metadata") or {}
+                    existing_meta["propositions"] = propositions
+                    supabase.table("items").update({"metadata": existing_meta}).eq("id", item_id).execute()
+            except Exception:
+                logger.warning("Concept extraction failed for batch PDF %s", safe_filename, exc_info=True)
+
             # Log activity
             supabase.table("activity").insert({
                 "user_id": user_id,
@@ -612,7 +658,20 @@ async def ingest_arxiv(arxiv_id: str, request: Request):
     except Exception:
         logger.warning("Embedding failed for arXiv %s, paper saved without chunks", arxiv_id, exc_info=True)
 
-    return {"item": item, "citation": citation_data, "chunks_created": len(chunks)}
+    # Concept extraction (non-fatal — paper is saved even if this fails)
+    propositions = None
+    try:
+        from services.concept_extraction import extract_propositions
+        propositions = await extract_propositions(extracted["extracted_text"])
+        if propositions:
+            existing_meta = item.get("metadata") or {}
+            existing_meta["propositions"] = propositions
+            supabase.table("items").update({"metadata": existing_meta}).eq("id", item["id"]).execute()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Concept extraction failed for arXiv %s, paper saved without propositions", arxiv_id, exc_info=True)
+
+    return {"item": item, "citation": citation_data, "chunks_created": len(chunks), "propositions_count": len(propositions) if propositions else 0}
 
 
 @router.get("/book/lookup")
