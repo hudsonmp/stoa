@@ -88,7 +88,8 @@ async def match_notes_scoped(
     if evergreen_only:
         params["filter_evergreen"] = True
     try:
-        result = supabase.rpc("match_notes", params).execute()
+        # Fork: match_notes → match_project_notes (project_note_embeddings)
+        result = supabase.rpc("match_project_notes", params).execute()
     except Exception:
         return []
     return (result.data or [])[:match_count]
@@ -97,7 +98,7 @@ async def match_notes_scoped(
 async def notes_full_text_scoped(
     query: str, user_id: str, note_ids: Optional[list[str]] = None, limit: int = 10,
 ) -> list[dict]:
-    """ILIKE fallback on note title + content — approximates BM25 without FTS."""
+    """ILIKE fallback on project_note title + content — approximates BM25 without FTS."""
     if not query or len(query.strip()) < 2:
         return []
     supabase = get_supabase_service()
@@ -105,13 +106,13 @@ async def notes_full_text_scoped(
     pattern = f"%{escaped}%"
 
     q_title = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, title, content, evergreen, tags, item_id, updated_at")
         .eq("user_id", user_id)
         .ilike("title", pattern)
     )
     q_content = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, title, content, evergreen, tags, item_id, updated_at")
         .eq("user_id", user_id)
         .ilike("content", pattern)
@@ -149,21 +150,29 @@ async def project_hybrid_search(
 
     Lanes: (a) chunk vector, (b) note vector, (c) note text. RRF fuses.
     """
-    has_vec = True
-    query_embedding: list[float] | None = None
+    # Chunks are 1536-dim, notes are 768-dim — we must embed the query twice.
+    from services.embedding import CHUNK_DIM, NOTE_DIM
+
+    chunk_query_embedding: list[float] | None = None
+    note_query_embedding: list[float] | None = None
     try:
-        query_embedding = (await embed_texts([query]))[0]
+        chunk_query_embedding = (await embed_texts([query], target_dim=CHUNK_DIM))[0]
     except Exception:
-        has_vec = False
+        chunk_query_embedding = None
+    try:
+        note_query_embedding = (await embed_texts([query], target_dim=NOTE_DIM))[0]
+    except Exception:
+        note_query_embedding = None
 
     chunk_hits_vec: list[dict] = []
     note_hits_vec: list[dict] = []
-    if has_vec and query_embedding is not None:
+    if chunk_query_embedding is not None:
         chunk_hits_vec = await match_chunks_scoped(
-            query_embedding, user_id, item_ids, match_count=k * 2
+            chunk_query_embedding, user_id, item_ids, match_count=k * 2
         )
+    if note_query_embedding is not None:
         note_hits_vec = await match_notes_scoped(
-            query_embedding, user_id, note_ids, match_count=k * 2
+            note_query_embedding, user_id, note_ids, match_count=k * 2
         )
 
     note_hits_text = await notes_full_text_scoped(query, user_id, note_ids, limit=k * 2)
@@ -292,10 +301,13 @@ async def ensure_item_chunks(item_id: str, user_id: str) -> int:
 
 
 async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
-    """Ensure a note has an up-to-date embedding. Returns True if (re)embedded."""
+    """Ensure a project_note has an up-to-date embedding. Returns True if (re)embedded.
+
+    Post-fork: reads project_notes, writes project_note_embeddings.
+    """
     supabase = get_supabase_service()
     note = (
-        supabase.table("notes")
+        supabase.table("project_notes")
         .select("id, content, title, user_id")
         .eq("id", note_id)
         .eq("user_id", user_id)
@@ -309,25 +321,28 @@ async def ensure_note_embedding(note_id: str, user_id: str) -> bool:
         return False
     new_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
     existing = (
-        supabase.table("note_embeddings")
-        .select("note_id, content_hash")
-        .eq("note_id", note_id)
+        supabase.table("project_note_embeddings")
+        .select("project_note_id, content_hash")
+        .eq("project_note_id", note_id)
         .limit(1)
         .execute()
     )
     if existing.data and existing.data[0].get("content_hash") == new_hash:
         return False
+    from services.embedding import NOTE_DIM
     try:
-        vec = (await embed_texts([text[:8000]]))[0]
+        vec = (await embed_texts([text[:8000]], target_dim=NOTE_DIM))[0]
     except Exception:
         return False
     row = {
-        "note_id": note_id,
+        "project_note_id": note_id,
         "user_id": user_id,
         "embedding": vec,
         "content_hash": new_hash,
     }
-    supabase.table("note_embeddings").upsert(row, on_conflict="note_id").execute()
+    supabase.table("project_note_embeddings").upsert(
+        row, on_conflict="project_note_id"
+    ).execute()
     return True
 
 

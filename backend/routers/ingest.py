@@ -898,6 +898,28 @@ async def extract_metadata(req: MetadataRequest, request: Request):
 
 # --- Helper functions ---
 
+
+def _link_tags_to_item(supabase, user_id: str, item_id: str, tag_names):
+    """Upsert each tag_name into `tags` and link to `item_tags`.
+
+    Centralized helper — ingesters must not touch an `items.tags` column
+    (that column doesn't exist; tags live in the junction table).
+    """
+    for tag_name in (tag_names or []):
+        try:
+            tag_res = supabase.table("tags").upsert(
+                {"user_id": user_id, "name": tag_name},
+                on_conflict="user_id,name",
+            ).execute()
+            if tag_res.data:
+                supabase.table("item_tags").insert({
+                    "item_id": item_id,
+                    "tag_id": tag_res.data[0]["id"],
+                }).execute()
+        except Exception:
+            pass
+
+
 def _link_author_to_item(supabase, user_id: str, author_name: str, item_id: str):
     """Fuzzy-match extracted author against existing people and link."""
     from services.auth import _escape_ilike
@@ -1115,14 +1137,15 @@ async def ingest_gdoc(req: IngestGdocRequest, request: Request):
             "shared_with": extracted["shared_with"],
         },
     }
-    if req.tags:
-        item_data["tags"] = req.tags
     result = supabase.table("items").insert(item_data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="DB insert failed")
     item = result.data[0]
+    _link_tags_to_item(supabase, user_id, item["id"], req.tags)
     try:
-        await chunk_and_embed(item["id"], extracted["markdown"], supabase)
+        chunks = await chunk_and_embed(extracted["markdown"], item["id"])
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
     except Exception:
         pass
     return {"item": item, "item_id": item["id"], "already_exists": False}
@@ -1160,12 +1183,11 @@ async def ingest_email(req: IngestEmailRequest, request: Request):
             "message_count": len(extracted["messages"]),
         },
     }
-    if req.tags:
-        item_data["tags"] = req.tags
     result = supabase.table("items").insert(item_data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="DB insert failed")
     item = result.data[0]
+    _link_tags_to_item(supabase, user_id, item["id"], req.tags)
     return {"item": item, "item_id": item["id"], "already_exists": False}
 
 
@@ -1209,14 +1231,29 @@ async def ingest_github(req: IngestGithubRequest, request: Request):
             "license": extracted.get("license", ""),
         },
     }
-    if req.tags:
-        item_data["tags"] = req.tags
     result = supabase.table("items").insert(item_data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="DB insert failed")
     item = result.data[0]
+    # Tags live in the item_tags junction table, not on items directly.
+    for tag_name in (req.tags or []):
+        try:
+            tag_res = supabase.table("tags").upsert(
+                {"user_id": user_id, "name": tag_name},
+                on_conflict="user_id,name",
+            ).execute()
+            if tag_res.data:
+                supabase.table("item_tags").insert({
+                    "item_id": item["id"],
+                    "tag_id": tag_res.data[0]["id"],
+                }).execute()
+        except Exception:
+            pass
+    # Chunk/embed the README (arg order: text, item_id, metadata).
     try:
-        await chunk_and_embed(item["id"], combined_text, supabase)
+        chunks = await chunk_and_embed(combined_text, item["id"])
+        if chunks:
+            supabase.table("chunks").insert(chunks).execute()
     except Exception:
         pass
     return {"item": item, "item_id": item["id"], "already_exists": False}
@@ -1239,10 +1276,16 @@ async def ingest_research_image(
         filename = file.filename or "image.png"
     elif url:
         import httpx
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # Many hosts (Wikipedia, arXiv, etc.) reject requests with the default
+        # httpx User-Agent. Masquerade as a standard browser.
+        _ua = {"User-Agent": "Mozilla/5.0 (compatible; Stoa/1.0)"}
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers=_ua) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Could not fetch image URL")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not fetch image URL (status={resp.status_code})",
+                )
             image_bytes = resp.content
             filename = url.split("/")[-1].split("?")[0] or "image.png"
     else:
@@ -1299,10 +1342,9 @@ async def ingest_research_image(
         "reading_status": "to_read",
         "metadata": {"width": width, "height": height, "filename": filename, "has_ocr": bool(ocr_text)},
     }
-    if tag_list:
-        item_data["tags"] = tag_list
     result = supabase.table("items").insert(item_data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="DB insert failed")
     item = result.data[0]
+    _link_tags_to_item(supabase, user_id, item["id"], tag_list)
     return {"item": item, "item_id": item["id"], "image_url": image_url, "width": width, "height": height, "ocr_text": ocr_text}

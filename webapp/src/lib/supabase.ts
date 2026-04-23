@@ -76,13 +76,14 @@ export interface Highlight {
   context?: string;
   color: string;
   note?: string;
-  page_number?: number | null;
-  // W3C Web Annotation selectors — three-tier anchor for reliable re-rendering.
-  // Tier 1: TextPositionSelector (fast, exact offset in page text layer).
-  // Tier 2: TextQuoteSelector (fuzzy context match, survives minor text drift).
-  // Tier 3: substring fallback on highlights.text (legacy behaviour).
-  selectors?: W3CSelector[] | null;
   created_at: string;
+  // Project-only fields — present on project_highlights rows only.
+  // Post-fork: library `highlights` table does not carry these.
+  page_number?: number | null;
+  selectors?: W3CSelector[] | null;
+  project_id?: string | null;
+  folder_id?: string | null;
+  tags?: string[] | null;
 }
 
 // W3C Web Annotation selector — mirrors highlights.selectors in feat/pdf-foundation
@@ -123,12 +124,14 @@ export interface Note {
   title?: string;
   content: string;
   tags?: string[];
-  // Evergreen additions (migration 006)
-  evergreen: boolean;
-  anchor_selectors?: WebAnnotationSelector | null;
-  anchored_highlight_ids?: string[];
   created_at: string;
   updated_at: string;
+  // Project-only fields — present on project_notes rows, absent on library notes.
+  evergreen?: boolean;
+  anchor_selectors?: WebAnnotationSelector | null;
+  anchored_highlight_ids?: string[];
+  project_id?: string | null;
+  folder_id?: string | null;
 }
 
 export interface Collection {

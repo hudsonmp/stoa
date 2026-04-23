@@ -192,11 +192,6 @@ export async function createNote(data: {
   content: string;
   title?: string;
   tags?: string[];
-  evergreen?: boolean;
-  anchor_selectors?: Record<string, unknown> | null;
-  anchored_highlight_ids?: string[];
-  /** Client-generated UUID for backend idempotency (autosave dedup). */
-  draft_id?: string;
 }) {
   return apiFetch<{ note: unknown }>("/notes", {
     method: "POST",
@@ -629,10 +624,13 @@ export async function ingestResearchImage(file: File, tags: string[] = []) {
   return resp.json() as Promise<{ item: import("./supabase").Item; item_id: string; image_url: string; width: number; height: number; ocr_text: string }>;
 }
 
-// ─── note_links (evergreen cross-linking) ────────────────────────────────────
+// ─── Project-scoped notes + highlights + links ───────────────────────────────
+// These helpers target /project-notes, /project-highlights, and
+// /project-notes/:id/links. The original /notes and /highlights remain
+// general-purpose and do not carry Project-only fields.
 
-export interface NoteLinkRow {
-  source_note_id: string;
+export interface ProjectNoteLinkRow {
+  source_project_note_id: string;
   target_ref_type: "note" | "item" | "person" | "folder";
   target_ref_id: string;
   mention_offset?: number;
@@ -641,13 +639,123 @@ export interface NoteLinkRow {
   source_title?: string | null;
 }
 
-export async function getNoteLinks(noteId: string) {
-  return apiFetch<{ outgoing: NoteLinkRow[]; incoming: NoteLinkRow[] }>(
-    `/notes/${noteId}/links`,
+export async function createProjectNote(data: {
+  project_id?: string;
+  folder_id?: string;
+  item_id?: string;
+  person_id?: string;
+  content: string;
+  title?: string;
+  tags?: string[];
+  evergreen?: boolean;
+  anchor_selectors?: Record<string, unknown> | null;
+  anchored_highlight_ids?: string[];
+  /** Client-generated UUID for backend idempotency (autosave dedup). */
+  draft_id?: string;
+}) {
+  return apiFetch<{ note: unknown }>("/project-notes", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getProjectNotes(params?: {
+  project_id?: string;
+  folder_id?: string;
+  person_id?: string;
+  item_id?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.project_id) query.set("project_id", params.project_id);
+  if (params?.folder_id) query.set("folder_id", params.folder_id);
+  if (params?.person_id) query.set("person_id", params.person_id);
+  if (params?.item_id) query.set("item_id", params.item_id);
+  const qs = query.toString();
+  return apiFetch<{ notes: unknown[] }>(`/project-notes${qs ? `?${qs}` : ""}`);
+}
+
+export async function updateProjectNote(
+  noteId: string,
+  updates: Record<string, unknown>,
+) {
+  return apiFetch<{ note: unknown }>(`/project-notes/${noteId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteProjectNote(noteId: string) {
+  return apiFetch(`/project-notes/${noteId}`, { method: "DELETE" });
+}
+
+export async function createProjectHighlight(data: {
+  item_id: string;
+  project_id?: string;
+  folder_id?: string;
+  text: string;
+  context?: string;
+  color?: string;
+  note?: string;
+  page_number?: number;
+  selectors?: unknown[];
+  tags?: string[];
+}) {
+  return apiFetch<{ highlight: unknown }>("/project-highlights", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateProjectHighlight(
+  highlightId: string,
+  updates: Record<string, unknown>,
+) {
+  return apiFetch(`/project-highlights/${highlightId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteProjectHighlight(highlightId: string) {
+  return apiFetch(`/project-highlights/${highlightId}`, { method: "DELETE" });
+}
+
+export async function getProjectHighlights(params?: {
+  item_id?: string;
+  url?: string;
+  project_id?: string;
+  folder_id?: string;
+  tag?: string;
+}) {
+  const query = new URLSearchParams();
+  if (params?.item_id) query.set("item_id", params.item_id);
+  if (params?.url) query.set("url", params.url);
+  if (params?.project_id) query.set("project_id", params.project_id);
+  if (params?.folder_id) query.set("folder_id", params.folder_id);
+  if (params?.tag) query.set("tag", params.tag);
+  const qs = query.toString();
+  return apiFetch<{ highlights: unknown[] }>(
+    `/project-highlights${qs ? `?${qs}` : ""}`,
   );
 }
 
-export async function createNoteLink(
+// Distinct tags the user has used on project highlights, ranked by recent use.
+// Used by the chip-input autocomplete in ProjectPdfAnnotationView.
+export async function getProjectHighlightTags(projectId?: string) {
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return apiFetch<{ tags: Array<{ tag: string; count: number }> }>(
+    `/project-highlights/tags${qs}`,
+  );
+}
+
+export async function getProjectNoteLinks(noteId: string) {
+  return apiFetch<{
+    outgoing: ProjectNoteLinkRow[];
+    incoming: ProjectNoteLinkRow[];
+  }>(`/project-notes/${noteId}/links`);
+}
+
+export async function createProjectNoteLink(
   noteId: string,
   data: {
     target_ref_type: "note" | "item" | "person" | "folder";
@@ -655,18 +763,86 @@ export async function createNoteLink(
     mention_offset?: number;
   },
 ) {
-  return apiFetch<{ link: NoteLinkRow }>(`/notes/${noteId}/links`, {
+  return apiFetch<{ link: ProjectNoteLinkRow }>(
+    `/project-notes/${noteId}/links`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteProjectNoteLink(
+  noteId: string,
+  targetRefType: string,
+  targetRefId: string,
+) {
+  return apiFetch(
+    `/project-notes/${noteId}/links/${targetRefType}/${targetRefId}`,
+    { method: "DELETE" },
+  );
+}
+
+// ─── Project-note comments (Google-Docs-style sidebar) ────────────────────
+
+export interface NoteCommentRow {
+  id: string;
+  project_note_id: string;
+  user_id: string;
+  parent_id: string | null;
+  range_selector: unknown | null;
+  body: string;
+  resolved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listNoteComments(projectNoteId: string) {
+  return apiFetch<{ comments: NoteCommentRow[] }>(
+    `/note-comments?project_note_id=${encodeURIComponent(projectNoteId)}`,
+  );
+}
+
+export async function createNoteComment(data: {
+  project_note_id: string;
+  body: string;
+  range_selector?: unknown;
+  parent_id?: string | null;
+}) {
+  return apiFetch<{ comment: NoteCommentRow }>("/note-comments", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
-export async function deleteNoteLink(
-  noteId: string,
-  targetRefType: string,
-  targetRefId: string,
+export async function updateNoteComment(
+  commentId: string,
+  updates: {
+    body?: string;
+    resolved?: boolean;
+    range_selector?: unknown;
+  },
 ) {
-  return apiFetch(`/notes/${noteId}/links/${targetRefType}/${targetRefId}`, {
-    method: "DELETE",
+  return apiFetch<{ comment: NoteCommentRow }>(`/note-comments/${commentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
   });
+}
+
+export async function deleteNoteComment(commentId: string) {
+  return apiFetch(`/note-comments/${commentId}`, { method: "DELETE" });
+}
+
+// Markdown export (for folder-sync, or user "view source" toggle)
+export async function getProjectNoteMarkdown(noteId: string): Promise<string> {
+  const h: Record<string, string> = {};
+  if (DEV_USER_ID) h["X-User-Id"] = DEV_USER_ID;
+  else {
+    const token = localStorage.getItem("stoa_token");
+    const userId = localStorage.getItem("stoa_user_id");
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    else if (userId) h["X-User-Id"] = userId;
+  }
+  const res = await fetch(`${API_URL}/project-notes/${noteId}/markdown`, {
+    headers: h,
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.text();
 }
