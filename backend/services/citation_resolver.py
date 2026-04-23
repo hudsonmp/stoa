@@ -16,7 +16,7 @@ ARXIV_PATTERN = re.compile(r'(\d{4}\.\d{4,5})(v\d+)?')
 S2_BASE = "https://api.semanticscholar.org/graph/v1"
 CROSSREF_BASE = "https://api.crossref.org/works"
 
-S2_FIELDS = "title,authors,year,venue,externalIds,citationCount,abstract"
+S2_FIELDS = "title,authors,year,venue,externalIds,citationCount,abstract,embedding.specter_v2"
 
 
 def extract_doi_from_text(text: str) -> Optional[str]:
@@ -152,7 +152,18 @@ def _normalize_s2_result(data: dict) -> dict:
         doi=doi,
     )
 
-    return {
+    # Extract SPECTER2 embedding if available (768 dims)
+    # S2 API returns: {"embedding": {"model": "specter_v2", "vector": [...]}}
+    specter_embedding = None
+    embedding_data = data.get("embedding") or {}
+    if (
+        isinstance(embedding_data, dict)
+        and embedding_data.get("model") == "specter_v2"
+        and embedding_data.get("vector")
+    ):
+        specter_embedding = embedding_data["vector"]
+
+    result = {
         "authors": authors,
         "year": data.get("year"),
         "venue": data.get("venue") or None,
@@ -163,6 +174,9 @@ def _normalize_s2_result(data: dict) -> dict:
         "citation_count": data.get("citationCount"),
         "s2_paper_id": data.get("paperId"),
     }
+    if specter_embedding:
+        result["specter_embedding"] = specter_embedding
+    return result
 
 
 async def resolve_citation(
