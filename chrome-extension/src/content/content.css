@@ -156,7 +156,9 @@
    ================================================================ */
 
 .stoa-note-input {
-  width: 220px;
+  width: 260px;
+  min-height: 32px;
+  max-height: 120px;
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 6px;
@@ -166,6 +168,9 @@
   font-size: 12px;
   line-height: 1.4;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  word-break: break-word;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1158,7 +1163,8 @@
 .stoa-sb-person-confirm:hover { background: #9A3412; }
 .stoa-sb-person-confirm:disabled { opacity: 0.5; cursor: default; }
 
-/* Page margin annotations — positioned in right margin of viewport */
+/* Page margin annotations — positioned in right margin of viewport.
+   Hidden when sidebar is open (sidebar shows notes now) or on narrow screens. */
 .stoa-highlight-annotation {
   position: absolute;
   right: 20px;
@@ -1174,7 +1180,7 @@
   z-index: 9998;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1400px) {
   .stoa-highlight-annotation { display: none; }
 }
 

@@ -295,17 +295,22 @@ function showNoteInput(savedRange) {
   // Clear toolbar contents, show input
   while (toolbar.firstChild) toolbar.firstChild.remove();
 
-  const input = document.createElement("input");
-  input.type = "text";
+  const input = document.createElement("textarea");
   input.className = "stoa-note-input";
   input.placeholder = "Add a note...";
+  input.rows = 2;
   input.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
       highlightFromRange(savedRange, "yellow", input.value || null);
       removeToolbar();
     } else if (ev.key === "Escape") {
       removeToolbar();
     }
+  });
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = input.scrollHeight + "px";
   });
   const saveBtn = document.createElement("button");
   saveBtn.className = "stoa-btn-note";
