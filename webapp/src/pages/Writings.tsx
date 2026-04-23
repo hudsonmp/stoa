@@ -304,6 +304,7 @@ export default function Writings() {
                         if (btn) btn.textContent = "Pushed ✓";
                       } else {
                         if (btn) btn.textContent = "Failed";
+                        if (data.error) console.warn("[Stoa] Overleaf push failed:", data.error);
                       }
                     } catch {
                       if (btn) btn.textContent = "Failed";
