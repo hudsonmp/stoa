@@ -260,14 +260,25 @@ export default function ItemDetail() {
   const pdfUrl = item ? getPdfEmbedUrl(item) : null;
   const ar5ivUrl = item ? getAr5ivUrl(item) : null;
 
-  // arXiv papers default to ar5iv HTML view (best quality rendering)
+  // Default view selection:
+  //   - arXiv papers → ar5iv HTML (best rendering of equations/figures)
+  //   - Non-arXiv items with a locally-stored PDF → PDF reader directly
+  //   - everything else → Detail view (default)
+  // The pdf_storage_path check gates on PDFs we actually hold in our bucket,
+  // not on proxy-via-/proxy/pdf URLs which may fail CORS and strand the user
+  // in a blank viewer.
   useEffect(() => {
-    if (item && ar5ivUrl) {
+    if (!item) return;
+    if (ar5ivUrl) {
       setAr5ivMode(true);
       setReaderMode(false);
       setPdfMode(false);
+    } else if (pdfUrl && (item.metadata as { pdf_storage_path?: string } | undefined)?.pdf_storage_path) {
+      setPdfMode(true);
+      setReaderMode(false);
+      setAr5ivMode(false);
     }
-  }, [item, ar5ivUrl]);
+  }, [item, ar5ivUrl, pdfUrl]);
 
   const loadItem = async () => {
     setLoading(true);
