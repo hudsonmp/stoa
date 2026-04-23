@@ -400,8 +400,15 @@ async def get_item(item_id: str, request: Request):
         )
         related = fallback_res.data or []
 
+    # Surface the share state on the item payload so the webapp can show
+    # "Shared — copy link" without a second round-trip. The token is only
+    # returned to the item's owner here (RLS on user_id above already
+    # gated this request).
+    item_payload = item_res.data
+    item_payload["is_public_shared"] = bool(item_payload.get("public_share_token"))
+
     return {
-        "item": item_res.data,
+        "item": item_payload,
         "highlights": hl_res.data or [],
         "notes": note_res.data or [],
         "citation": cit_res.data[0] if cit_res.data else None,
@@ -570,6 +577,64 @@ async def re_extract_item(item_id: str, request: Request):
         return {"success": True, "text_length": len(extracted["extracted_text"] or "")}
 
     return {"success": False, "error": "No URL or PDF to re-extract from"}
+
+
+@router.post("/{item_id}/share")
+async def enable_public_share(item_id: str, request: Request):
+    """Generate (or rotate) a public share token for an item.
+
+    Presence of items.public_share_token is the "is shared" flag.
+    Calling this endpoint again rotates the token — previous URLs break.
+    """
+    import secrets
+    from datetime import datetime, timezone
+
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    # 32 bytes → ~43 chars of URL-safe base64, ~190 bits entropy.
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc).isoformat()
+
+    result = (
+        supabase.table("items")
+        .update({
+            "public_share_token": token,
+            "public_shared_at": now,
+        })
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {
+        "token": token,
+        "shared_at": now,
+    }
+
+
+@router.delete("/{item_id}/share")
+async def disable_public_share(item_id: str, request: Request):
+    """Clear the share token. Existing public URLs stop working."""
+    user_id = await get_user_id(request)
+    supabase = get_supabase_service()
+
+    result = (
+        supabase.table("items")
+        .update({
+            "public_share_token": None,
+            "public_shared_at": None,
+        })
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"unshared": True, "id": item_id}
 
 
 @router.delete("/{item_id}")
