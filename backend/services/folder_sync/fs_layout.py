@@ -28,6 +28,9 @@ SYNC_LOCK = "sync.lock"
 MANIFEST_JSON = "manifest.json"
 ANNOTATIONS_DIR = "annotations"
 COMMENTS_DIR = "comments"
+# iPad Apple-Pencil ink, per-item/per-page; .pkd stays local, .png uploads to storage.
+INK_DIR = "ink"
+ITEMS_DIR = "items"  # Mac daemon writes <item_id>.json here so iPad can map file URL → item_id
 
 
 _WINDOWS_RESERVED = {
@@ -171,6 +174,63 @@ def build_webloc_plist(url: str) -> bytes:
         '</dict>\n'
         '</plist>\n'
     ).encode("utf-8")
+
+
+def ink_dir(vault_root: Path, item_id: str) -> Path:
+    """Absolute path to the ink directory for an item: .stoa/ink/<item_id>/"""
+    return vault_root / VAULT_HIDDEN / INK_DIR / item_id
+
+
+def ink_page_basename(page_index: int) -> str:
+    """Zero-padded page basename: page_index=0 → 'p001', page_index=42 → 'p043'.
+
+    We use 1-based display (p001 = first page) to match human page numbering
+    in UIs and file browsers. page_index=0 internally ↔ p001 on disk.
+    """
+    return f"p{page_index + 1:03d}"
+
+
+def ink_png_path(vault_root: Path, item_id: str, page_index: int) -> Path:
+    return ink_dir(vault_root, item_id) / f"{ink_page_basename(page_index)}.png"
+
+
+def ink_pkd_path(vault_root: Path, item_id: str, page_index: int) -> Path:
+    return ink_dir(vault_root, item_id) / f"{ink_page_basename(page_index)}.pkd"
+
+
+def ink_meta_path(vault_root: Path, item_id: str, page_index: int) -> Path:
+    return ink_dir(vault_root, item_id) / f"{ink_page_basename(page_index)}.meta.json"
+
+
+def items_manifest_path(vault_root: Path, item_id: str) -> Path:
+    """Per-item manifest written by the Mac daemon so iPad can resolve file URL → item_id.
+
+    Contents: {"item_id": "...", "title": "...", "path": "vault-relative.pdf"}
+    """
+    return vault_root / VAULT_HIDDEN / ITEMS_DIR / f"{item_id}.json"
+
+
+def parse_ink_png_relpath(rel: str) -> Optional[tuple[str, int]]:
+    """Reverse ink layout: .stoa/ink/<item_id>/pNNN.png → (item_id, page_index).
+
+    Returns None for anything that isn't an ink PNG. page_index is 0-based.
+    """
+    parts = Path(rel).parts
+    if len(parts) != 4:
+        return None
+    if parts[0] != VAULT_HIDDEN or parts[1] != INK_DIR:
+        return None
+    item_id = parts[2]
+    fname = parts[3]
+    if not fname.startswith("p") or not fname.endswith(".png"):
+        return None
+    try:
+        page_num = int(fname[1:-4])
+    except ValueError:
+        return None
+    if page_num < 1:
+        return None
+    return item_id, page_num - 1
 
 
 def parse_webloc_url(data: bytes) -> Optional[str]:

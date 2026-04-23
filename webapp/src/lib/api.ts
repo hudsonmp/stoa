@@ -842,6 +842,32 @@ export async function getProjectHighlightTags(projectId?: string) {
   );
 }
 
+// iPad Apple-Pencil ink — signed URL + page dims (PDF points).
+// 404 → null (most pages have no ink); any other failure → null too,
+// the overlay is purely additive and should never crash the viewer.
+export async function getIpadInk(
+  itemId: string,
+  page: number,
+): Promise<{
+  signed_url: string;
+  page_width_pt: number | null;
+  page_height_pt: number | null;
+  scale: number | null;
+  sha_png: string | null;
+  updated_at: string | null;
+} | null> {
+  try {
+    const res = await fetch(
+      `${API_URL}/project-items/${encodeURIComponent(itemId)}/ink?page=${page}`,
+      { headers: getAuthHeaders() },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function getProjectNoteLinks(noteId: string) {
   return apiFetch<{
     outgoing: ProjectNoteLinkRow[];

@@ -37,6 +37,7 @@ from services.folder_sync import (
     frontmatter as fm_mod,
     conflict as conflict_mod,
     icloud,
+    sidecars,
 )
 
 
@@ -163,6 +164,82 @@ class TestIcloud:
         assert icloud.is_placeholder(p) is True
         real = icloud.real_path_from_placeholder(p)
         assert real.name == "Foo.pdf"
+
+
+# ─── iPad ink sidecar unit tests ──────────────────────────────────────────
+
+class TestInkLayout:
+    def test_page_basename_is_one_indexed_and_zero_padded(self):
+        assert fs_layout.ink_page_basename(0) == "p001"
+        assert fs_layout.ink_page_basename(9) == "p010"
+        assert fs_layout.ink_page_basename(99) == "p100"
+
+    def test_png_path_shape(self, tmp_path):
+        p = fs_layout.ink_png_path(tmp_path, "item-abc", 2)
+        # Expected: <tmp>/.stoa/ink/item-abc/p003.png
+        assert p.parts[-4:] == (".stoa", "ink", "item-abc", "p003.png")
+
+    def test_parse_ink_png_relpath_roundtrip(self):
+        rel = ".stoa/ink/some-uuid/p042.png"
+        parsed = fs_layout.parse_ink_png_relpath(rel)
+        assert parsed == ("some-uuid", 41)
+
+    def test_parse_ink_png_rejects_non_ink(self):
+        assert fs_layout.parse_ink_png_relpath("Paper.pdf") is None
+        assert fs_layout.parse_ink_png_relpath(".stoa/annotations/x.json") is None
+        assert fs_layout.parse_ink_png_relpath(".stoa/ink/abc/p000.png") is None
+        assert fs_layout.parse_ink_png_relpath(".stoa/ink/abc/p001.pkd") is None
+
+
+class TestInkSidecarIteration:
+    def test_iter_ink_sidecars_discovers_png_anchored_triples(self, tmp_path):
+        """InkSidecar iteration keys on .png — pkd/meta may lag or be absent."""
+        item_dir = tmp_path / ".stoa" / "ink" / "item-xyz"
+        item_dir.mkdir(parents=True)
+        # Page 1 (index 0): full triple.
+        (item_dir / "p001.pkd").write_bytes(b"\x00\x01")
+        (item_dir / "p001.png").write_bytes(b"PNG")
+        (item_dir / "p001.meta.json").write_text(
+            '{"page_width_pt": 612, "page_height_pt": 792, "scale": 2}'
+        )
+        # Page 2 (index 1): png only, should still show up.
+        (item_dir / "p002.png").write_bytes(b"PNG")
+        # A malformed filename: should be skipped.
+        (item_dir / "not-a-page.png").write_bytes(b"PNG")
+        # A non-png file: should be skipped.
+        (item_dir / "p003.pkd").write_bytes(b"NOPNG")
+
+        found = list(sidecars.iter_ink_sidecars(tmp_path))
+        keys = sorted((s.item_id, s.page_index) for s in found)
+        assert keys == [("item-xyz", 0), ("item-xyz", 1)]
+
+    def test_load_meta_is_tolerant_to_missing(self, tmp_path):
+        ink = sidecars.InkSidecar.at(tmp_path, "xyz", 0)
+        # No meta file on disk → empty dict.
+        assert ink.load_meta() == {}
+
+    def test_load_meta_parses_well_formed(self, tmp_path):
+        ink = sidecars.InkSidecar.at(tmp_path, "xyz", 0)
+        ink.meta_path.parent.mkdir(parents=True)
+        ink.meta_path.write_text(
+            '{"page_width_pt": 595, "page_height_pt": 842, "scale": 2.0, '
+            '"pk_version": 1, "sha_png": "abc", "sha_pkd": "def"}'
+        )
+        meta = ink.load_meta()
+        assert meta["page_width_pt"] == 595
+        assert ink.scale == 2.0
+        assert ink.sha_png == "abc"
+
+
+class TestWriteItemManifest:
+    def test_writes_and_reparses(self, tmp_path):
+        sidecars.write_item_manifest(tmp_path, "item-1", "Paper X", "Paper X.pdf")
+        p = tmp_path / ".stoa" / "items" / "item-1.json"
+        assert p.exists()
+        import json as _json
+        data = _json.loads(p.read_text())
+        assert data["item_id"] == "item-1"
+        assert data["path"] == "Paper X.pdf"
 
 
 # ─── Integration tests (live Supabase) ─────────────────────────────────────
@@ -463,3 +540,65 @@ class TestSyncIntegration:
             assert orig_files == clone_files, f"{orig_files} vs {clone_files}"
 
             live_supabase.table("project_notes").delete().eq("id", note["id"]).execute()
+
+
+# ─── Integration: ink sync end-to-end ─────────────────────────────────────
+
+class TestInkSyncIntegration:
+    @pytest.mark.skipif(not LIVE, reason="live")
+    def test_ink_png_uploads_and_manifest_row_created(
+        self, live_supabase, test_project, vault_path
+    ):
+        """Drop a fake .stoa/ink/<id>/p001.{pkd,png,meta.json} triple into a
+        test vault, run scan, assert the PNG was uploaded and a manifest row
+        exists with kind='ink' and the correct SHAs."""
+        from services.folder_sync import SyncEngine
+
+        # First seed a real PDF item so the ink row can reference it.
+        engine = SyncEngine(test_project, TEST_USER, str(vault_path), live_supabase)
+        engine.ensure_vault()
+        pdf = vault_path / "Ink Target.pdf"
+        pdf.write_bytes(MINIMAL_PDF)
+        engine.scan()
+
+        items = live_supabase.table("items").select("id").eq(
+            "user_id", TEST_USER
+        ).eq("title", "Ink Target").execute()
+        assert items.data
+        item_id = items.data[0]["id"]
+
+        # Now drop a fake ink triple.
+        ink_dir = vault_path / ".stoa" / "ink" / item_id
+        ink_dir.mkdir(parents=True)
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 128  # minimal-ish
+        (ink_dir / "p001.pkd").write_bytes(b"\x01\x02\x03")
+        (ink_dir / "p001.png").write_bytes(png_bytes)
+        (ink_dir / "p001.meta.json").write_text(
+            '{"page_width_pt": 612, "page_height_pt": 792, "scale": 2, '
+            '"pk_version": 1, "sha_png": "placeholder", "sha_pkd": "placeholder"}'
+        )
+
+        result = engine.scan()
+        assert result.ink_scanned >= 1
+        assert result.ink_uploaded >= 1
+
+        # Manifest row exists.
+        rows = live_supabase.table("sync_manifest").select(
+            "id, kind, item_id, page_index, content_hash, meta"
+        ).eq("project_id", test_project).eq("kind", "ink").execute()
+        assert rows.data, f"expected ink manifest row; got {rows.data}"
+        row = rows.data[0]
+        assert row["item_id"] == item_id
+        assert row["page_index"] == 0
+        assert row["content_hash"] == hashing.hash_bytes(png_bytes)
+        meta = row["meta"] or {}
+        assert meta["page_width_pt"] == 612
+        assert meta["page_height_pt"] == 792
+
+        # Re-running with identical contents should NOT re-upload.
+        result2 = engine.scan()
+        assert result2.ink_scanned >= 1
+        assert result2.ink_uploaded == 0, "idempotent scan should not re-upload"
+
+        # Cleanup.
+        live_supabase.table("items").delete().eq("id", item_id).execute()
