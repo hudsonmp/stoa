@@ -663,35 +663,102 @@ window.addEventListener("beforeunload", () => {
   autoSaveNotepad();
 });
 
-// --- Re-init on tab switch ---
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  activeTabId = activeInfo.tabId;
-  const tab = await chrome.tabs.get(activeTabId);
-  pageInfo = await sendToContentScript({ type: "GET_PAGE_INFO" });
-  if (!pageInfo) {
+// --- Rebuild panel state for a given tab ---
+// Shared by tab-switch and in-tab navigation handlers. Flushes the current
+// notepad, resets per-page state, then refetches everything for the tab's
+// current URL.
+async function rebuildForTab(tabId) {
+  // Flush any unsaved notepad edits for the previous page before we lose it.
+  try { await autoSaveNotepad(); } catch (e) { /* ignore */ }
+
+  activeTabId = tabId;
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    console.warn("[Stoa SP] Tab vanished:", e?.message);
+    return;
+  }
+
+  // Prefer content-script page info (canonical URL, arxiv normalization).
+  // Fall back to chrome.tabs info if the content script hasn't loaded yet.
+  const fresh = await sendToContentScript({ type: "GET_PAGE_INFO" });
+  if (fresh) {
+    pageInfo = fresh;
+  } else {
     try {
-      pageInfo = { url: tab.url, title: tab.title, hostname: new URL(tab.url).hostname, isPdf: tab.url?.endsWith(".pdf") };
+      pageInfo = {
+        url: tab.url || "",
+        title: tab.title || "",
+        hostname: new URL(tab.url || "").hostname,
+        isPdf: (tab.url || "").endsWith(".pdf"),
+      };
     } catch (e) {
-      pageInfo = { url: tab.url, title: tab.title, hostname: "", isPdf: false };
+      pageInfo = { url: tab.url || "", title: tab.title || "", hostname: "", isPdf: false };
     }
   }
 
-  // Reset state
+  // Reset per-page state
   currentItemId = null;
   currentItemCollectionIds = [];
   currentItemPersonIds = [];
   currentNoteId = null;
   lastSavedNoteContent = "";
 
-  // Re-populate
-  $("source-title").textContent = (pageInfo.title || "").substring(0, 60);
+  // Re-populate UI
+  $("source-title").textContent = (pageInfo.title || pageInfo.hostname || "").substring(0, 60);
+  $("source-title").title = pageInfo.title || "";
   $("notepad").innerHTML = "";
   $("highlight-list").innerHTML = "";
+
+  // Reset type dropdown from detection
+  const detectedType = guessContentType(pageInfo.hostname);
+  $("type-select").value = detectedType === "blog" ? "essay" : detectedType;
+
+  // Show/hide PDF button
+  const pdfBtn = $("pdf-open-stoa");
+  if (pdfBtn) pdfBtn.style.display = pageInfo.isPdf ? "block" : "none";
 
   await resolveCurrentItemId();
   updateSaveButtonState();
   await Promise.all([loadOrCreateSourceNote(), loadHighlights()]);
 
-  if (currentItemCollectionIds.length > 0) $("collection-select").value = currentItemCollectionIds[0];
-  if (currentItemPersonIds.length > 0) $("person-select").value = currentItemPersonIds[0];
+  if (currentItemCollectionIds.length > 0) {
+    $("collection-select").value = currentItemCollectionIds[0];
+  }
+  if (currentItemPersonIds.length > 0) {
+    $("person-select").value = currentItemPersonIds[0];
+  } else {
+    // Domain-cache fallback for person pre-select
+    const domain = pageInfo.hostname?.replace("www.", "");
+    if (domain) {
+      const cached = await chrome.storage.local.get(`domain-person:${domain}`);
+      const pid = cached[`domain-person:${domain}`];
+      if (pid) $("person-select").value = pid;
+    }
+  }
+}
+
+// --- Re-init on tab switch (user clicks a different tab) ---
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  rebuildForTab(activeInfo.tabId);
+});
+
+// --- Re-init on in-tab navigation ---
+// chrome.tabs.onUpdated fires for every property change on a tab (favicon,
+// title, audible, pinned, loading status, etc). We only want URL changes in
+// the tab bound to this side panel — filter aggressively so we don't churn.
+let lastNavUrl = null;
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (tabId !== activeTabId) return;
+  // changeInfo.url is set on top-level navigations AND SPA history.pushState
+  // (Chrome fires onUpdated on pushState since MV3).
+  if (!changeInfo.url) return;
+  // Skip protocol pages — no content script is injected there.
+  if (changeInfo.url.startsWith("chrome://") || changeInfo.url.startsWith("chrome-extension://")) return;
+  // Dedupe: some sites fire onUpdated multiple times with the same URL
+  // during ready-state transitions. Only rebuild when URL actually changes.
+  if (changeInfo.url === lastNavUrl) return;
+  lastNavUrl = changeInfo.url;
+  rebuildForTab(tabId);
 });
