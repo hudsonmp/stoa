@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from routers import ingest, search, rag, citations, review, highlights, items, people, notes, classify, social
+from routers import ingest, search, rag, citations, review, highlights, items, people, notes, classify, social, mentions
 
 app = FastAPI(title="Stoa API", version="0.1.0")
 
@@ -36,6 +36,33 @@ app.include_router(people.router, prefix="/people", tags=["people"])
 app.include_router(notes.router, prefix="/notes", tags=["notes"])
 app.include_router(classify.router, prefix="/classify", tags=["classify"])
 app.include_router(social.router, prefix="/social", tags=["social"])
+app.include_router(mentions.router, prefix="/mentions", tags=["mentions"])
+
+
+# ---------------------------------------------------------------------------
+# Request timing middleware — diagnostic, toggled via STOA_LOG_TIMING=1.
+# Logs path, method, and wall-clock ms so Hudson can identify the slow layer
+# (auth round-trip, Supabase query, network) without browser DevTools.
+# ---------------------------------------------------------------------------
+import logging as _logging
+import time as _time
+
+_timing_logger = _logging.getLogger("stoa.timing")
+_LOG_TIMING = os.getenv("STOA_LOG_TIMING", "").lower() in ("1", "true", "yes")
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    if not _LOG_TIMING:
+        return await call_next(request)
+    start = _time.perf_counter()
+    response = await call_next(request)
+    ms = (_time.perf_counter() - start) * 1000
+    _timing_logger.info(
+        "%s %s %.1fms status=%d",
+        request.method, request.url.path, ms, response.status_code,
+    )
+    return response
 
 
 @app.get("/health")
