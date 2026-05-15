@@ -694,6 +694,7 @@ export default function ItemDetail() {
               });
               const newNote = (result as { note: Note }).note;
               setNotes((prev) => [newNote, ...prev]);
+              return newNote;
             }}
           />
         )}

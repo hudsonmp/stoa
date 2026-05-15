@@ -32,7 +32,7 @@ export interface Item {
   user_id: string;
   url?: string;
   title: string;
-  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing" | "gdoc" | "email_thread" | "github_repo" | "image";
+  type: "book" | "blog" | "paper" | "podcast" | "page" | "tweet" | "video" | "writing" | "gdoc" | "email_thread" | "github_repo" | "image" | "grant";
   favicon_url?: string;
   cover_image_url?: string;
   spine_color?: string;
@@ -132,6 +132,19 @@ export interface Note {
   anchored_highlight_ids?: string[];
   project_id?: string | null;
   folder_id?: string | null;
+  // Derived by backend (notes.py _attach_derived_fields) from tags: bare tag in
+  // NOTE_TYPES → note_type; kt:<x> → knowledge_type; col:<uuid> → collection_ids.
+  note_type?: "marginalia" | "synthesis" | "journal";
+  knowledge_type?:
+    | "declarative"
+    | "procedural"
+    | "conceptual"
+    | "episodic"
+    | "stylistic"
+    | "idea"
+    | "mytake"
+    | null;
+  collection_ids?: string[];
 }
 
 export interface Collection {

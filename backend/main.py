@@ -25,6 +25,10 @@ from routers import (
     project_highlights,
     sync,
     ink,
+    social,
+    note_comments,
+    public,
+    mentions,
 )
 
 app = FastAPI(title="Stoa API", version="0.1.0")
@@ -60,6 +64,10 @@ app.include_router(project_notes.router, prefix="/project-notes", tags=["project
 app.include_router(project_highlights.router, prefix="/project-highlights", tags=["project-highlights"])
 app.include_router(sync.router, prefix="/sync", tags=["sync"])
 app.include_router(ink.router, prefix="/project-items", tags=["ink"])
+app.include_router(social.router, prefix="/social", tags=["social"])
+app.include_router(note_comments.router, prefix="/note-comments", tags=["note-comments"])
+app.include_router(public.router, prefix="/public", tags=["public"])
+app.include_router(mentions.router, prefix="/mentions", tags=["mentions"])
 
 
 @app.on_event("shutdown")
