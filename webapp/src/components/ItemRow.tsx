@@ -32,9 +32,23 @@ interface ItemRowProps {
   onDeleted?: () => void;
 }
 
+// Item types that open in the 3-pane reader by default. Others (gdoc, email,
+// github, image, tweet, video) keep the /item/:id metadata route because
+// they have type-specific renderers in ItemDetail.tsx.
+const READABLE_IN_READER = new Set([
+  "paper",
+  "book",
+  "blog",
+  "page",
+  "writing",
+]);
+
 export default function ItemRow({ item, index = 0, onDeleted }: ItemRowProps) {
   const Icon = typeIcons[item.type] || Bookmark;
   const [deleting, setDeleting] = useState(false);
+  const dest = READABLE_IN_READER.has(item.type)
+    ? `/read/${item.id}`
+    : `/item/${item.id}`;
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -60,7 +74,7 @@ export default function ItemRow({ item, index = 0, onDeleted }: ItemRowProps) {
       }}
     >
       <Link
-        to={`/item/${item.id}`}
+        to={dest}
         className="group flex items-center gap-3 px-3 py-2.5 rounded-card
                    hover:bg-bg-secondary/70 hover:translate-x-0.5
                    transition-warm"

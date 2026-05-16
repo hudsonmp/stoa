@@ -7,6 +7,7 @@ import People from "@/pages/People";
 import PersonDetail from "@/pages/PersonDetail";
 import ItemDetail from "@/pages/ItemDetail";
 import Reader from "@/pages/Reader";
+import ReaderPage from "@/pages/ReaderPage";
 import Reading from "@/pages/Reading";
 import Search from "@/pages/Search";
 import Review from "@/pages/Review";
@@ -27,6 +28,8 @@ export default function App() {
       <AuthGate>
         <AnimatePresence mode="wait">
           <Routes>
+            {/* 3-pane reader owns its own viewport — no Layout wrapper */}
+            <Route path="/read/:id" element={<ReaderPage />} />
             <Route element={<Layout />}>
               <Route index element={<Library status="to_read" />} />
               <Route path="/read" element={<Library status="read" />} />
