@@ -27,13 +27,31 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Navigate } from "react-router-dom";
-import { getItem, createNote, updateNote, getPdfEmbedUrl, getNotes } from "@/lib/api";
+import {
+  getItem,
+  createNote,
+  updateNote,
+  getPdfEmbedUrl,
+  getNotes,
+  listCollections,
+  getNotesByCollection,
+} from "@/lib/api";
 import { useItems } from "@/hooks/useItems";
 import type { Item, Highlight, Note } from "@/lib/supabase";
 import PdfAnnotationView from "@/components/PdfAnnotationView";
 import LibraryPane from "@/components/reader/LibraryPane";
 import NotesPane from "@/components/reader/NotesPane";
 import ReaderTopBar from "@/components/reader/ReaderTopBar";
+
+interface CollectionSummary {
+  id: string;
+  name: string;
+  note_count: number;
+}
+
+function hasRealContent(html: string): boolean {
+  return html.replace(/<[^>]+>/g, " ").trim().length >= 20;
+}
 
 const LIBRARY_COLLAPSED_KEY = "stoa_library_collapsed";
 
@@ -125,6 +143,41 @@ export default function ReaderPage() {
     };
   }, []);
 
+  // Load collections + note counts for LibraryPane's Collections section.
+  // Counts come from a per-collection fetch — there's no server-side count
+  // endpoint yet, but the collection-notes API trims to the user's notes
+  // tagged col:<id> so we get authoritative counts.
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listCollections();
+        const colls = (list.collections as Array<{ id: string; name: string }>) || [];
+        const withCounts = await Promise.all(
+          colls.map(async (c) => {
+            try {
+              const r = await getNotesByCollection(c.id, 200);
+              const realCount = ((r.notes as Note[]) || []).filter((n) =>
+                hasRealContent(n.content || "")
+              ).length;
+              return { id: c.id, name: c.name, note_count: realCount };
+            } catch {
+              return { id: c.id, name: c.name, note_count: 0 };
+            }
+          })
+        );
+        if (cancelled) return;
+        // Sort by note_count desc so the most-active collections lead.
+        withCounts.sort((a, b) => b.note_count - a.note_count);
+        setCollections(withCounts);
+      } catch { /* non-critical */ }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Tag aggregation: derive bullet-list counts from user-tags across global
   // notes. Items themselves don't carry tags in the Item interface; tags
   // surface via getItemTags per item, too expensive for the sidebar footer.
@@ -178,6 +231,12 @@ export default function ReaderPage() {
   const handleSaveNote = useCallback(
     async (content: string, tags: string[]): Promise<Note | null> => {
       if (!item) return null;
+      // Don't create an empty source-note. The system used to auto-create
+      // these on every item open and they polluted the notes list. Saving
+      // is only meaningful once the user has actually typed something.
+      if (!mainNoteId && !hasRealContent(content)) {
+        return null;
+      }
       setSaveState("saving");
       try {
         if (mainNoteId) {
@@ -272,6 +331,7 @@ export default function ReaderPage() {
           items={libraryItems}
           notes={globalNotes}
           tagCounts={tagCounts}
+          collections={collections}
           collapsed={libraryHidden}
         />
 

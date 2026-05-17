@@ -18,11 +18,13 @@
    ================================================================ */
 
 :root {
-  --bg-primary: #fafaf7;
-  --bg-secondary: #f3f1ec;
-  --bg-sidebar: #f7f6f3;
-  --bg-shelf: #e8e4dc;
-  --bg-editor: #fdfcfa;
+  /* Warmer paper-cream baseline — closer to mid-century journal stock than
+     the original cool off-white. Matches target screenshot's reading surface. */
+  --bg-primary: #f5efe4;
+  --bg-secondary: #efe7d9;
+  --bg-sidebar: #f2ebdc;
+  --bg-shelf: #e3d9c5;
+  --bg-editor: #f8f2e6;
   --text-primary: #1c1917;
   --text-secondary: #57534e;
   --text-tertiary: #a8a29e;
@@ -30,8 +32,8 @@
   --accent-hover: #9a3412;
   --accent-green: #4d7c0f;
   --accent-amber: #b45309;
-  --border: #e7e5e4;
-  --border-light: #f5f5f4;
+  --border: #e0d8c8;
+  --border-light: #ece5d4;
   --shadow: rgba(28, 25, 23, 0.04);
 
   /* Editorial spacing */

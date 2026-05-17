@@ -3,12 +3,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, MessageSquare, ChevronRight } from "lucide-react";
 import type { Highlight } from "@/lib/supabase";
 
+// Desaturated highlight palette — muted ochre/sage/slate over the warm cream
+// paper surface. Saturation reduced ~25% from the Tailwind-100 defaults to
+// avoid the "sticky-note" loudness; preserves contrast on the new bg-primary.
 const HIGHLIGHT_COLORS: Record<string, { bg: string; border: string; label: string }> = {
-  yellow: { bg: "#FEF3C7", border: "#F59E0B", label: "Yellow" },
-  green:  { bg: "#D1FAE5", border: "#10B981", label: "Green" },
-  blue:   { bg: "#DBEAFE", border: "#3B82F6", label: "Blue" },
-  pink:   { bg: "#FCE7F3", border: "#EC4899", label: "Pink" },
-  purple: { bg: "#EDE9FE", border: "#8B5CF6", label: "Purple" },
+  yellow: { bg: "#F4E4A8", border: "#C99A2E", label: "Yellow" },
+  green:  { bg: "#C9DCB3", border: "#6E8E4A", label: "Green" },
+  blue:   { bg: "#BFD0DD", border: "#4F7A99", label: "Blue" },
+  pink:   { bg: "#E9C9C9", border: "#A8585C", label: "Pink" },
+  purple: { bg: "#CFC3DE", border: "#7C6391", label: "Purple" },
 };
 
 interface HighlightPanelProps {

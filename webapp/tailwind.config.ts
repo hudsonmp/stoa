@@ -6,14 +6,15 @@ const config: Config = {
     extend: {
       colors: {
         bg: {
-          primary: "#FAFAF7",
-          secondary: "#F3F1EC",
-          sidebar: "#F7F6F3",
-          shelf: "#E8E4DC",
+          primary: "#F5EFE4",
+          secondary: "#EFE7D9",
+          sidebar: "#F2EBDC",
+          shelf: "#E3D9C5",
+          editor: "#F8F2E6",
         },
         text: {
           primary: "#1C1917",
-          secondary: "#78716C",
+          secondary: "#57534E",
           tertiary: "#A8A29E",
         },
         accent: {
@@ -23,8 +24,8 @@ const config: Config = {
           amber: "#B45309",
         },
         border: {
-          DEFAULT: "#E7E5E4",
-          light: "#F5F5F4",
+          DEFAULT: "#E0D8C8",
+          light: "#ECE5D4",
         },
       },
       fontFamily: {

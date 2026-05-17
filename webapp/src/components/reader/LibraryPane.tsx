@@ -21,14 +21,29 @@
 
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { FileText, StickyNote, Globe, Search } from "lucide-react";
+import { FileText, StickyNote, Globe, Search, Folder } from "lucide-react";
 import type { Item, Note } from "@/lib/supabase";
+
+interface CollectionSummary {
+  id: string;
+  name: string;
+  note_count: number;
+}
 
 interface LibraryPaneProps {
   items: Item[];
   notes: Note[];
   tagCounts: Array<{ tag: string; count: number; color?: string }>;
+  collections?: CollectionSummary[];
   collapsed: boolean;
+}
+
+// A note is "real" if it has more than trivial content. Strips HTML for a
+// fair count. The threshold (20) reflects the average length of an
+// auto-created placeholder source-note (typically 0-15 chars of whitespace).
+function isRealNote(n: Note): boolean {
+  const stripped = (n.content || "").replace(/<[^>]+>/g, " ").trim();
+  return stripped.length >= 20;
 }
 
 const READABLE_TYPES = new Set([
@@ -62,6 +77,7 @@ export default function LibraryPane({
   items,
   notes,
   tagCounts,
+  collections = [],
   collapsed,
 }: LibraryPaneProps) {
   const { id: activeId } = useParams<{ id: string }>();
@@ -75,7 +91,16 @@ export default function LibraryPane({
     () => items.filter((i) => WEB_TYPES.has(i.type)).slice(0, 6),
     [items]
   );
-  const recentNotes = useMemo(() => notes.slice(0, 6), [notes]);
+  // Filter out placeholder/empty source-notes. The system used to auto-create
+  // these on every item open and they polluted the recent-notes list.
+  const recentNotes = useMemo(
+    () => notes.filter(isRealNote).slice(0, 6),
+    [notes]
+  );
+  const topCollections = useMemo(
+    () => collections.filter((c) => c.note_count > 0).slice(0, 6),
+    [collections]
+  );
 
   const filteredQuery = query.trim().toLowerCase();
   const matches = (title: string) =>
@@ -151,7 +176,8 @@ export default function LibraryPane({
         }}
       >
         <Section title="Papers" items={papers.filter((i) => matches(i.title))} activeId={activeId} icon="pdf" />
-        <NotesSection notes={recentNotes.filter((n) => matches(n.title || ""))} activeId={activeId} />
+        <CollectionsSection collections={topCollections.filter((c) => matches(c.name))} />
+        <NotesSection notes={recentNotes.filter((n) => matches(n.title || "") || matches((n.content || "").replace(/<[^>]+>/g, " ").slice(0, 100)))} activeId={activeId} />
         <Section
           title="Web Clippings"
           items={webClippings.filter((i) => matches(i.title))}
@@ -299,6 +325,71 @@ function Section({
             </li>
           );
         })}
+      </ul>
+    </div>
+  );
+}
+
+function CollectionsSection({ collections }: { collections: CollectionSummary[] }) {
+  if (collections.length === 0) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3
+        style={{
+          fontFamily: '"DM Sans", system-ui, sans-serif',
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--text-tertiary)",
+          padding: "0 10px 6px",
+        }}
+      >
+        Collections
+      </h3>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {collections.map((c) => (
+          <li key={c.id}>
+            <Link
+              to={`/notes?collection=${c.id}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "8px 10px",
+                borderRadius: 3,
+                textDecoration: "none",
+                color: "var(--text-primary)",
+              }}
+            >
+              <Folder size={12} className="text-text-tertiary" />
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontFamily: '"Newsreader", Georgia, serif',
+                  fontSize: 13,
+                  lineHeight: 1.35,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {c.name}
+              </span>
+              <span
+                style={{
+                  fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: 10,
+                  color: "var(--text-tertiary)",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {c.note_count}
+              </span>
+            </Link>
+          </li>
+        ))}
       </ul>
     </div>
   );
