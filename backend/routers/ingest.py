@@ -850,7 +850,7 @@ async def ingest_image(
 
         try:
             vision_resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
+                _os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/") + "/v1/messages",
                 headers={
                     "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
